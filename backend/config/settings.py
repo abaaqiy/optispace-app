@@ -127,7 +127,10 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ],
 }
-
+# Local development frontend
+CSRF_TRUSTED_ORIGINS = [
+    "http://127.0.0.1:5173",
+]
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration

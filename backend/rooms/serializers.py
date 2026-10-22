@@ -1,6 +1,27 @@
 from rest_framework import serializers
 
+from scheduling.services.availability import build_availability
+
 from .models import Room
+
+
+class AvailabilityQuerySerializer(serializers.Serializer):
+    date = serializers.DateField(
+        required=False,
+        input_formats=["%Y-%m-%d"],
+    )
+    time = serializers.TimeField(
+        required=False,
+        input_formats=["%H:%M"],
+    )
+
+    def validate(self, attrs):
+        if ("date" in attrs) != ("time" in attrs):
+            raise serializers.ValidationError(
+                "Provide both date and time, or leave both out."
+            )
+
+        return attrs
 
 
 class RoomSerializer(serializers.ModelSerializer):
@@ -18,12 +39,6 @@ class RoomSerializer(serializers.ModelSerializer):
         slug_field="code",
     )
 
-    status = serializers.SerializerMethodField()
-    statusText = serializers.SerializerMethodField()
-    currentSchedule = serializers.SerializerMethodField()
-    nextSchedule = serializers.SerializerMethodField()
-    hourlySchedule = serializers.SerializerMethodField()
-
     class Meta:
         model = Room
         fields = (
@@ -34,27 +49,31 @@ class RoomSerializer(serializers.ModelSerializer):
             "capacity",
             "sizeCategory",
             "facilities",
-            "status",
-            "statusText",
-            "currentSchedule",
-            "nextSchedule",
-            "hourlySchedule",
         )
         read_only_fields = fields
 
-    # Honest placeholders until scheduling is implemented.
-    def get_status(self, obj):
-        return "unknown"
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        at = self.context["availability_at"]
 
-    def get_statusText(self, obj):
-        return "Timetable not loaded yet"
+        # These records are loaded together by the view.
+        days = instance.availability_days
+        timetable = days[0] if days else None
 
-    def get_currentSchedule(self, obj):
-        return None
+        allocations = (
+            timetable.active_allocations if timetable else []
+        )
 
-    def get_nextSchedule(self, obj):
-        return None
+        data.update(
+            build_availability(
+                timetable,
+                allocations,
+                at.time(),
+            )
+        )
 
-    def get_hourlySchedule(self, obj):
-        return []
+        # Identify the moment this availability result describes.
+        data["availabilityAt"] = at.isoformat()
+
+        return data
 

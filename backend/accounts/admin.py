@@ -4,5 +4,28 @@ from django.contrib.auth.admin import UserAdmin
 from .models import User
 
 
-admin.site.register(User, UserAdmin)
+@admin.register(User)
+class OptispaceUserAdmin(UserAdmin):
+    fieldsets = UserAdmin.fieldsets + (
+        ("Optispace", {
+            "fields": (
+                "role",
+                "department",
+                "institutional_id",
+            ),
+        }),
+    )
+
+    add_fieldsets = UserAdmin.add_fieldsets + (
+        ("Optispace", {
+            "fields": (
+                "email",
+                "first_name",
+                "last_name",
+                "role",
+                "department",
+                "institutional_id",
+            ),
+        }),
+    )
 
