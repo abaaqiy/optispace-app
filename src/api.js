@@ -101,8 +101,6 @@ export async function getCurrentUser() {
 
     return data.user;
   } catch (error) {
-    // This endpoint requires authentication.
-    // An anonymous or expired session is not a connection failure.
     if (error.status === 401 || error.status === 403) {
       return null;
     }
@@ -116,9 +114,6 @@ export async function logoutUser() {
     await post('/api/auth/logout/');
   } catch (error) {
     if (error.status === 401 || error.status === 403) {
-      // The session might already have expired.
-      // Do not mistake a CSRF failure for successful logout:
-      // first confirm that no authenticated session remains.
       const currentUser = await getCurrentUser();
 
       if (currentUser === null) {
@@ -128,5 +123,50 @@ export async function logoutUser() {
 
     throw error;
   }
+}
+
+export async function getRooms({ date, time } = {}) {
+  const query = new URLSearchParams();
+
+  if (date && time) {
+    query.set('date', date);
+    query.set('time', time);
+  }
+
+  const queryString = query.toString();
+  const url = queryString
+    ? `/api/rooms/?${queryString}`
+    : '/api/rooms/';
+
+  const data = await request(url);
+
+  if (!Array.isArray(data)) {
+    throw new Error('Expected a room list from the backend.');
+  }
+
+  return data;
+}
+
+export function getLagosDateTime() {
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Africa/Lagos',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+
+  const parts = {};
+
+  for (const part of formatter.formatToParts(new Date())) {
+    parts[part.type] = part.value;
+  }
+
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    time: `${parts.hour}:${parts.minute}`,
+  };
 }
 
