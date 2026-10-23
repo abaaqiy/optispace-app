@@ -1,498 +1,285 @@
-import { useEffect, useState } from 'react';
-
+import React, { useState } from 'react';
 import Login from './components/Login';
 import Header from './components/Header';
 import SearchFilters from './components/SearchFilters';
 import RoomGrid from './components/RoomGrid';
 import BookingsTable from './components/BookingsTable';
 import RoomDetailsModal from './components/RoomDetailsModal';
+import BookingModal from './components/BookingModal';
 import AdminDashboard from './components/AdminDashboard';
 import LecturerDashboard from './components/LecturerDashboard';
 import Toast from './components/Toast';
-
-import {
-  getCurrentUser,
-  getLagosDateTime,
-  getRooms,
-  logoutUser,
-} from './api';
-
-const studentTabs = [
-  { id: 'lecture-rooms', label: 'Lecture Rooms', icon: 'fa-building-columns' },
-  { id: 'reading-rooms', label: 'Reading Rooms', icon: 'fa-book-open' },
-  { id: 'schedule', label: 'Class Schedule', icon: 'fa-calendar-days' },
-  { id: 'bookings', label: 'My Reading Bookings', icon: 'fa-calendar-check' },
-];
-
-const lecturerTabs = [
-  { id: 'dashboard', label: 'Command Center', icon: 'fa-chalkboard-user' },
-  { id: 'find', label: 'Find a Room', icon: 'fa-magnifying-glass' },
-  { id: 'bookings', label: 'My Schedule', icon: 'fa-calendar-check' },
-  { id: 'campus-schedule', label: 'Campus Schedule', icon: 'fa-calendar-days' },
-];
-
-function makeDefaultSearch() {
-  return {
-    ...getLagosDateTime(),
-    zone: 'all',
-    capacity: 30,
-    facilities: [],
-    availableOnly: false,
-  };
-}
-
-function defaultTab(role) {
-  return role === 'student' ? 'lecture-rooms' : 'dashboard';
-}
+import { initialRoomsData, initialBookings } from './data/mockData';
 
 function App() {
   const [user, setUser] = useState(null);
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState('dashboard'); 
+  const [rooms, setRooms] = useState(initialRoomsData);
+  const [filteredRooms, setFilteredRooms] = useState(initialRoomsData);
+  const [bookings, setBookings] = useState(initialBookings);
   const [selectedRoom, setSelectedRoom] = useState(null);
+  const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [toasts, setToasts] = useState([]);
 
-  // Session state
-  const [isCheckingSession, setIsCheckingSession] = useState(true);
-  const [sessionError, setSessionError] = useState('');
-  const [sessionCheckAttempt, setSessionCheckAttempt] = useState(0);
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
-
-  // Real room data
-  const [rooms, setRooms] = useState([]);
-  const [search, setSearch] = useState(makeDefaultSearch);
-  const [isLoadingRooms, setIsLoadingRooms] = useState(false);
-  const [roomError, setRoomError] = useState('');
-  const [roomReload, setRoomReload] = useState(0);
-
-  const userId = user?.id;
-
-  useEffect(() => {
-    let active = true;
-
-    async function restoreSession() {
-      try {
-        const currentUser = await getCurrentUser();
-
-        if (!active) return;
-
-        setUser(currentUser);
-
-        if (currentUser) {
-          setActiveTab(defaultTab(currentUser.role));
-        }
-      } catch (error) {
-        if (active) {
-          setSessionError(
-            error.message || 'Unable to check your session.'
-          );
-        }
-      } finally {
-        if (active) {
-          setIsCheckingSession(false);
-        }
-      }
-    }
-
-    restoreSession();
-
-    return () => {
-      active = false;
-    };
-  }, [sessionCheckAttempt]);
-
-  useEffect(() => {
-    if (!userId) return;
-
-    let active = true;
-
-    async function loadRooms() {
-      setIsLoadingRooms(true);
-      setRoomError('');
-      setSelectedRoom(null);
-
-      try {
-        const data = await getRooms({
-          date: search.date,
-          time: search.time,
-        });
-
-        if (active) {
-          setRooms(data);
-        }
-      } catch (error) {
-        if (active) {
-          setRooms([]);
-          setRoomError(
-            error.message || 'Unable to load room information.'
-          );
-        }
-      } finally {
-        if (active) {
-          setIsLoadingRooms(false);
-        }
-      }
-    }
-
-    loadRooms();
-
-    // Prevent an older request from replacing newer results.
-    return () => {
-      active = false;
-    };
-  }, [userId, search, roomReload]);
+  const stats = {
+    total: filteredRooms.length,
+    available: filteredRooms.filter(r => r.status === 'available').length, 
+    occupied: filteredRooms.filter(r => r.status === 'occupied').length,
+    soon: filteredRooms.filter(r => r.status === 'soon').length, 
+  };
 
   const showToast = (message) => {
-    setToasts((previous) => [
-      ...previous,
-      { id: Date.now(), message },
-    ]);
+    setToasts(prev => [...prev, { id: Date.now(), message }]);
   };
 
   const removeToast = (id) => {
-    setToasts((previous) =>
-      previous.filter((toast) => toast.id !== id)
-    );
+    setToasts(prev => prev.filter(t => t.id !== id));
   };
 
   const handleLogin = (userData) => {
-    setSearch(makeDefaultSearch());
     setUser(userData);
-    setActiveTab(defaultTab(userData.role));
-    setSelectedRoom(null);
-
+    setActiveTab(userData.role === 'lecturer' ? 'dashboard' : 'lecture-rooms'); 
     showToast(`Welcome, ${userData.name}`);
   };
 
-  const handleLogout = async () => {
-    if (isLoggingOut) return;
-
-    setIsLoggingOut(true);
-
-    try {
-      await logoutUser();
-
-      setUser(null);
-      setRooms([]);
-      setRoomError('');
-      setSelectedRoom(null);
-      setToasts([]);
-      setActiveTab('dashboard');
-      setSearch(makeDefaultSearch());
-    } catch (error) {
-      showToast(
-        error.message || 'Unable to sign out. Please try again.'
-      );
-    } finally {
-      setIsLoggingOut(false);
-    }
-  };
-
-  const retrySessionCheck = () => {
-    setSessionError('');
-    setIsCheckingSession(true);
-    setSessionCheckAttempt((previous) => previous + 1);
-  };
-
-  const reloadRooms = () => {
+  const handleLogout = () => {
+    setUser(null);
+    setActiveTab('find');
     setSelectedRoom(null);
-    setRoomReload((previous) => previous + 1);
+    setIsBookingModalOpen(false);
+    setFilteredRooms(rooms);
   };
 
-  const applySearch = (values) => {
-    setSelectedRoom(null);
-    setSearch(values);
+  const handleApplyFilters = ({ zone, capacity, facilities }) => {
+    let result = rooms;
+    if (user.role === 'student') {
+      if (activeTab === 'reading-rooms') result = result.filter(r => r.sizeCategory === 'small');
+      if (activeTab === 'lecture-rooms') result = result.filter(r => r.sizeCategory === 'large');
+    } 
+    if (zone !== 'all') result = result.filter(r => r.zone === zone);
+    if (capacity) result = result.filter(r => r.capacity >= parseInt(capacity));
+    if (facilities.length > 0) {
+      result = result.filter(r => facilities.every(f => r.facilities.includes(f)));
+    }
+    setFilteredRooms(result);
+    showToast(`Filters applied: ${result.length} rooms found.`);
   };
 
-  const bookingNotReady = () => {
-    showToast(
-      'Booking requests are not connected yet. No reservation has been created.'
-    );
+  const handleResetFilters = () => {
+    setFilteredRooms(rooms);
+    showToast("Filters reset to default.");
   };
 
-  let activeCategory = 'all';
+  const handleBookingConfirm = (bookingData) => {
+    const refCode = "OAU-" + new Date().getFullYear() + "-" + Math.floor(1000 + Math.random() * 9000);
+    const newBooking = { ...bookingData, refId: refCode, status: "Pending", isApproved: false };
 
-  if (user?.role === 'student') {
-    if (activeTab === 'lecture-rooms') activeCategory = 'large';
-    if (activeTab === 'reading-rooms') activeCategory = 'small';
-  }
-
-  // For this small room catalogue, suitability filters run in React.
-  // Timetable availability is calculated by Django.
-  const filteredRooms = rooms.filter((room) => {
-    if (
-      activeCategory !== 'all' &&
-      room.sizeCategory !== activeCategory
-    ) {
-      return false;
-    }
-
-    if (search.zone !== 'all' && room.zone !== search.zone) {
-      return false;
-    }
-
-    if (room.capacity < Number(search.capacity)) {
-      return false;
-    }
-
-    if (
-      !search.facilities.every((facility) =>
-        room.facilities.includes(facility)
-      )
-    ) {
-      return false;
-    }
-
-    if (
-      search.availableOnly &&
-      !['available', 'soon'].includes(room.status)
-    ) {
-      return false;
-    }
-
-    return true;
-  });
-
-  const visibleRooms =
-    isLoadingRooms || roomError ? [] : filteredRooms;
-
-  const stats = {
-    total: visibleRooms.length,
-    available: visibleRooms.filter(
-      (room) => room.status === 'available'
-    ).length,
-    occupied: visibleRooms.filter(
-      (room) => room.status === 'occupied'
-    ).length,
-    soon: visibleRooms.filter(
-      (room) => room.status === 'soon'
-    ).length,
-    unknown: visibleRooms.filter(
-      (room) => room.status === 'unknown'
-    ).length,
+    setBookings([newBooking, ...bookings]);
+    setIsBookingModalOpen(false);
+    showToast(`Booking requested! Ref: ${refCode}. Awaiting Admin approval.`);
   };
 
-  const zones = [...new Set(rooms.map((room) => room.zone))];
-
-  if (isCheckingSession || sessionError) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
-        <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-xl text-center">
-          <h1 className="text-2xl font-bold mb-4">Optispace</h1>
-
-          {isCheckingSession ? (
-            <p role="status">Checking session…</p>
-          ) : (
-            <>
-              <p role="alert" className="text-sm text-rose-700">
-                {sessionError}
-              </p>
-
-              <button
-                type="button"
-                onClick={retrySessionCheck}
-                className="mt-5 rounded-lg bg-blue-600 px-5 py-2 text-white"
-              >
-                Retry
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    );
-  }
+  const handleCancelBooking = (refId) => {
+    setBookings(bookings.filter(b => b.refId !== refId));
+    showToast(`Reservation ${refId} cancelled.`);
+  };
 
   if (!user) {
     return <Login onLogin={handleLogin} />;
   }
 
-  const tabs =
-    user.role === 'lecturer' ? lecturerTabs : studentTabs;
+  // Global Approved Bookings
+  const approvedBookings = bookings.filter(b => b.isApproved);
+  
+  // Lecturer Specific Bookings
+  const lecturerAllBookings = bookings.filter(b => b.staffId === user.id);
+  const lecturerApprovedBookings = lecturerAllBookings.filter(b => b.isApproved);
 
-  const isSearchTab = [
-    'lecture-rooms',
-    'reading-rooms',
-    'find',
-  ].includes(activeTab);
-
-  const isBookingTab = [
-    'schedule',
-    'bookings',
-    'campus-schedule',
-  ].includes(activeTab);
-
-  const roomFeedback = isLoadingRooms ? (
-    <p role="status" className="rounded-xl bg-white p-6 text-slate-600">
-      Loading rooms from Django…
-    </p>
-  ) : roomError ? (
-    <div
-      role="alert"
-      className="rounded-xl border border-rose-200 bg-rose-50 p-4"
-    >
-      <p className="text-sm text-rose-700">{roomError}</p>
-
-      <button
-        type="button"
-        onClick={reloadRooms}
-        className="mt-3 rounded-lg bg-blue-600 px-4 py-2 text-xs text-white"
-      >
-        Retry loading rooms
-      </button>
-    </div>
-  ) : null;
+  const canBookSelectedRoom = () => {
+    if (!selectedRoom) return false;
+    if (user.role === 'admin') return false; 
+    if (user.role === 'lecturer') return true; 
+    if (user.role === 'student') return selectedRoom.sizeCategory === 'small';
+    return false;
+  };
 
   return (
     <div className="min-h-screen flex flex-col font-sans text-slate-800 bg-slate-50">
+      
       <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end pointer-events-none">
-        {toasts.map((toast) => (
-          <Toast
-            key={toast.id}
-            message={toast.message}
-            onClose={() => removeToast(toast.id)}
-          />
-        ))}
+        {toasts.map(t => <Toast key={t.id} message={t.message} onClose={() => removeToast(t.id)} />)}
       </div>
 
-      <Header
-        user={user}
-        onLogout={handleLogout}
-        stats={stats}
-      />
+      <Header user={user} onLogout={handleLogout} stats={stats} />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-        {isLoggingOut && (
-          <p role="status" className="text-sm text-blue-700">
-            Signing out…
-          </p>
-        )}
-
-        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-          <p className="font-semibold">
-            Selected moment: {search.date} at {search.time} — Africa/Lagos
-          </p>
-
-          <p className="mt-1">
-            Room statuses and counters refer to this selected moment,
-            according to the timetable—not verified physical occupancy.
-          </p>
-
-          <p className="mt-1">
-            Unknown availability does not mean the room is free.
-            Booking requests are not connected yet.
-          </p>
-
-          {stats.unknown > 0 && (
-            <p className="mt-1 font-semibold">
-              {stats.unknown} displayed room(s) have unknown availability.
-            </p>
-          )}
-
-          <button
-            type="button"
-            disabled={isLoadingRooms}
-            onClick={reloadRooms}
-            className="mt-3 text-xs font-bold underline disabled:opacity-50"
-          >
-            Reload database results
-          </button>
-        </div>
-
-        {user.role !== 'admin' && (
-          <nav className="flex border-b border-slate-200 gap-2 sm:gap-6 overflow-x-auto">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`px-4 py-2.5 font-semibold text-sm border-b-2 flex items-center gap-2 whitespace-nowrap ${
-                  activeTab === tab.id
-                    ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                <i className={`fa-solid ${tab.icon}`}></i>
-                {tab.label}
-              </button>
-            ))}
-          </nav>
-        )}
-
-        {(isSearchTab || user.role === 'admin') && (
-          <SearchFilters
-            initialValues={search}
-            zones={zones}
-            activeCategory={activeCategory}
-            onApply={applySearch}
-            onReset={applySearch}
-            disabled={isLoadingRooms}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        
+        {user.role === 'admin' ? (
+          <AdminDashboard 
+            rooms={rooms} setRooms={setRooms} bookings={bookings} 
+            setBookings={setBookings} showToast={showToast} 
           />
-        )}
-
-        {roomFeedback}
-
-        {!isLoadingRooms && !roomError && user.role === 'admin' && (
-          <AdminDashboard
-            rooms={visibleRooms}
-            onOpenDetails={setSelectedRoom}
-          />
-        )}
-
-        {!isLoadingRooms && !roomError && user.role !== 'admin' && (
+        ) : user.role === 'lecturer' ? (
+          /* LECTURER VIEW */
           <>
-            {isSearchTab && (
-              <div className="space-y-4">
-                {activeTab === 'reading-rooms' && (
-                  <p className="text-sm text-slate-600">
-                    These are smaller rooms in the catalogue.
-                    Size alone does not establish permission to use a room
-                    for studying; university room-use rules still apply.
-                  </p>
-                )}
+            <div className="flex border-b border-slate-200 mb-6 gap-2 sm:gap-6 overflow-x-auto pb-0.5">
+              <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-2.5 font-bold text-sm border-b-2 flex items-center gap-2 transition-colors ${activeTab === 'dashboard' ? 'border-blue-700 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}>
+                <i className="fa-solid fa-chalkboard-user"></i> Command Center
+              </button>
+              <button onClick={() => setActiveTab('find')} className={`px-4 py-2.5 font-bold text-sm border-b-2 flex items-center gap-2 transition-colors ${activeTab === 'find' ? 'border-blue-700 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}>
+                <i className="fa-solid fa-magnifying-glass"></i> Book a Room
+              </button>
+              <button onClick={() => setActiveTab('bookings')} className={`px-4 py-2.5 font-bold text-sm border-b-2 flex items-center gap-2 transition-colors ${activeTab === 'bookings' ? 'border-blue-700 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}>
+                <i className="fa-solid fa-calendar-check"></i> My Schedule
+                <span className="bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded-full font-bold ml-1">{lecturerApprovedBookings.length}</span>
+              </button>
+              {/* NEW: Campus Schedule Tab */}
+              <button onClick={() => setActiveTab('campus-schedule')} className={`px-4 py-2.5 font-bold text-sm border-b-2 flex items-center gap-2 transition-colors ${activeTab === 'campus-schedule' ? 'border-blue-700 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}>
+                <i className="fa-solid fa-calendar-days"></i> Campus Schedule
+              </button>
+            </div>
 
-                <RoomGrid
-                  rooms={visibleRooms}
-                  onOpenDetails={setSelectedRoom}
-                  canBook={false}
+            {activeTab === 'dashboard' && (
+              <LecturerDashboard 
+                user={user} 
+                rooms={rooms} 
+                bookings={lecturerAllBookings} 
+                onOpenDetails={(room) => setSelectedRoom(room)}
+                onQuickBook={(room) => { setSelectedRoom(room); setIsBookingModalOpen(true); }}
+                setActiveTab={setActiveTab}
+              />
+            )}
+
+            {activeTab === 'find' && (
+              <div className="space-y-6">
+                <div className="bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-xl text-sm flex items-start gap-3">
+                  <i className="fa-solid fa-circle-info mt-0.5"></i>
+                  <p>You can book any available lecture theatre or smaller room for your classes. All bookings require Admin approval.</p>
+                </div>
+                <SearchFilters onApply={handleApplyFilters} onReset={handleResetFilters} activeCategory="all" />
+                <RoomGrid 
+                  rooms={filteredRooms} 
+                  onOpenDetails={(room) => setSelectedRoom(room)} 
+                  onQuickBook={(room) => { setSelectedRoom(room); setIsBookingModalOpen(true); }} 
+                  canBook={true} 
                 />
               </div>
             )}
 
-            {user.role === 'lecturer' && activeTab === 'dashboard' && (
-              <LecturerDashboard
-                user={user}
-                rooms={rooms}
-                bookings={[]}
-                onOpenDetails={setSelectedRoom}
-                onQuickBook={bookingNotReady}
-                setActiveTab={setActiveTab}
-              />
+            {activeTab === 'bookings' && (
+              <div className="space-y-4">
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl text-sm flex items-start gap-3">
+                  <i className="fa-solid fa-check-circle mt-0.5"></i>
+                  <p>These are your officially approved classes. Pending requests can be viewed on the Command Center.</p>
+                </div>
+                <BookingsTable bookings={lecturerApprovedBookings} onCancel={handleCancelBooking} />
+              </div>
+            )}
+
+            {activeTab === 'campus-schedule' && (
+              <div className="space-y-4">
+                <div className="bg-indigo-50 border border-indigo-200 text-indigo-800 p-4 rounded-xl text-sm flex items-start gap-3">
+                  <i className="fa-solid fa-circle-info mt-0.5"></i>
+                  <p>View all officially approved lectures and classes currently scheduled across the campus by other lecturers.</p>
+                </div>
+                <BookingsTable bookings={approvedBookings} readOnly={true} />
+              </div>
+            )}
+          </>
+        ) : (
+          /* STANDARD STUDENT VIEW */
+          <>
+            <div className="flex border-b border-slate-200 mb-6 gap-2 sm:gap-6 overflow-x-auto pb-0.5">
+              <button onClick={() => setActiveTab('lecture-rooms')} className={`px-4 py-2.5 font-semibold text-sm border-b-2 flex items-center gap-2 transition-colors ${activeTab === 'lecture-rooms' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}>
+                <i className="fa-solid fa-building-columns"></i> Lecture Rooms
+              </button>
+              <button onClick={() => setActiveTab('reading-rooms')} className={`px-4 py-2.5 font-semibold text-sm border-b-2 flex items-center gap-2 transition-colors ${activeTab === 'reading-rooms' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}>
+                <i className="fa-solid fa-book-open"></i> Book Reading Room
+              </button>
+              <button onClick={() => setActiveTab('schedule')} className={`px-4 py-2.5 font-semibold text-sm border-b-2 flex items-center gap-2 transition-colors ${activeTab === 'schedule' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}>
+                <i className="fa-solid fa-calendar-days"></i> Class Schedule
+              </button>
+              <button onClick={() => setActiveTab('bookings')} className={`px-4 py-2.5 font-semibold text-sm border-b-2 flex items-center gap-2 transition-colors ${activeTab === 'bookings' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}>
+                <i className="fa-solid fa-calendar-check"></i> My Reading Bookings
+              </button>
+            </div>
+
+            {activeTab === 'lecture-rooms' && (
+              <div className="space-y-6">
+                <div className="bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-xl text-sm flex items-start gap-3">
+                  <i className="fa-solid fa-circle-info mt-0.5"></i>
+                  <p>Students can view the status and class schedules of large lecture theatres here. To reserve a space for personal or group study, please use the <strong>Book Reading Room</strong> tab.</p>
+                </div>
+                <SearchFilters onApply={handleApplyFilters} onReset={handleResetFilters} activeCategory="large" />
+                <RoomGrid 
+                  rooms={filteredRooms.filter(r => r.sizeCategory === 'large')} 
+                  onOpenDetails={(room) => setSelectedRoom(room)} 
+                  onQuickBook={() => {}} 
+                  canBook={false} 
+                />
+              </div>
+            )}
+
+            {activeTab === 'reading-rooms' && (
+              <div className="space-y-6">
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl text-sm flex items-start gap-3">
+                  <i className="fa-solid fa-check-circle mt-0.5"></i>
+                  <p>You can request to book smaller lecture rooms and labs for reading sessions. Requests are sent to the Admin for approval.</p>
+                </div>
+                <SearchFilters 
+                  onApply={handleApplyFilters} 
+                  onReset={handleResetFilters} 
+                  activeCategory="small" 
+                  maxCapacity={50} 
+                />
+                <RoomGrid 
+                  rooms={filteredRooms.filter(r => r.sizeCategory === 'small')} 
+                  onOpenDetails={(room) => setSelectedRoom(room)} 
+                  onQuickBook={(room) => { setSelectedRoom(room); setIsBookingModalOpen(true); }} 
+                  canBook={true} 
+                />
+              </div>
+            )}
+
+            {activeTab === 'schedule' && (
+              <div className="space-y-6">
+                <div className="bg-indigo-50 border border-indigo-200 text-indigo-800 p-4 rounded-xl text-sm flex items-start gap-3">
+                  <i className="fa-solid fa-circle-info mt-0.5"></i>
+                  <p>View all officially approved lectures and classes currently scheduled across the campus.</p>
+                </div>
+                <BookingsTable bookings={approvedBookings} readOnly={true} />
+              </div>
+            )}
+
+            {activeTab === 'bookings' && (
+              <BookingsTable bookings={bookings} onCancel={handleCancelBooking} />
             )}
           </>
         )}
 
-        {user.role !== 'admin' && isBookingTab && (
-          <section className="space-y-4">
-            <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-              Booking and campus-schedule data have not been connected yet.
-              This table does not currently list database reservations.
-            </p>
-
-            <BookingsTable bookings={[]} readOnly={true} />
-          </section>
-        )}
       </main>
 
-      {selectedRoom && (
-        <RoomDetailsModal
-          room={selectedRoom}
-          onClose={() => setSelectedRoom(null)}
-          canBook={false}
+      {selectedRoom && !isBookingModalOpen && (
+        <RoomDetailsModal 
+          room={selectedRoom} 
+          onClose={() => setSelectedRoom(null)} 
+          onBook={() => setIsBookingModalOpen(true)} 
+          canBook={canBookSelectedRoom()} 
         />
       )}
 
+      {isBookingModalOpen && selectedRoom && (
+        <BookingModal 
+          room={selectedRoom} 
+          user={user}
+          onClose={() => { setIsBookingModalOpen(false); setSelectedRoom(null); }} 
+          onConfirm={handleBookingConfirm} 
+        />
+      )}
+      
       <footer className="bg-slate-900 text-slate-400 text-xs py-6 mt-auto">
         <div className="max-w-7xl mx-auto px-4 text-center">
-          © 2026 Obafemi Awolowo University Optispace System.
+          <p>© 2026 Obafemi Awolowo University Optispace System.</p>
         </div>
       </footer>
     </div>
@@ -500,4 +287,3 @@ function App() {
 }
 
 export default App;
-
