@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import { getLagosDateTime } from '../api';
 
-// Added maxCapacity prop with a default of 1000
-const SearchFilters = ({ onApply, onReset, activeCategory = 'large', maxCapacity = 1000 }) => {
+const SearchFilters = ({ onApply, onReset, activeCategory = 'all', zones = [] }) => {
   const [zone, setZone] = useState('all');
-  const [capacity, setCapacity] = useState(30);
+  const [capacity, setCapacity] = useState('');
   const [facilities, setFacilities] = useState([]);
+  const [moment, setMoment] = useState(getLagosDateTime);
+  const [useCurrentTime, setUseCurrentTime] = useState(true);
+  const [status, setStatus] = useState('all');
 
   const handleFacilityChange = (val) => {
     setFacilities(prev => prev.includes(val) ? prev.filter(f => f !== val) : [...prev, val]);
@@ -12,12 +15,15 @@ const SearchFilters = ({ onApply, onReset, activeCategory = 'large', maxCapacity
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    onApply({ zone, capacity, facilities });
+    onApply({ zone, capacity, facilities, status, ...(useCurrentTime ? {} : moment) });
   };
 
   const handleReset = () => {
     setZone('all');
-    setCapacity(30);
+    setCapacity('');
+    setStatus('all');
+    setUseCurrentTime(true);
+    setMoment(getLagosDateTime());
     setFacilities([]);
     onReset();
   };
@@ -34,7 +40,7 @@ const SearchFilters = ({ onApply, onReset, activeCategory = 'large', maxCapacity
             <i className="fa-solid fa-sliders text-blue-600"></i> Room Availability Search Filter
           </h2>
           <p className="text-xs text-slate-500">
-            Filter available spaces within the Faculty
+            Find suitable spaces across Obafemi Awolowo University, Ile-Ife
           </p>
         </div>
         
@@ -50,44 +56,49 @@ const SearchFilters = ({ onApply, onReset, activeCategory = 'large', maxCapacity
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">Faculty / Zone</label>
-            <select value={zone} onChange={(e) => setZone(e.target.value)} className="w-full bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none">
+            <select aria-label="Faculty / Zone" value={zone} onChange={(e) => setZone(e.target.value)} className="w-full bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none">
               <option value="all">All Campus Zones</option>
-              <option value="Faculty of Computing & Engineering">Faculty of Computing & Engineering</option>
+              {zones.map(value => <option key={value} value={value}>{value}</option>)}
             </select>
           </div>
           
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Target Date</label>
-            <input type="date" className="w-full bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" defaultValue={new Date().toISOString().split('T')[0]} />
+            <label htmlFor="room-search-date" className="block text-xs font-bold text-slate-700 mb-1">Target Date (Lagos)</label>
+            <input id="room-search-date" type="date" required disabled={useCurrentTime} value={moment.date}
+              onChange={event => setMoment({ ...moment, date: event.target.value })}
+              className="w-full bg-slate-50 border border-slate-300 text-xs rounded-lg px-3 py-2.5 disabled:opacity-50" />
           </div>
-
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Time Window</label>
-            <select className="w-full bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none">
-              <option>Now (Next 2 Hours)</option>
-              <option>Morning (8:00 AM - 12:00 PM)</option>
-              <option>Afternoon (12:00 PM - 4:00 PM)</option>
-            </select>
+            <label htmlFor="room-search-time" className="block text-xs font-bold text-slate-700 mb-1">Time (Lagos)</label>
+            <input id="room-search-time" type="time" required disabled={useCurrentTime} value={moment.time}
+              onChange={event => setMoment({ ...moment, time: event.target.value })}
+              className="w-full bg-slate-50 border border-slate-300 text-xs rounded-lg px-3 py-2.5 disabled:opacity-50" />
           </div>
-
           <div>
-            <div className="flex justify-between items-center mb-1">
-              <label className="text-xs font-bold text-slate-700">Min Capacity</label>
-              <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{capacity} Seats</span>
-            </div>
-            {/* DYNAMIC MAX CAPACITY */}
-            <input 
-              type="range" 
-              min="20" 
-              max={maxCapacity} 
-              step="10" 
-              value={capacity} 
-              onChange={(e) => setCapacity(e.target.value)} 
-              className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600 mt-2" 
-            />
+            <label htmlFor="room-search-capacity" className="block text-xs font-bold text-slate-700 mb-1">Minimum Capacity</label>
+            <input id="room-search-capacity" type="number" min="1" step="1" value={capacity}
+              onChange={event => setCapacity(event.target.value)} placeholder="Any capacity"
+              className="w-full bg-slate-50 border border-slate-300 text-xs rounded-lg px-3 py-2.5" />
           </div>
         </div>
 
+        <div className="flex flex-wrap gap-5 items-center text-xs">
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={useCurrentTime} onChange={event => {
+              setUseCurrentTime(event.target.checked);
+              setMoment(getLagosDateTime());
+            }} /> Use current date and time
+          </label>
+          <label className="flex items-center gap-2">Availability
+            <select aria-label="Availability" value={status} onChange={event => setStatus(event.target.value)} className="p-2 rounded-lg border border-slate-300 bg-slate-50">
+              <option value="all">All statuses</option>
+              <option value="available">Available</option>
+              <option value="occupied">Occupied</option>
+              <option value="soon">Occupied soon</option>
+              <option value="unknown">Unknown</option>
+            </select>
+          </label>
+        </div>
         <div className="pt-2">
           <label className="block text-xs font-bold text-slate-700 mb-2">Required Room Facilities</label>
           <div className="flex flex-wrap gap-2">

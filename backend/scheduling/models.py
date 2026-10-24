@@ -1,6 +1,20 @@
 from django.core.exceptions import ValidationError
 from django.db import models
 
+from .services.locking import lock_rooms
+
+
+class Course(models.Model):
+    code = models.CharField(max_length=30, unique=True)
+    title = models.CharField(max_length=200)
+    department = models.CharField(max_length=150)
+
+    class Meta:
+        ordering = ["code"]
+
+    def __str__(self):
+        return f"{self.code} — {self.title}"
+
 
 class TimetableDay(models.Model):
     room = models.ForeignKey(
@@ -50,6 +64,10 @@ class TimetableDay(models.Model):
 
         # Do not shorten coverage around existing active sessions.
         if self.pk:
+            original = TimetableDay.objects.get(pk=self.pk)
+            if (original.room_id, original.date) != (self.room_id, self.date):
+                raise ValidationError("Create a new timetable to change its room or date.")
+
             outside_coverage = self.allocations.filter(
                 is_cancelled=False,
             ).filter(
@@ -63,8 +81,9 @@ class TimetableDay(models.Model):
                 )
 
     def save(self, *args, **kwargs):
-        self.full_clean()
-        return super().save(*args, **kwargs)
+        with lock_rooms([self.room_id]):
+            self.full_clean()
+            return super().save(*args, **kwargs)
 
 
 class Allocation(models.Model):
@@ -74,6 +93,11 @@ class Allocation(models.Model):
         related_name="allocations",
     )
     title = models.CharField(max_length=200)
+    course = models.ForeignKey(
+        Course, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="allocations",
+    )
+    academic_session = models.CharField(max_length=30, blank=True)
     start_time = models.TimeField()
     end_time = models.TimeField()
     is_cancelled = models.BooleanField(default=False)
@@ -140,6 +164,14 @@ class Allocation(models.Model):
             )
 
     def save(self, *args, **kwargs):
-        self.full_clean()
-        return super().save(*args, **kwargs)
+        room_ids = list(TimetableDay.objects.filter(
+            pk=self.timetable_id,
+        ).values_list("room_id", flat=True))
+        if self.pk:
+            room_ids += list(Allocation.objects.filter(pk=self.pk).values_list(
+                "timetable__room_id", flat=True,
+            ))
+        with lock_rooms(room_ids):
+            self.full_clean()
+            return super().save(*args, **kwargs)
 

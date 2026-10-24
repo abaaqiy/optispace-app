@@ -9,6 +9,7 @@ const Login = ({ onLogin }) => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [matricNumber, setMatricNumber] = useState('');
   const [staffId, setStaffId] = useState('');
   const [department, setDepartment] = useState('');
@@ -25,6 +26,7 @@ const Login = ({ onLogin }) => {
     setSuccess('');
     setEmail('');
     setPassword('');
+    setConfirmPassword('');
 
     // Administrators cannot register publicly.
     if (selectedRole === 'admin') {
@@ -39,6 +41,7 @@ const Login = ({ onLogin }) => {
     setError('');
     setSuccess('');
     setPassword('');
+    setConfirmPassword('');
   };
 
   const handleSubmit = async (e) => {
@@ -64,10 +67,15 @@ const Login = ({ onLogin }) => {
         throw new Error('Administrators cannot register publicly.');
       }
 
+      if (password !== confirmPassword) {
+        throw new Error('Passwords do not match. Please enter the same password twice.');
+      }
+
       const registrationData = {
         name: name.trim(),
         email: email.trim(),
         password,
+        confirmPassword,
         department: department.trim(),
         role,
       };
@@ -82,6 +90,7 @@ const Login = ({ onLogin }) => {
 
       // Registration creates an account, but does not sign it in.
       setPassword('');
+      setConfirmPassword('');
       setEmail(email.trim());
       setIsLoginView(true);
 
@@ -303,7 +312,7 @@ const Login = ({ onLogin }) => {
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
+            <label htmlFor="account-password" className="block text-xs font-bold text-slate-700 mb-1">
               Password
             </label>
 
@@ -311,6 +320,7 @@ const Login = ({ onLogin }) => {
               <i className="fa-solid fa-lock absolute left-3 top-3 text-slate-400"></i>
 
               <input
+                id="account-password"
                 type="password"
                 required
                 disabled={isSubmitting}
@@ -324,6 +334,28 @@ const Login = ({ onLogin }) => {
               />
             </div>
           </div>
+
+          {!isLoginView && role !== 'admin' && (
+            <div>
+              <label htmlFor="confirm-password" className="block text-xs font-bold text-slate-700 mb-1">
+                Confirm Password
+              </label>
+              <div className="relative">
+                <i className="fa-solid fa-lock absolute left-3 top-3 text-slate-400"></i>
+                <input
+                  id="confirm-password"
+                  type="password"
+                  required
+                  disabled={isSubmitting}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Enter your password again"
+                  autoComplete="new-password"
+                  className="w-full bg-slate-50 border border-slate-300 text-slate-800 text-sm rounded-lg pl-10 pr-3 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+            </div>
+          )}
 
           <button
             type="submit"

@@ -13,7 +13,8 @@ function getErrorMessage(data, status) {
         return text;
       }
 
-      return `${field}: ${text}`;
+      const label = field === 'confirmPassword' ? 'Confirm password' : field;
+      return `${label}: ${text}`;
     });
 
     if (messages.length > 0) {
@@ -26,10 +27,16 @@ function getErrorMessage(data, status) {
 
 async function request(url, options = {}) {
   let response;
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  options.signal?.addEventListener('abort', abort, { once: true });
+  if (options.signal?.aborted) controller.abort();
+  const timeout = setTimeout(abort, 15000);
 
   try {
     response = await fetch(url, {
       ...options,
+      signal: controller.signal,
       credentials: 'same-origin',
       cache: 'no-store',
       headers: {
@@ -41,6 +48,9 @@ async function request(url, options = {}) {
     throw new Error(
       'Unable to reach the server. Check that Django and Vite are running.'
     );
+  } finally {
+    clearTimeout(timeout);
+    options.signal?.removeEventListener('abort', abort);
   }
 
   const data = await response.json().catch(() => null);
@@ -91,9 +101,9 @@ export async function registerUser(details) {
   return post('/api/auth/register/', details);
 }
 
-export async function getCurrentUser() {
+export async function getCurrentUser(options = {}) {
   try {
-    const data = await request('/api/auth/me/');
+    const data = await request('/api/auth/me/', options);
 
     if (!data.user) {
       throw new Error('The backend did not return the current user.');
@@ -125,25 +135,36 @@ export async function logoutUser() {
   }
 }
 
-export async function getRooms({ date, time } = {}) {
+export async function getRooms({ date, time, zone, capacity, facilities = [], category, status } = {}, options = {}) {
   const query = new URLSearchParams();
 
-  if (date && time) {
-    query.set('date', date);
-    query.set('time', time);
+  for (const [name, value] of Object.entries({ date, time, zone, capacity, category, status })) {
+    if (value && value !== 'all') query.set(name, value);
   }
+  for (const facility of facilities) query.append('facilities', facility);
 
   const queryString = query.toString();
   const url = queryString
     ? `/api/rooms/?${queryString}`
     : '/api/rooms/';
 
-  const data = await request(url);
+  const data = await request(url, options);
 
   if (!Array.isArray(data)) {
     throw new Error('Expected a room list from the backend.');
   }
 
+  return data;
+}
+
+export function getRoomFilterOptions(options = {}) {
+  return request('/api/rooms/filters/', options);
+}
+
+export async function getCampusSchedule(date, options = {}) {
+  const query = date ? `?${new URLSearchParams({ date })}` : '';
+  const data = await request(`/api/schedules/${query}`, options);
+  if (!Array.isArray(data)) throw new Error('Expected a schedule list from the backend.');
   return data;
 }
 

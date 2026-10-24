@@ -88,6 +88,16 @@ class LoginView(APIView):
         )
 
         if user is None:
+            # Only explain activation after verifying the supplied password.
+            if not account.is_active and account.check_password(password):
+                if account.role == User.Role.LECTURER:
+                    detail = (
+                        "Your lecturer account has not been activated. "
+                        "Please wait for an administrator to approve it before signing in."
+                    )
+                else:
+                    detail = "Your account is inactive. Please contact an administrator."
+                return Response({"detail": detail}, status=403)
             return Response(
                 {"detail": "Invalid email or password."},
                 status=401,

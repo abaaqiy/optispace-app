@@ -1,12 +1,10 @@
-import React from 'react';
-
-const LecturerDashboard = ({ user, rooms, bookings, onOpenDetails, onQuickBook, setActiveTab }) => {
+const LecturerDashboard = ({ user, rooms, bookings, onOpenDetails, onQuickBook, setActiveTab, bookingEnabled = true }) => {
   // Separate bookings for stats
   const approvedClasses = bookings.filter(b => b.isApproved);
   const pendingClasses = bookings.filter(b => !b.isApproved);
   
   // Look for available LARGE lecture rooms for quick booking
-  const availableLectureRooms = rooms.filter(r => r.status === 'available' && r.sizeCategory === 'large');
+  const availableLectureRooms = rooms.filter(r => ['available', 'soon'].includes(r.status) && r.sizeCategory === 'large');
 
   return (
     <div className="space-y-6">
@@ -21,7 +19,7 @@ const LecturerDashboard = ({ user, rooms, bookings, onOpenDetails, onQuickBook, 
             Welcome back, {user.name}
           </h1>
           <p style={{ color: '#bfdbfe', fontSize: '14px', marginTop: '4px', fontWeight: '500' }}>
-            Here is your teaching overview for today.
+            Here is your room overview for the selected date and time.
           </p>
         </div>
         <button 
@@ -29,7 +27,7 @@ const LecturerDashboard = ({ user, rooms, bookings, onOpenDetails, onQuickBook, 
           style={{ backgroundColor: '#ffffff', color: '#1e3a8a', fontWeight: 'bold' }}
           className="px-5 py-2.5 text-sm rounded-xl shadow-md hover:bg-slate-100 transition-colors flex items-center cursor-pointer"
         >
-          <i className="fa-solid fa-plus mr-2"></i> Book Lecture Room
+          <i className="fa-solid fa-magnifying-glass mr-2"></i> Find Lecture Room
         </button>
       </div>
 
@@ -69,7 +67,7 @@ const LecturerDashboard = ({ user, rooms, bookings, onOpenDetails, onQuickBook, 
         {/* Quick Book Available Lecture Rooms */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="font-bold text-slate-800"><i className="fa-solid fa-bolt text-amber-500 mr-2"></i> Quick Book: Lecture Rooms</h3>
+            <h3 className="font-bold text-slate-800"><i className="fa-solid fa-bolt text-amber-500 mr-2"></i> Available Lecture Rooms</h3>
             <button onClick={() => setActiveTab('find')} className="text-xs text-blue-600 font-bold hover:underline cursor-pointer">View All</button>
           </div>
           <div className="space-y-3">
@@ -84,7 +82,7 @@ const LecturerDashboard = ({ user, rooms, bookings, onOpenDetails, onQuickBook, 
                   </div>
                   <div className="flex gap-2">
                     <button onClick={() => onOpenDetails(room)} className="px-2 py-1.5 bg-white border border-slate-300 text-slate-600 rounded text-[10px] font-bold hover:bg-slate-50 cursor-pointer shadow-sm">Details</button>
-                    <button onClick={() => onQuickBook(room)} className="px-3 py-1.5 bg-blue-600 text-white rounded text-[10px] font-bold hover:bg-blue-700 cursor-pointer shadow-sm">Book</button>
+                    {bookingEnabled && <button onClick={() => onQuickBook(room)} className="px-3 py-1.5 bg-blue-600 text-white rounded text-[10px] font-bold hover:bg-blue-700 cursor-pointer shadow-sm">Book</button>}
                   </div>
                 </div>
               ))

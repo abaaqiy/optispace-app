@@ -58,7 +58,7 @@ const RoomDetailsModal = ({
             </h3>
 
             <p className="text-xs text-slate-500">
-              {room.zone}
+              {room.zone}{room.building ? ` · ${room.building.name}` : ''}{room.roomNumber ? ` · ${room.roomNumber}` : ''}
             </p>
           </div>
 

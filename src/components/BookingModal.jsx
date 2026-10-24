@@ -1,18 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 const BookingModal = ({ room, onClose, onConfirm, user }) => {
   const [purpose, setPurpose] = useState('');
-  const [organizer, setOrganizer] = useState('');
+  const organizer = user?.name || '';
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [startTime, setStartTime] = useState('12:00');
   const [endTime, setEndTime] = useState('14:00');
-
-  // Auto-fill organizer name based on logged-in user
-  useEffect(() => {
-    if (user) {
-      setOrganizer(user.name);
-    }
-  }, [user]);
 
   const handleSubmit = (e) => {
     e.preventDefault();

@@ -49,6 +49,15 @@ class RegisterSerializer(serializers.Serializer):
         max_length=128,
     )
     department = serializers.CharField(max_length=150)
+    confirmPassword = serializers.CharField(
+        write_only=True,
+        trim_whitespace=False,
+        max_length=128,
+        error_messages={
+            "required": "Please confirm your password.",
+            "blank": "Please confirm your password.",
+        },
+    )
     role = serializers.ChoiceField(choices=User.Role.choices)
 
     matricNumber = serializers.CharField(
@@ -65,6 +74,11 @@ class RegisterSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs):
+        if attrs["password"] != attrs["confirmPassword"]:
+            raise serializers.ValidationError({
+                "confirmPassword": "Passwords do not match. Please enter the same password twice.",
+            })
+
         protected_fields = (
             "username",
             "is_staff",

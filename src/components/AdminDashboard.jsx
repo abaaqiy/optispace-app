@@ -1,6 +1,8 @@
 import RoomGrid from './RoomGrid';
 
 const adminLinks = [
+  { label: 'Manage Buildings', path: 'rooms/building/' },
+  { label: 'Manage Courses', path: 'scheduling/course/' },
   {
     label: 'Manage Rooms',
     path: 'rooms/room/',
@@ -32,16 +34,16 @@ const AdminDashboard = ({ rooms, onOpenDetails }) => {
         </h2>
 
         <p className="text-sm text-slate-600 mb-4">
-          Manage database records through Django admin.
-          Availability is calculated from published timetables,
-          not a manual available/occupied toggle.
+          Add rooms, facilities, and lecture times through Django admin.
+          Publish each day's timetable after checking its coverage and sessions.
+          Students see availability from those published schedules.
         </p>
 
         <div className="flex flex-wrap gap-3">
           {adminLinks.map((link) => (
             <a
               key={link.path}
-              href={`http://127.0.0.1:8000/admin/${link.path}`}
+              href={`/admin/${link.path}`}
               target="_blank"
               rel="noopener noreferrer"
               className="px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700"
@@ -58,12 +60,11 @@ const AdminDashboard = ({ rooms, onOpenDetails }) => {
         </h2>
 
         <p className="text-sm text-slate-600">
-          Booking requests and approval APIs have not been implemented yet.
-          No booking approvals are performed on this page.
+          Reservation requests and approvals will be available in the next milestone.
         </p>
       </section>
 
-      <section>
+      {rooms && <section>
         <h2 className="text-lg font-bold text-slate-900 mb-4">
           Room Overview
         </h2>
@@ -73,7 +74,7 @@ const AdminDashboard = ({ rooms, onOpenDetails }) => {
           onOpenDetails={onOpenDetails}
           canBook={false}
         />
-      </section>
+      </section>}
     </div>
   );
 };

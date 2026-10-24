@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from scheduling.services.availability import build_availability
 
-from .models import Room
+from .models import Facility, Room
 
 
 class AvailabilityQuerySerializer(serializers.Serializer):
@@ -24,9 +24,25 @@ class AvailabilityQuerySerializer(serializers.Serializer):
         return attrs
 
 
+class RoomQuerySerializer(AvailabilityQuerySerializer):
+    zone = serializers.CharField(required=False, max_length=150)
+    building = serializers.IntegerField(required=False, min_value=1)
+    capacity = serializers.IntegerField(required=False, min_value=1)
+    category = serializers.ChoiceField(required=False, choices=["small", "large"])
+    facilities = serializers.ListField(
+        child=serializers.ChoiceField(choices=Facility.Code.choices), required=False,
+    )
+    status = serializers.ChoiceField(
+        required=False, choices=["available", "occupied", "soon", "unknown"],
+    )
+
+
 class RoomSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source="code", read_only=True)
     type = serializers.CharField(source="room_type", read_only=True)
+    zone = serializers.SerializerMethodField()
+    building = serializers.SerializerMethodField()
+    roomNumber = serializers.CharField(source="room_number", read_only=True)
 
     sizeCategory = serializers.CharField(
         source="size_category",
@@ -49,8 +65,18 @@ class RoomSerializer(serializers.ModelSerializer):
             "capacity",
             "sizeCategory",
             "facilities",
+            "building",
+            "roomNumber",
         )
         read_only_fields = fields
+
+    def get_zone(self, instance):
+        return instance.zone or (instance.building.campus_zone if instance.building else "")
+
+    def get_building(self, instance):
+        if instance.building is None:
+            return None
+        return {"id": instance.building_id, "name": instance.building.name}
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

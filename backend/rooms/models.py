@@ -2,6 +2,17 @@ from django.core.validators import MinValueValidator
 from django.db import models
 
 
+class Building(models.Model):
+    name = models.CharField(max_length=200, unique=True)
+    campus_zone = models.CharField(max_length=150)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
 class Facility(models.Model):
     class Code(models.TextChoices):
         AC = "ac", "Air conditioning"
@@ -31,7 +42,12 @@ class Room(models.Model):
 
     code = models.SlugField(max_length=50, unique=True)
     name = models.CharField(max_length=200)
-    zone = models.CharField(max_length=150)
+    zone = models.CharField(max_length=150, blank=True)
+    building = models.ForeignKey(
+        Building, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="rooms",
+    )
+    room_number = models.CharField(max_length=50, blank=True)
     room_type = models.CharField(max_length=100)
 
     capacity = models.PositiveIntegerField(
@@ -59,5 +75,5 @@ class Room(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.code} — {self.name}"
+        return self.name
 

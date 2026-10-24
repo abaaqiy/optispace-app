@@ -45,6 +45,7 @@ class AccountTests(APITestCase):
             "name": "New Student",
             "email": "new@student.oauife.edu.ng",
             "password": self.password,
+            "confirmPassword": self.password,
             "department": "Computer Science",
             "role": "student",
             "matricNumber": "CSC/2026/010",
@@ -183,6 +184,14 @@ class AccountTests(APITestCase):
         self.assertEqual(user.institutional_id, "CSC/2026/010")
         self.assertTrue(user.check_password(self.password))
 
+        # A newly registered student must be able to sign in immediately.
+        response = self.sign_in(email=user.email)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["user"]["role"], "student")
+        current = self.client.get("/api/auth/me/")
+        self.assertEqual(current.status_code, 200)
+        self.assertEqual(current.data["user"]["id"], str(user.pk))
+
     def test_registration_rejects_wrong_domains(self):
         cases = [
             self.registration_data(email="new@gmail.com"),
@@ -239,7 +248,13 @@ class AccountTests(APITestCase):
         self.assertFalse(user.is_active)
 
         before = self.sign_in(email=user.email)
-        self.assertEqual(before.status_code, 401)
+        self.assertEqual(before.status_code, 403)
+        self.assertIn("administrator to approve", before.data["detail"])
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+        incorrect = self.sign_in(email=user.email, password="incorrect")
+        self.assertEqual(incorrect.status_code, 401)
+        self.assertEqual(incorrect.data["detail"], "Invalid email or password.")
 
         user.is_active = True
         user.save()
@@ -247,4 +262,40 @@ class AccountTests(APITestCase):
         after = self.sign_in(email=user.email)
         self.assertEqual(after.status_code, 200)
         self.assertEqual(after.data["user"]["role"], "lecturer")
+
+    def test_registration_requires_matching_confirmation_for_both_roles(self):
+        for role in ("student", "lecturer"):
+            for confirmation in (None, "", "mismatched-password"):
+                data = self.registration_data(role=role)
+                if confirmation is None:
+                    del data["confirmPassword"]
+                else:
+                    data["confirmPassword"] = confirmation
+                with self.subTest(role=role, confirmation=confirmation):
+                    before = User.objects.count()
+                    response = self.csrf_post("/api/auth/register/", data)
+                    self.assertEqual(response.status_code, 400)
+                    self.assertIn("confirmPassword", response.data)
+                    self.assertEqual(User.objects.count(), before)
+
+    def test_confirmation_is_not_returned_or_stored(self):
+        response = self.csrf_post("/api/auth/register/", self.registration_data())
+        self.assertEqual(response.status_code, 201)
+        self.assertNotIn("confirmPassword", str(response.data))
+        self.assertNotIn(self.password, str(response.data))
+        self.assertFalse(hasattr(User.objects.get(email="new@student.oauife.edu.ng"), "confirmPassword"))
+
+    def test_inactive_student_gets_inactive_message_and_no_session(self):
+        self.user.is_active = False
+        self.user.save()
+        response = self.sign_in()
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("inactive", response.data["detail"])
+        self.assertNotIn("approve", response.data["detail"])
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_unknown_email_keeps_generic_error(self):
+        response = self.sign_in(email="not-registered@oauife.edu.ng")
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.data["detail"], "Invalid email or password.")
 
