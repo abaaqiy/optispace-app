@@ -2,7 +2,7 @@
 
 Campus room availability and account management with a React/Vite frontend and
 a Django REST API. Django stores accounts, sessions, rooms, facilities, and
-timetables in PostgreSQL. There is no SQLite fallback.
+timetables and reservations in PostgreSQL. There is no SQLite fallback.
 
 ## Backend setup
 
@@ -96,8 +96,9 @@ is derived from the timetable and does not detect unscheduled physical occupancy
 
 The existing screen layouts and room response fields are preserved. Buildings and
 course links are optional, so existing room and schedule records remain valid.
-Reservations and their approval workflow are a later milestone. Their tabs remain
-visible with an explanation; they do not generate temporary bookings or success messages.
+Reservations now use the workflow described below. The public campus class schedule
+continues to list published lecture allocations; private reservation purposes are
+shown only to their requester and administrators.
 
 ### API routes
 
@@ -112,6 +113,69 @@ Room list responses stay arrays with `id`, `name`, `zone`, `type`, `capacity`,
 `sizeCategory`, `facilities`, `status`, `statusText`, `currentSchedule`,
 `nextSchedule`, `hourlySchedule`, and `availabilityAt`. `building` and `roomNumber`
 are additive. Catalog and timetable writes use Django admin; public API routes are read-only.
+
+## Second milestone: reservation requests and approval
+
+1. An administrator publishes a room's timetable for the requested date, including
+   its verified coverage hours and lecture allocations. An empty published day
+   means that its coverage hours have no scheduled lectures.
+2. A student opens **Reading Rooms** to request a small room. An activated lecturer
+   can request either a small or large room from **Find a Room** or the dashboard.
+   Use **Book** or **Reserve Room**, enter a purpose, date, start and end, and submit.
+3. Requests appear as **Pending** in **My Reading Bookings** / **My Schedule**.
+   Pending requests do not block the room. Administrators see requests under
+   **Booking Approvals**, with status filtering and optional review notes.
+4. Approval checks availability again and marks that period **Reserved**. A rejected
+   request keeps its history and review note. The requester or an administrator can
+   cancel a pending or approved reservation before its start time; cancelling an
+   approved reservation releases its time immediately.
+
+All dates and times use `Africa/Lagos`. Reservations are for one day, must start in
+the future, and must fit inside a published timetable's coverage hours. They cannot
+overlap an active lecture or approved reservation. Different users can request the
+same free period while approval is pending; only one overlapping request can be
+approved. A user's duplicate/overlapping pending request for the same room is rejected.
+Requests cannot be edited; cancel and submit a new one to change their details.
+
+The server assigns the owner, reference and status. Only active superuser
+administrators can approve or reject requests. Students/lecturers can list only
+their own reservations. Session authentication and CSRF protection apply to writes.
+Public room responses show a generic **Reserved** label without the requester's
+name or purpose. Approved reservations stay visible even if a timetable is later
+unpublished; other periods then have Unknown availability.
+
+Room row locks serialize approvals and lecture saves, including edits and restoring
+cancelled lectures. Both directions check for conflicts inside a transaction.
+Use the application/admin save paths; direct SQL, `QuerySet.update()` and bulk writes
+bypass this validation. Reservation records retain who reviewed/cancelled them and
+when. Django admin offers the same guarded actions through **Manage Reservations**;
+direct reservation editing, adding and deletion are disabled there.
+
+| Method and route | Purpose |
+| --- | --- |
+| `GET /api/reservations/` | Own requests, or all for administrators; optional `status` filter |
+| `POST /api/reservations/` | Request using `roomId` (room code), `date`, `startTime`, `endTime`, `purpose` |
+| `POST /api/reservations/<reference>/approve/` | Administrator approval; optional `note` |
+| `POST /api/reservations/<reference>/reject/` | Administrator rejection; optional `note` |
+| `POST /api/reservations/<reference>/cancel/` | Requester or administrator cancellation |
+
+Use `YYYY-MM-DD` and `HH:MM`. Invalid requests return 400; unauthorized actions
+return 403, and other users' references return 404. A review/cancellation that is
+no longer valid returns 409 with a message. Lists refresh every minute, on window
+focus, and via **Refresh reservations**. Room filters include **Reserved**, and
+room details include approved reservation slots alongside lectures and free gaps.
+
+Apply the new schema with `python backend/manage.py migrate`. The migration adds
+the reservation table and preserves existing accounts, rooms and timetables.
+
+Focused verification (from `backend/`):
+
+```sh
+../venv/bin/python manage.py test bookings scheduling rooms
+```
+
+The tests cover role access, CSRF, validation, approval/rejection/cancellation,
+availability boundaries, privacy, Django admin actions and simultaneous writes.
 
 ## Verify the database
 

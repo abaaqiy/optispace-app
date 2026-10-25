@@ -3,6 +3,7 @@ const getStatusBadge = (status) => {
     case 'available': return <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full"><span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span> Available</span>;
     case 'soon': return <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full"><span className="w-1.5 h-1.5 rounded-full bg-amber-600"></span> Occupied Soon</span>;
     case 'occupied': return <span className="inline-flex items-center gap-1 bg-rose-100 text-rose-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full"><span className="w-1.5 h-1.5 rounded-full bg-rose-600"></span> In Session</span>;
+    case 'reserved': return <span className="inline-flex items-center gap-1 bg-indigo-100 text-indigo-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full"><span className="w-1.5 h-1.5 rounded-full bg-indigo-600"></span> Reserved</span>;
     default: return <span className="bg-slate-100 text-slate-700 text-[10px] font-bold px-2.5 py-0.5 rounded-full">Unknown</span>;
   }
 };

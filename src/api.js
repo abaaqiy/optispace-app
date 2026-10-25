@@ -161,6 +161,18 @@ export function getRoomFilterOptions(options = {}) {
   return request('/api/rooms/filters/', options);
 }
 
+export function getReservations(options = {}) {
+  return request('/api/reservations/', options);
+}
+
+export function createReservation(details) {
+  return post('/api/reservations/', details);
+}
+
+export function updateReservation(reference, action, note = '') {
+  return post(`/api/reservations/${encodeURIComponent(reference)}/${action}/`, { note });
+}
+
 export async function getCampusSchedule(date, options = {}) {
   const query = date ? `?${new URLSearchParams({ date })}` : '';
   const data = await request(`/api/schedules/${query}`, options);

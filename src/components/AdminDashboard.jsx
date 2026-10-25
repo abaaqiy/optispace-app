@@ -1,8 +1,10 @@
 import RoomGrid from './RoomGrid';
+import ReservationsPanel from './ReservationsPanel';
 
 const adminLinks = [
   { label: 'Manage Buildings', path: 'rooms/building/' },
   { label: 'Manage Courses', path: 'scheduling/course/' },
+  { label: 'Manage Reservations', path: 'bookings/reservation/' },
   {
     label: 'Manage Rooms',
     path: 'rooms/room/',
@@ -25,7 +27,7 @@ const adminLinks = [
   },
 ];
 
-const AdminDashboard = ({ rooms, onOpenDetails }) => {
+const AdminDashboard = ({ rooms, onOpenDetails, onReservationChanged }) => {
   return (
     <div className="space-y-6">
       <section className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
@@ -60,8 +62,9 @@ const AdminDashboard = ({ rooms, onOpenDetails }) => {
         </h2>
 
         <p className="text-sm text-slate-600">
-          Reservation requests and approvals will be available in the next milestone.
+          Review student and lecturer requests. Approval checks the room's timetable and existing reservations again.
         </p>
+        <div className="mt-4"><ReservationsPanel admin onChanged={onReservationChanged} /></div>
       </section>
 
       {rooms && <section>

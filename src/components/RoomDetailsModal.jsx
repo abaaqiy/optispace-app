@@ -95,7 +95,7 @@ const RoomDetailsModal = ({
             <p className="mt-1">{room.statusText}</p>
 
             <p className="mt-2 text-slate-600">
-              This is timetable information, not verified physical occupancy.
+              Based on published timetables and approved reservations. Physical use may differ.
             </p>
           </div>
 
@@ -132,7 +132,7 @@ const RoomDetailsModal = ({
 
           <div>
             <h4 className="font-bold text-slate-800 mb-2">
-              Published timetable for the selected date
+              Timetable and reservations for the selected date
             </h4>
 
             {schedule.length === 0 ? (
@@ -146,7 +146,7 @@ const RoomDetailsModal = ({
                   <div
                     key={`${slot.time}-${index}`}
                     className={`flex justify-between gap-3 p-2 rounded-lg border ${
-                      slot.occupied
+                      slot.reserved ? 'bg-indigo-50 border-indigo-100 text-indigo-900' : slot.occupied
                         ? 'bg-rose-50 border-rose-100 text-rose-900'
                         : 'bg-emerald-50 border-emerald-100 text-emerald-900'
                     }`}

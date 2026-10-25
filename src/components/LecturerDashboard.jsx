@@ -1,7 +1,7 @@
 const LecturerDashboard = ({ user, rooms, bookings, onOpenDetails, onQuickBook, setActiveTab, bookingEnabled = true }) => {
   // Separate bookings for stats
   const approvedClasses = bookings.filter(b => b.isApproved);
-  const pendingClasses = bookings.filter(b => !b.isApproved);
+  const pendingClasses = bookings.filter(b => b.statusCode === 'pending');
   
   // Look for available LARGE lecture rooms for quick booking
   const availableLectureRooms = rooms.filter(r => ['available', 'soon'].includes(r.status) && r.sizeCategory === 'large');

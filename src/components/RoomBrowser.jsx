@@ -5,12 +5,12 @@ import SearchFilters from './SearchFilters';
 
 const emptyFilters = { zone: '', capacity: '', facilities: [], status: '' };
 
-export default function RoomBrowser({ category, onOpenDetails, children }) {
+export default function RoomBrowser({ category, onOpenDetails, children, canBook = false, onQuickBook, refreshKey = 0 }) {
   const [filters, setFilters] = useState(emptyFilters);
   const [revision, setRevision] = useState(0);
   const [result, setResult] = useState(null);
   const [options, setOptions] = useState({ zones: [] });
-  const requestKey = JSON.stringify({ filters, category, revision });
+  const requestKey = JSON.stringify({ filters, category, revision, refreshKey });
 
   useEffect(() => {
     const timer = setInterval(() => setRevision(value => value + 1), 60000);
@@ -54,7 +54,7 @@ export default function RoomBrowser({ category, onOpenDetails, children }) {
       <div className="flex flex-wrap justify-between items-center gap-3 text-xs text-slate-600">
         <div>
           <p className="font-semibold">Availability: {momentLabel} (Africa/Lagos)</p>
-          <p>Based on published timetables. Unscheduled physical use may differ. Updates every minute.</p>
+          <p>Based on published timetables and approved reservations. Unscheduled physical use may differ. Updates every minute.</p>
         </div>
         <button onClick={() => setRevision(value => value + 1)} className="px-3 py-2 rounded-lg bg-white border border-slate-300 font-semibold">Refresh rooms</button>
       </div>
@@ -67,11 +67,12 @@ export default function RoomBrowser({ category, onOpenDetails, children }) {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-sm">
             {[
               ['Matching rooms', rooms.length],
               ['Available', rooms.filter(room => ['available', 'soon'].includes(room.status)).length],
               ['Occupied', rooms.filter(room => room.status === 'occupied').length],
+              ['Reserved', rooms.filter(room => room.status === 'reserved').length],
               ['Unknown', rooms.filter(room => room.status === 'unknown').length],
             ].map(([label, count]) => (
               <div key={label} className="bg-white border border-slate-200 rounded-xl p-3">
@@ -79,7 +80,7 @@ export default function RoomBrowser({ category, onOpenDetails, children }) {
               </div>
             ))}
           </div>
-          {children ? children(rooms) : <RoomGrid rooms={rooms} onOpenDetails={onOpenDetails} canBook={false} />}
+          {children ? children(rooms) : <RoomGrid rooms={rooms} onOpenDetails={onOpenDetails} canBook={canBook} onQuickBook={onQuickBook} />}
         </>
       )}
     </section>

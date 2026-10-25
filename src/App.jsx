@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import Login from './components/Login';
 import Header from './components/Header';
-import BookingsTable from './components/BookingsTable';
+import ReservationsPanel from './components/ReservationsPanel';
+import BookingModal from './components/BookingModal';
 import RoomDetailsModal from './components/RoomDetailsModal';
 import AdminDashboard from './components/AdminDashboard';
 import LecturerDashboard from './components/LecturerDashboard';
 import Toast from './components/Toast';
-import { getCurrentUser, logoutUser } from './api';
+import { createReservation, getCurrentUser, getReservations, logoutUser } from './api';
 import RoomBrowser from './components/RoomBrowser';
 import CampusSchedule from './components/CampusSchedule';
 
@@ -18,6 +19,9 @@ function App() {
   const [sessionAttempt, setSessionAttempt] = useState(0);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [selectedRoom, setSelectedRoom] = useState(null);
+  const [bookingRoom, setBookingRoom] = useState(null);
+  const [reservationRevision, setReservationRevision] = useState(0);
+  const [lecturerReservations, setLecturerReservations] = useState(null);
   const [toasts, setToasts] = useState([]);
 
   useEffect(() => {
@@ -34,6 +38,21 @@ function App() {
     });
     return () => { active = false; };
   }, [sessionAttempt]);
+
+  useEffect(() => {
+    if (user?.role !== 'lecturer' || activeTab !== 'dashboard') return;
+    let active = true;
+    const controller = new AbortController();
+    const refresh = () => getReservations({ signal: controller.signal }).then(rows => {
+      if (active) setLecturerReservations({ userId: user.id, rows });
+    }).catch(error => {
+      if (active) setLecturerReservations({ userId: user.id, error: error.message });
+    });
+    refresh();
+    const timer = setInterval(refresh, 60000);
+    window.addEventListener('focus', refresh);
+    return () => { active = false; controller.abort(); clearInterval(timer); window.removeEventListener('focus', refresh); };
+  }, [user, activeTab, reservationRevision]);
 
   const showToast = (message) => {
     setToasts(prev => [...prev, { id: Date.now(), message }]);
@@ -57,6 +76,8 @@ function App() {
       setUser(null);
       setActiveTab('lecture-rooms');
       setSelectedRoom(null);
+      setBookingRoom(null);
+      setLecturerReservations(null);
     } catch (error) {
       showToast(error.message);
     } finally {
@@ -86,7 +107,21 @@ function App() {
 
   if (!user) return <Login onLogin={handleLogin} />;
 
-  const bookingNotice = () => showToast('Reservation requests will be available in the next milestone.');
+  const refreshReservations = () => setReservationRevision(value => value + 1);
+  const canReserve = room => user.role === 'lecturer' || (user.role === 'student' && room.sizeCategory === 'small');
+  const openBooking = room => {
+    if (canReserve(room)) {
+      setSelectedRoom(null);
+      setBookingRoom(room);
+    }
+  };
+  const submitReservation = async details => {
+    const booking = await createReservation(details);
+    setBookingRoom(null);
+    refreshReservations();
+    setActiveTab('bookings');
+    showToast(`Request submitted (${booking.refId}). Awaiting administrator approval.`);
+  };
 
   return (
     <div className="min-h-screen flex flex-col font-sans text-slate-800 bg-slate-50">
@@ -101,8 +136,8 @@ function App() {
 
         {user.role === 'admin' ? (
           <>
-            <AdminDashboard />
-            <RoomBrowser onOpenDetails={setSelectedRoom} canBook={false} />
+            <AdminDashboard onReservationChanged={refreshReservations} />
+            <RoomBrowser onOpenDetails={setSelectedRoom} refreshKey={reservationRevision} />
           </>
         ) : user.role === 'lecturer' ? (
           /* LECTURER VIEW */
@@ -125,11 +160,13 @@ function App() {
             </div>
 
             {activeTab === 'dashboard' && (
-              <RoomBrowser onOpenDetails={setSelectedRoom} canBook={false}>
-                {(rooms) => <LecturerDashboard
-                  user={user} rooms={rooms} bookings={[]}
-                  onOpenDetails={setSelectedRoom} onQuickBook={bookingNotice}
-                  setActiveTab={setActiveTab} bookingEnabled={false}
+              <RoomBrowser onOpenDetails={setSelectedRoom} refreshKey={reservationRevision}>
+                {(rooms) => lecturerReservations?.userId !== user.id ? <p role="status">Loading your reservations…</p> : lecturerReservations.error ? (
+                  <div role="alert"><p>{lecturerReservations.error}</p><button onClick={refreshReservations} className="text-blue-700 underline">Retry reservations</button></div>
+                ) : <LecturerDashboard
+                  user={user} rooms={rooms} bookings={lecturerReservations.rows.filter(booking => ['pending', 'approved'].includes(booking.statusCode) && new Date(`${booking.date}T${booking.endTime}:00+01:00`) > new Date()).sort((a, b) => `${a.date} ${a.startTime}`.localeCompare(`${b.date} ${b.startTime}`))}
+                  onOpenDetails={setSelectedRoom} onQuickBook={openBooking}
+                  setActiveTab={setActiveTab}
                 />}
               </RoomBrowser>
             )}
@@ -138,9 +175,9 @@ function App() {
               <div className="space-y-6">
                 <div className="bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-xl text-sm flex items-start gap-3">
                   <i className="fa-solid fa-circle-info mt-0.5"></i>
-                  <p>Check published room availability before planning your classes. Reservation requests will be available in the next milestone.</p>
+                  <p>Choose a room and request a free time within its published timetable. An administrator must approve your request.</p>
                 </div>
-                <RoomBrowser onOpenDetails={setSelectedRoom} canBook={false} />
+                <RoomBrowser onOpenDetails={setSelectedRoom} canBook onQuickBook={openBooking} refreshKey={reservationRevision} />
               </div>
             )}
 
@@ -148,9 +185,9 @@ function App() {
               <div className="space-y-4">
                 <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl text-sm flex items-start gap-3">
                   <i className="fa-solid fa-check-circle mt-0.5"></i>
-                  <p>Personal reservations will appear here once the booking milestone is implemented. Use Campus Schedule for published lectures.</p>
+                  <p>Track your requests and administrator decisions here. Pending requests do not reserve a room. You can cancel before the start time.</p>
                 </div>
-                <BookingsTable bookings={[]} onCancel={bookingNotice} />
+                <ReservationsPanel onChanged={refreshReservations} />
               </div>
             )}
 
@@ -188,7 +225,7 @@ function App() {
                   <i className="fa-solid fa-circle-info mt-0.5"></i>
                   <p>Check the availability and published schedules of large lecture theatres. Use the <strong>Reading Rooms</strong> tab to find smaller spaces for personal or group study.</p>
                 </div>
-                <RoomBrowser category="large" onOpenDetails={setSelectedRoom} canBook={false} />
+                <RoomBrowser category="large" onOpenDetails={setSelectedRoom} refreshKey={reservationRevision} />
               </div>
             )}
 
@@ -196,9 +233,9 @@ function App() {
               <div className="space-y-6">
                 <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl text-sm flex items-start gap-3">
                   <i className="fa-solid fa-check-circle mt-0.5"></i>
-                  <p>Find smaller rooms and labs suitable for reading sessions. Availability is based on published schedules.</p>
+                  <p>Request a smaller room for personal or group study during a free period in its published timetable. Administrator approval is required.</p>
                 </div>
-                <RoomBrowser category="small" onOpenDetails={setSelectedRoom} canBook={false} />
+                <RoomBrowser category="small" onOpenDetails={setSelectedRoom} canBook onQuickBook={openBooking} refreshKey={reservationRevision} />
               </div>
             )}
 
@@ -213,7 +250,7 @@ function App() {
             )}
 
             {activeTab === 'bookings' && (
-              <div className="space-y-4"><p className="text-sm text-slate-600">Reservation requests will be available in the next milestone.</p><BookingsTable bookings={[]} onCancel={bookingNotice} /></div>
+              <div className="space-y-4"><p className="text-sm text-slate-600">Pending requests need administrator approval. You can cancel your request or reservation before its start time.</p><ReservationsPanel onChanged={refreshReservations} /></div>
             )}
           </>
         )}
@@ -224,9 +261,12 @@ function App() {
         <RoomDetailsModal
           room={selectedRoom}
           onClose={() => setSelectedRoom(null)}
-          canBook={false}
+          canBook={canReserve(selectedRoom)}
+          onBook={openBooking}
         />
       )}
+
+      {bookingRoom && <BookingModal room={bookingRoom} user={user} onClose={() => setBookingRoom(null)} onConfirm={submitReservation} />}
 
       <footer className="bg-slate-900 text-slate-400 text-xs py-6 mt-auto">
         <div className="max-w-7xl mx-auto px-4 text-center">
