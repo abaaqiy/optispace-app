@@ -1,7 +1,7 @@
 from django.core.exceptions import ValidationError
 from rest_framework.test import APITestCase
 
-from .models import Facility, Room
+from .models import Building, Facility, Room
 
 
 class RoomTests(APITestCase):
@@ -10,7 +10,7 @@ class RoomTests(APITestCase):
         cls.room = Room.objects.create(
             code="room-1",
             name="Oduduwa Lecture Theatre (ODLT)",
-            zone="Faculty of Computing & Engineering",
+            building=Building.objects.create(name="Computing building", campus_zone="Faculty of Computing & Engineering"),
             room_type="Tiered Amphitheatre",
             capacity=1000,
             size_category="large",

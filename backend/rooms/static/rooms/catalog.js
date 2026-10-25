@@ -19,7 +19,7 @@
           const words = normalise(params.term || '').trim().split(/\s+/);
           return words.every((word) => normalise(data.text).includes(word)) ? data : null;
         },
-        language: { noResults: () => 'No matching campus area found.' },
+        language: { noResults: () => 'No matching option found.' },
       });
 
       const label = document.querySelector(`label[for="${this.id}"]`);

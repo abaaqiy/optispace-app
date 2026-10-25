@@ -1,6 +1,6 @@
 .room-name-widget,
 select.room-catalog-select,
-.field-zone .select2-container {
+.field-campus_zone .select2-container {
   width: 100%;
   max-width: 38rem;
 }

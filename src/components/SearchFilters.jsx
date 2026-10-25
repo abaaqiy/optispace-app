@@ -95,7 +95,6 @@ const SearchFilters = ({ onApply, onReset, activeCategory = 'all', zones = [] })
               <option value="available">Available</option>
               <option value="occupied">Occupied</option>
               <option value="reserved">Reserved</option>
-              <option value="soon">Occupied soon</option>
               <option value="unknown">Unknown</option>
             </select>
           </label>

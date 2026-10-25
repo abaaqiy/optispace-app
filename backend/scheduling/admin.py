@@ -2,18 +2,9 @@ from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.http import HttpResponseRedirect
 
-from .models import Allocation, Course, TimetableDay
-
-
-class ScheduleAdmin(admin.ModelAdmin):
-    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
-        try:
-            return super().changeform_view(request, object_id, form_url, extra_context)
-        except ValidationError as error:
-            # A reservation may be approved after form validation but before
-            # saving. The model's room lock catches that race; show its message.
-            self.message_user(request, " ".join(error.messages), messages.ERROR)
-            return HttpResponseRedirect(request.path)
+from .forms import TimetableAdminForm
+from .models import Course, TimetableDay
+from .services.locking import lock_rooms
 
 
 @admin.register(Course)
@@ -24,41 +15,28 @@ class CourseAdmin(admin.ModelAdmin):
 
 
 @admin.register(TimetableDay)
-class TimetableDayAdmin(ScheduleAdmin):
-    list_display = (
-        "room",
-        "date",
-        "coverage_start",
-        "coverage_end",
-        "is_published",
-    )
-    list_filter = ("is_published", "date")
-    search_fields = ("room__code", "room__name")
-    list_select_related = ("room",)
+class TimetableDayAdmin(admin.ModelAdmin):
+    form = TimetableAdminForm
+    fields = ("room", "date", "start_time", "end_time", "course", "academic_session", "is_cancelled")
+    save_on_top = True
+    list_display = ("room", "date", "start_time", "end_time", "course", "academic_session", "is_cancelled")
+    list_filter = ("date", "academic_session", "is_cancelled")
+    search_fields = ("room__code", "room__name", "course__code", "course__title")
+    list_select_related = ("room", "course")
     date_hierarchy = "date"
-    autocomplete_fields = ("room",)
+    autocomplete_fields = ("room", "course")
 
-    def get_readonly_fields(self, request, obj=None):
-        return ("room", "date") if obj else ()
-
-
-@admin.register(Allocation)
-class AllocationAdmin(ScheduleAdmin):
-    list_display = (
-        "title",
-        "course",
-        "academic_session",
-        "timetable",
-        "start_time",
-        "end_time",
-        "is_cancelled",
-    )
-    list_filter = ("is_cancelled", "timetable__date", "academic_session")
-    search_fields = (
-        "title",
-        "timetable__room__code",
-        "timetable__room__name",
-    )
-    list_select_related = ("timetable__room", "course")
-    autocomplete_fields = ("timetable", "course")
-
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        if request.method != "POST":
+            return super().changeform_view(request, object_id, form_url, extra_context)
+        room_ids = []
+        if object_id and object_id.isdigit():
+            room_ids = list(TimetableDay.objects.filter(pk=object_id).values_list("room_id", flat=True))
+        if request.POST.get("room", "").isdigit():
+            room_ids.append(int(request.POST["room"]))
+        try:
+            with lock_rooms(room_ids):
+                return super().changeform_view(request, object_id, form_url, extra_context)
+        except ValidationError as error:
+            self.message_user(request, " ".join(error.messages), messages.ERROR)
+            return HttpResponseRedirect(request.path)

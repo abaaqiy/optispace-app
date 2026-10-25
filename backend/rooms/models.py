@@ -42,9 +42,8 @@ class Room(models.Model):
 
     code = models.SlugField(max_length=50, unique=True)
     name = models.CharField(max_length=200)
-    zone = models.CharField(max_length=150, blank=True)
     building = models.ForeignKey(
-        Building, on_delete=models.PROTECT, null=True, blank=True,
+        Building, on_delete=models.PROTECT,
         related_name="rooms",
     )
     room_number = models.CharField(max_length=50, blank=True)

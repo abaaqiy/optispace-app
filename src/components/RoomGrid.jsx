@@ -1,14 +1,15 @@
+import { countdownLabel } from '../availability';
+
 const getStatusBadge = (status) => {
   switch(status) {
     case 'available': return <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full"><span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span> Available</span>;
-    case 'soon': return <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full"><span className="w-1.5 h-1.5 rounded-full bg-amber-600"></span> Occupied Soon</span>;
-    case 'occupied': return <span className="inline-flex items-center gap-1 bg-rose-100 text-rose-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full"><span className="w-1.5 h-1.5 rounded-full bg-rose-600"></span> In Session</span>;
+    case 'occupied': return <span className="inline-flex items-center gap-1 bg-rose-100 text-rose-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full"><span className="w-1.5 h-1.5 rounded-full bg-rose-600"></span> Occupied</span>;
     case 'reserved': return <span className="inline-flex items-center gap-1 bg-indigo-100 text-indigo-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full"><span className="w-1.5 h-1.5 rounded-full bg-indigo-600"></span> Reserved</span>;
     default: return <span className="bg-slate-100 text-slate-700 text-[10px] font-bold px-2.5 py-0.5 rounded-full">Unknown</span>;
   }
 };
 
-const RoomGrid = ({ rooms, onOpenDetails, onQuickBook, canBook = true }) => {
+const RoomGrid = ({ rooms, onOpenDetails }) => {
   if (rooms.length === 0) {
     return (
       <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center my-6">
@@ -37,6 +38,8 @@ const RoomGrid = ({ rooms, onOpenDetails, onQuickBook, canBook = true }) => {
               <div className="flex items-center gap-1.5 font-medium text-slate-800">
                 <i className="fa-solid fa-clock text-slate-400"></i> {room.statusText}
               </div>
+              {room.status === 'reserved' && <p className="font-mono font-bold text-indigo-800" role="timer">Starts in {countdownLabel(room.reservedSeconds)}</p>}
+              {room.status === 'reserved' && room.currentSchedule && <p>Currently in session: {room.currentSchedule}</p>}
               {room.nextSchedule && <div className="text-[11px] text-slate-500 pl-4">Next: {room.nextSchedule}</div>}
             </div>
           </div>
@@ -50,15 +53,6 @@ const RoomGrid = ({ rooms, onOpenDetails, onQuickBook, canBook = true }) => {
               <i className="fa-solid fa-circle-info"></i> Details
             </button>
             
-            {/* Only show Book button if canBook is true */}
-            {canBook && (
-              <button 
-                onClick={() => onQuickBook(room)} 
-                className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 border border-blue-700 rounded-lg shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                <i className="fa-solid fa-calendar-plus"></i> Book
-              </button>
-            )}
           </div>
         </div>
       ))}

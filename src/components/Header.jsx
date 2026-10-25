@@ -1,4 +1,4 @@
-const Header = ({ user, onLogout, stats, isLoggingOut = false }) => {
+const Header = ({ user, onLogout, isLoggingOut = false }) => {
   const isStudent = user.role === 'student';
   const isAdmin = user.role === 'admin';
 
@@ -56,27 +56,6 @@ const Header = ({ user, onLogout, stats, isLoggingOut = false }) => {
         </div>
       </div>
 
-      {/* Stats Banner */}
-      {stats && <div className="bg-slate-950/60 border-t border-slate-800/80 py-2.5 px-4 sm:px-6">
-        <div className="max-w-7xl mx-auto grid grid-cols-2 sm:grid-cols-4 gap-3 text-center sm:text-left">
-          <div className="flex items-center justify-center sm:justify-start gap-2.5">
-            <div className="p-1.5 bg-blue-500/10 text-blue-400 rounded-md"><i className="fa-solid fa-door-open text-sm"></i></div>
-            <div><span className="text-xs text-slate-400 block">Total Capacity</span><span className="text-sm font-bold text-slate-200">{stats.total} Venues</span></div>
-          </div>
-          <div className="flex items-center justify-center sm:justify-start gap-2.5">
-            <div className="p-1.5 bg-emerald-500/10 text-emerald-400 rounded-md"><i className="fa-solid fa-circle-check text-sm"></i></div>
-            <div><span className="text-xs text-slate-400 block">Available Now</span><span className="text-sm font-bold text-emerald-400">{stats.available} Venues</span></div>
-          </div>
-          <div className="flex items-center justify-center sm:justify-start gap-2.5">
-            <div className="p-1.5 bg-rose-500/10 text-rose-400 rounded-md"><i className="fa-solid fa-clock text-sm"></i></div>
-            <div><span className="text-xs text-slate-400 block">Occupied / Lecture</span><span className="text-sm font-bold text-rose-400">{stats.occupied} Venues</span></div>
-          </div>
-          <div className="flex items-center justify-center sm:justify-start gap-2.5">
-            <div className="p-1.5 bg-amber-500/10 text-amber-400 rounded-md"><i className="fa-solid fa-hourglass-half text-sm"></i></div>
-            <div><span className="text-xs text-slate-400 block">Occupied Soon</span><span className="text-sm font-bold text-amber-400">{stats.soon} Venues</span></div>
-          </div>
-        </div>
-      </div>}
     </header>
   );
 };

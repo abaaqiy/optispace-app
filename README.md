@@ -2,7 +2,7 @@
 
 Campus room availability and account management with a React/Vite frontend and
 a Django REST API. Django stores accounts, sessions, rooms, facilities, and
-timetables and reservations in PostgreSQL. There is no SQLite fallback.
+timetables in PostgreSQL. There is no SQLite fallback.
 
 ## Backend setup
 
@@ -44,7 +44,7 @@ python backend/manage.py createsuperuser
 python backend/manage.py runserver 127.0.0.1:8000
 ```
 
-Use `http://127.0.0.1:8000/admin/` to manage accounts, rooms, and published
+Use `http://127.0.0.1:8000/admin/` to manage accounts, rooms, and
 timetables. Lecturer accounts require administrator approval before sign-in.
 
 ## Frontend setup
@@ -59,6 +59,10 @@ npm run dev
 Open `http://127.0.0.1:5173`. Vite forwards `/api/`, `/admin/`, and `/static/`
 requests to Django. The room screens and campus schedule now load saved records
 from PostgreSQL. Login sessions survive a refresh, and logout ends the server session.
+The public page offers student and lecturer login only. Administrators open
+`http://127.0.0.1:5173/staff-login` directly; the application has no links to this
+page. It also supports a trailing slash. Existing sessions and Django permissions
+still control access. In production, serve the SPA for `/staff-login` as well as `/`.
 Use the registered email address on the React login page; Django admin also accepts
 the account's username. Both student and lecturer registration require matching
 password and confirmation fields; the API requires `confirmPassword` and never
@@ -66,39 +70,70 @@ stores or returns it. A lecturer with a correct password but an inactive account
 receives an administrator-activation message (HTTP 403). Incorrect credentials
 continue to receive the generic invalid-email-or-password message (HTTP 401).
 
-## First milestone: rooms and published availability
+## First milestone: rooms and timetable availability
 
-1. Sign into Django admin and add facilities and, optionally, an OAU building with
-   its campus zone. Enter verified campus information; no sample rooms are inserted
-   into the live database automatically.
+1. Sign into Django admin and add facilities and a building. **Building name** has
+   38 researched OAU suggestions plus **Others** for a custom name, with search
+   by name or nickname. Choose its campus area from the searchable dropdown.
+   See [building sources and migration behaviour](docs/building-catalog.md).
+   Suggestions do not insert database records automatically.
 2. Add a room using the searchable **Room name** dropdown (50 documented OAU
    suggestions plus **Others** for a custom name). The permanent internal code is
    generated automatically. Select its room type, capacity, size category and
-   facilities. Choose a zone from 16 searchable faculty and college areas, or leave it blank
-   to inherit the selected building's zone. A room's selected zone takes precedence.
+   facilities. A building is required; the room uses that building's campus area.
+   There is no separate room-zone field to fill in.
    See [catalogue sources and editing behaviour](docs/room-catalog.md).
-3. Optionally add courses with their code, title, and department.
-4. Add a timetable day for the room and date. Its coverage start/end must describe
-   the period for which you have verified the full schedule. Leave it unpublished
-   until the lecture allocations have been entered and checked.
-5. Add lecture allocations within that coverage, optionally linking each to a course
-   and academic session. Overlapping lectures are rejected. Publish the timetable day.
+   To update a saved room, choose **Manage Rooms → Edit room** beside its row
+   (the room name is plain text). Change any of the seven room-detail fields and
+   choose **Save** at the top or bottom. The room's internal identifier stays
+   the same, preserving its timetable and reservation links.
+3. Under **Scheduling → Courses**, add the course code, title and department.
+4. Under **Scheduling → Timetables**, fill in **Room**, **Date**, **Start time**,
+   **End time**, **Course**, and **Academic session** (for example, `2026/2027`).
+   One row represents one scheduled class. Save another timetable row for another
+   class, including in the same room on the same date. All six fields are editable.
+5. Save to apply the entry immediately. There is no Lectures section, separate
+   lecture title, day-coverage form or publishing step.
+   The course supplies the displayed class name. Overlapping active entries for the
+   same room/date are rejected. Edit the times to reschedule. Select **Cancelled**
+   and save to release a class's time slot while keeping its record. Clear Cancelled
+   to restore the class, provided no replacement class overlaps it.
 6. In the frontend, open Lecture Rooms (large rooms) or Reading Rooms (small rooms).
    Search by zone, minimum capacity, facilities, status, or a specific date/time.
-   Open Details to see the full published timetable. Class Schedule lists the
-   published, active lectures for its selected date.
+   Open Details to see the full timetable. Class Schedule lists the
+   saved classes for its selected date.
 
-Dates and times use `Africa/Lagos`. The room page refreshes every minute, when the
-browser regains focus, or when Refresh rooms is clicked. “Occupied soon” is currently
-free but has a lecture starting within an hour; it is included in the Available filter.
-No published timetable, or a time outside its coverage, gives Unknown. Availability
-is derived from the timetable and does not detect unscheduled physical occupancy.
+Dates and times use `Africa/Lagos`. Room lists, open details and campus schedules
+check the API five seconds after each completed request, and on focus, returning
+to a visible tab or reconnecting. This is polling, so a change normally appears
+within five seconds plus network/request time; it is not an instantaneous push.
+The Refresh rooms button fetches immediately, shows progress and the last successful
+update time, and reports errors with a retry. Failed room requests clear stale
+availability rather than continuing to display it. Status and countdowns advance
+every second in the current-time view. A selected date/time is a fixed preview,
+while the underlying timetable still refreshes.
 
-The existing screen layouts and room response fields are preserved. Buildings and
-course links are optional, so existing room and schedule records remain valid.
-Reservations now use the workflow described below. The public campus class schedule
-continues to list published lecture allocations; private reservation purposes are
-shown only to their requester and administrators.
+Availability checks all stored classes for that room/date, regardless of user or
+search filters. A date with no entries anywhere in the school timetable is Unknown.
+When the school timetable has entries for that date, a room without an active class
+at the selected time is Available (subject to the hall-only Reserved warning).
+Cancelled rows are ignored for occupancy, but still establish that a timetable
+exists for that date, so cancelling the only class releases the room. Another
+active class in the same slot keeps the room Occupied. This assumes the saved
+school timetable contains every relevant class for that date; the app cannot
+infer classes that have not been entered.
+Availability is derived from the timetable and does not detect unscheduled physical
+occupancy. The automatic Reserved warning is described below.
+
+The existing screen layouts and room response fields are preserved. Every room
+requires a building; its public `zone` value and zone filtering come from that
+building. New admin entries require a course and academic session. Legacy entries without
+them remain visible as "Scheduled class" until an administrator fills them in.
+Existing room IDs are retained; timetable rows supply the schedule references.
+The public campus class schedule lists saved classes and marks cancelled entries
+**Cancelled**. The lecturer overview tab is called **Dashboard**.
+Students and lecturers can browse rooms and timetables; booking requests have been
+removed.
 
 ### API routes
 
@@ -107,75 +142,124 @@ shown only to their requester and administrators.
 | `GET /api/rooms/` | Room list; filters: `date` + `time`, `zone`, `building`, `capacity`, `category`, `status`, repeated `facilities` |
 | `GET /api/rooms/<code>/` | Room details and availability for `date` + `time` (or now) |
 | `GET /api/rooms/filters/` | Saved campus zones/buildings and supported facilities |
-| `GET /api/schedules/?date=YYYY-MM-DD` | Published, non-cancelled lectures; defaults to today in Lagos |
+| `GET /api/schedules/?date=YYYY-MM-DD` | Saved timetable classes; defaults to today in Lagos |
 
 Room list responses stay arrays with `id`, `name`, `zone`, `type`, `capacity`,
 `sizeCategory`, `facilities`, `status`, `statusText`, `currentSchedule`,
 `nextSchedule`, `hourlySchedule`, and `availabilityAt`. `building` and `roomNumber`
-are additive. Catalog and timetable writes use Django admin; public API routes are read-only.
+are additive. Responses also include `reservedUntil`, `reservedSeconds` and
+`statusTimeline` (timestamped status periods for the selected date). These let
+the current-time view advance locally between refreshes, including in an open room
+dialog and when filtering by status. Catalog and timetable writes use Django admin;
+public API routes are read-only.
 
-## Second milestone: reservation requests and approval
+## Room status and hall-only Reserved warning
 
-1. An administrator publishes a room's timetable for the requested date, including
-   its verified coverage hours and lecture allocations. An empty published day
-   means that its coverage hours have no scheduled lectures.
-2. A student opens **Reading Rooms** to request a small room. An activated lecturer
-   can request either a small or large room from **Find a Room** or the dashboard.
-   Use **Book** or **Reserve Room**, enter a purpose, date, start and end, and submit.
-3. Requests appear as **Pending** in **My Reading Bookings** / **My Schedule**.
-   Pending requests do not block the room. Administrators see requests under
-   **Booking Approvals**, with status filtering and optional review notes.
-4. Approval checks availability again and marks that period **Reserved**. A rejected
-   request keeps its history and review note. The requester or an administrator can
-   cancel a pending or approved reservation before its start time; cancelling an
-   approved reservation releases its time immediately.
+The room's **Room type** controls whether Reserved can appear. Only **Seminar Room**,
+**Seminar Hall** and **Event Hall** have the 15-minute warning; the latter two are
+now available in the admin dropdown. Lecture Theatre, Classroom, reading rooms,
+laboratories, studios, meeting rooms and custom types never display Reserved.
 
-All dates and times use `Africa/Lagos`. Reservations are for one day, must start in
-the future, and must fit inside a published timetable's coverage hours. They cannot
-overlap an active lecture or approved reservation. Different users can request the
-same free period while approval is pending; only one overlapping request can be
-approved. A user's duplicate/overlapping pending request for the same room is rejected.
-Requests cannot be edited; cancel and submit a new one to change their details.
+Statuses use Lagos time and the school's saved timetable:
 
-The server assigns the owner, reference and status. Only active superuser
-administrators can approve or reject requests. Students/lecturers can list only
-their own reservations. Session authentication and CSRF protection apply to writes.
-Public room responses show a generic **Reserved** label without the requester's
-name or purpose. Approved reservations stay visible even if a timetable is later
-unpublished; other periods then have Unknown availability.
+- **Occupied:** an active class covers this time. For lecture rooms this lasts
+  until the class ends, including through back-to-back classes without a gap.
+- **Available:** no active class covers this time, either because the class was
+  cancelled or because no class is scheduled in that interval.
+- **Reserved:** for eligible seminar/event spaces only, the next active session
+  starts within 15 minutes. This warning takes priority even during a preceding
+  session, whose name remains visible. Cancelled sessions never trigger it.
+- **Unknown:** no school timetable has been entered for the selected date.
 
-Room row locks serialize approvals and lecture saves, including edits and restoring
-cancelled lectures. Both directions check for conflicts inside a transaction.
-Use the application/admin save paths; direct SQL, `QuerySet.update()` and bulk writes
-bypass this validation. Reservation records retain who reviewed/cancelled them and
-when. Django admin offers the same guarded actions through **Manage Reservations**;
-direct reservation editing, adding and deletion are disabled there.
+For a single active timetable entry from 10:00 to 12:00:
 
-| Method and route | Purpose |
-| --- | --- |
-| `GET /api/reservations/` | Own requests, or all for administrators; optional `status` filter |
-| `POST /api/reservations/` | Request using `roomId` (room code), `date`, `startTime`, `endTime`, `purpose` |
-| `POST /api/reservations/<reference>/approve/` | Administrator approval; optional `note` |
-| `POST /api/reservations/<reference>/reject/` | Administrator rejection; optional `note` |
-| `POST /api/reservations/<reference>/cancel/` | Requester or administrator cancellation |
+| Time on that date | Lecture room | Seminar/event hall |
+| --- | --- | --- |
+| Before 09:45 | Available | Available |
+| 09:45–10:00 | Available | Reserved |
+| 10:00–12:00 | Occupied | Occupied |
+| After 12:00 | Available | Available |
+| Class cancelled, with no replacement | Available | Available |
 
-Use `YYYY-MM-DD` and `HH:MM`. Invalid requests return 400; unauthorized actions
-return 403, and other users' references return 404. A review/cancellation that is
-no longer valid returns 409 with a message. Lists refresh every minute, on window
-focus, and via **Refresh reservations**. Room filters include **Reserved**, and
-room details include approved reservation slots alongside lectures and free gaps.
+Intervals include their start and exclude their end. Saved cancellations and
+restorations reach student and lecturer views through automatic polling, including
+status filters and an open room dialog. The campus schedule retains cancelled
+entries with their status. No scheduled job or manual room-status update is needed.
+A future-date search stays at its chosen moment while reflecting timetable edits.
 
-Apply the new schema with `python backend/manage.py migrate`. The migration adds
-the reservation table and preserves existing accounts, rooms and timetables.
+Booking forms, personal request pages, approvals and reservation API routes have
+been removed for all roles. `/api/reservations/` and its former action URLs return
+404. Historical reservation rows and migration history remain in PostgreSQL; they
+are not exposed in Django admin and do not affect room status or lecture validation.
+The booking removal requires no database migration. The retained `bookings` app only
+keeps those existing records and migration dependencies intact.
 
-Focused verification (from `backend/`):
+Timetable saves lock the room and reject overlapping active entries, including when
+restoring a cancelled class.
+Use Django admin/model save paths: direct SQL and bulk updates bypass model
+validation.
+
+Focused verification:
 
 ```sh
+cd backend
 ../venv/bin/python manage.py test bookings scheduling rooms
 ```
 
-The tests cover role access, CSRF, validation, approval/rejection/cancellation,
-availability boundaries, privacy, Django admin actions and simultaneous writes.
+Frontend countdown verification (from the repository root):
+
+```sh
+node --test src/availability.test.js
+```
+
+These tests cover retired endpoints, archived record preservation, timetable editing, data migration, countdown boundaries, back-to-back lectures, status filtering, and room
+editing without changing existing record links.
+
+## Simplified scheduling upgrade
+
+Scheduling has two admin categories: **Courses** and **Timetables**. Migration
+`scheduling.0004_flatten_timetables` moves each active lecture into one timetable
+row, copies its room, date, start/end, course and academic session, and removes the
+Allocation model/table. The first class keeps its old parent timetable ID; any
+additional classes get new timetable IDs. API response fields stay compatible.
+
+Before upgrading, back up `scheduling_timetableday`, `scheduling_allocation`, and
+`scheduling_course`, then run `python backend/manage.py migrate`. Removed lecture
+fields (title and cancellation), cancelled records and empty day-coverage records
+are retained only in that backup. The migration does not invent courses or turn
+empty days into occupied periods. Restoring the old structure with records requires
+restoring the backup. All current active classes retain their times and course links.
+
+Migration `scheduling.0005_timetable_cancellation` adds **Cancelled** directly to
+Timetables with a default of false. It preserves every existing record and does
+not reintroduce the separate Lectures category. Apply with
+`python backend/manage.py migrate` after backing up timetable records.
+
+## Adding another administrator
+
+An existing superuser can use **Manage Users → Add user**:
+
+1. Enter a username, OAU staff email, password and confirmation. Choose Lecturer
+   for the initial role so the `@oauife.edu.ng` email is valid, then save.
+2. Open the new user. Under Permissions, enable **Active**, **Staff status** and
+   **Superuser status**, then save. Superuser status makes the account an application
+   administrator regardless of its initial student/lecturer role.
+3. The new administrator signs in with their email at `/staff-login`, or their
+   username at Django's `/admin/` page.
+
+Staff status alone allows entry to Django admin with assigned permissions; it does
+not make the account an application administrator. Public registration cannot grant
+staff or superuser permissions.
+
+## Required-building upgrade
+
+Before updating an existing installation, back up room/building records including
+old room-zone overrides. All existing rooms must already have a building; otherwise
+migration `rooms.0003` stops and lists unassigned room codes. Assign their buildings
+using the previous application version, then retry `python backend/manage.py migrate`.
+The migration retains existing building links, makes them required and removes the
+room-zone column. A building's campus area replaces any conflicting room override.
+See [the migration notes](docs/building-catalog.md#upgrade).
 
 ## Verify the database
 

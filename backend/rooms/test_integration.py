@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework.test import APITestCase
 
-from scheduling.models import Allocation, Course, TimetableDay
+from scheduling.models import Course, TimetableDay
 
 from .models import Building, Facility, Room
 
@@ -18,22 +18,15 @@ class RoomIntegrationTests(APITestCase):
             room_number="101", capacity=80, size_category="large", room_type="Lecture room",
         )
         cls.other = Room.objects.create(
-            code="reading-1", name="Reading Room", zone="Library", capacity=20,
+            code="reading-1", name="Reading Room", building=Building.objects.create(name="Library building", campus_zone="Library"), capacity=20,
             size_category="small", room_type="Study room",
         )
         wifi = Facility.objects.create(code="wifi")
         projector = Facility.objects.create(code="projector")
         cls.room.facilities.add(wifi, projector)
         cls.other.facilities.add(wifi)
-        cls.day = TimetableDay.objects.create(
-            room=cls.room, date=date(2030, 5, 20), coverage_start=time(8),
-            coverage_end=time(18), is_published=True,
-        )
         cls.course = Course.objects.create(code="CSC101", title="Introduction", department="Computing")
-        cls.allocation = Allocation.objects.create(
-            timetable=cls.day, title="Introduction lecture", start_time=time(9),
-            end_time=time(11), course=cls.course, academic_session="2029/2030",
-        )
+        cls.day = TimetableDay.objects.create(room=cls.room, date=date(2030, 5, 20), start_time=time(9), end_time=time(11), course=cls.course, academic_session="2029/2030")
         cls.admin = get_user_model().objects.create_superuser(
             username="test-admin", email="test-admin@oauife.edu.ng", password="Test-Admin-932!",
         )
@@ -63,21 +56,21 @@ class RoomIntegrationTests(APITestCase):
         response = self.client.get("/api/rooms/", {"zone": "Library", "facilities": ["wifi", "projector"]})
         self.assertEqual(response.data, [])
 
-    def test_legacy_room_without_building_can_be_filtered(self):
+    def test_room_is_filtered_by_its_building_zone(self):
         response = self.client.get("/api/rooms/", {"zone": "Library", "category": "small"})
         self.assertEqual([item["id"] for item in response.data], ["reading-1"])
-        self.assertIsNone(response.data[0]["building"])
+        self.assertEqual(response.data[0]["building"]["id"], self.other.building_id)
         self.assertEqual(response.data[0]["status"], "unknown")
 
     def test_available_filter_includes_free_period_before_a_lecture(self):
         response = self.client.get("/api/rooms/", {
-            "date": "2030-05-20", "time": "08:30", "status": "available",
+            "date": "2030-05-20", "time": "08:30", "status": "available", "category": "large",
         })
         self.assertEqual(response.status_code, 200)
         self.assertEqual([item["id"] for item in response.data], ["science-101"])
-        self.assertEqual(response.data[0]["status"], "soon")
+        self.assertEqual(response.data[0]["status"], "available")
         response = self.client.get("/api/rooms/", {
-            "date": "2030-05-20", "time": "10:00", "status": "available",
+            "date": "2030-05-20", "time": "10:00", "status": "available", "category": "large",
         })
         self.assertEqual(response.data, [])
 
@@ -102,7 +95,7 @@ class RoomIntegrationTests(APITestCase):
         self.assertEqual(len(response.data), 1)
         row = response.data[0]
         self.assertEqual(row["roomId"], self.room.code)
-        self.assertEqual(row["purpose"], self.allocation.title)
+        self.assertEqual(row["purpose"], self.day.title)
         self.assertEqual(row["organizer"], "Computing")
         self.assertEqual(row["timeSlot"], "09:00 - 11:00")
         self.assertEqual(row["date"], "2030-05-20")
@@ -110,30 +103,11 @@ class RoomIntegrationTests(APITestCase):
         self.assertTrue(row["isApproved"])
         self.assertEqual(self.client.get("/api/schedules/", {"date": "bad"}).status_code, 400)
 
-    def test_schedule_hides_cancelled_and_unpublished_lectures(self):
-        self.allocation.is_cancelled = True
-        self.allocation.save()
-        self.assertEqual(self.client.get("/api/schedules/", {"date": "2030-05-20"}).data, [])
-        self.allocation.is_cancelled = False
-        self.allocation.save()
-        self.day.is_published = False
-        self.day.save()
+    def test_deleted_timetable_disappears_from_schedule(self):
+        self.day.delete()
         self.assertEqual(self.client.get("/api/schedules/", {"date": "2030-05-20"}).data, [])
 
-    def test_admin_publishes_schedule_and_it_appears_in_public_api(self):
-        self.day.is_published = False
-        self.day.save()
-        self.client.force_login(self.admin)
-        response = self.client.post(reverse("admin:scheduling_timetableday_change", args=[self.day.pk]), {
-            "coverage_start": "08:00:00", "coverage_end": "18:00:00", "is_published": "on", "_save": "Save",
-        })
-        self.assertEqual(response.status_code, 302)
-        self.client.logout()
-        response = self.client.get("/api/rooms/science-101/", {"date": "2030-05-20", "time": "09:30"})
-        self.assertEqual(response.data["status"], "occupied")
-        self.assertEqual(response.data["currentSchedule"], self.allocation.title)
-
-    def test_non_admin_cannot_edit_room_or_publish_schedule(self):
+    def test_non_admin_cannot_edit_room_or_timetable(self):
         student = get_user_model().objects.create_user(
             username="student-viewer", email="viewer@student.oauife.edu.ng", password="Test-Student-932!",
         )

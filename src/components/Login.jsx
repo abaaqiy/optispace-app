@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { loginUser, registerUser } from '../api';
 
-const Login = ({ onLogin }) => {
+const Login = ({ onLogin, adminOnly = false }) => {
   const [isLoginView, setIsLoginView] = useState(true);
-  const [role, setRole] = useState('student');
+  const [role, setRole] = useState(adminOnly ? 'admin' : 'student');
 
   // Form state
   const [name, setName] = useState('');
@@ -402,21 +402,7 @@ const Login = ({ onLogin }) => {
           )}
         </form>
 
-        {/* Admin login / return to user login */}
-        <div className="text-center pb-4">
-          <button
-            type="button"
-            disabled={isSubmitting}
-            onClick={() =>
-              handleRoleSwitch(role === 'admin' ? 'student' : 'admin')
-            }
-            className="text-[10px] text-slate-400 hover:text-slate-600 underline"
-          >
-            {role === 'admin'
-              ? 'Return to Student/Lecturer Login'
-              : 'Switch to Admin Login'}
-          </button>
-        </div>
+
       </div>
     </div>
   );

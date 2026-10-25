@@ -1,22 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { getCampusSchedule, getLagosDateTime } from '../api';
-import BookingsTable from './BookingsTable';
+import ScheduleTable from './ScheduleTable';
+import useLiveData from '../useLiveData';
 
 export default function CampusSchedule() {
   const [date, setDate] = useState(() => getLagosDateTime().date);
-  const [revision, setRevision] = useState(0);
-  const [result, setResult] = useState(null);
-  const key = `${date}:${revision}`;
-
-  useEffect(() => {
-    let active = true;
-    getCampusSchedule(date).then(rows => {
-      if (active) setResult({ key, rows });
-    }).catch(error => {
-      if (active) setResult({ key, error: error.message });
-    });
-    return () => { active = false; };
-  }, [date, key]);
+  const loadSchedule = useCallback(options => getCampusSchedule(date, options), [date]);
+  const { data, error, loading, refreshing, refresh } = useLiveData(date, loadSchedule);
 
   return (
     <section className="space-y-4">
@@ -26,11 +16,12 @@ export default function CampusSchedule() {
             if (event.target.value) setDate(event.target.value);
           }} className="ml-3 p-2 border rounded-lg bg-white" />
         </label>
-        <button onClick={() => setRevision(value => value + 1)} className="text-sm font-semibold text-blue-700 underline">Refresh schedule</button>
+        <button type="button" onClick={refresh} disabled={refreshing} className="text-sm font-semibold text-blue-700 underline disabled:opacity-50">{refreshing ? 'Refreshing…' : 'Refresh schedule'}</button>
       </div>
-      {result?.key !== key ? <p role="status">Loading schedule…</p> : result.error ? (
-        <p role="alert" className="text-rose-700">{result.error}</p>
-      ) : <BookingsTable bookings={result.rows} readOnly />}
+      <p className="text-xs text-slate-600">Timetable changes and cancellations are checked every 5 seconds.</p>
+      {loading ? <p role="status">Loading schedule…</p> : error ? (
+        <p role="alert" className="text-rose-700">{error} Retrying automatically.</p>
+      ) : <ScheduleTable rows={data || []} />}
     </section>
   );
 }

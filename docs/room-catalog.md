@@ -76,9 +76,11 @@ merging existing records.
 
 ## Types and campus areas
 
-The eight initial types are Lecture Theatre, Classroom, Seminar Room, Reading Room,
-Computer Laboratory, Laboratory, Studio and Meeting Room: simple app categories,
-not an official OAU classification.
+The ten types are Lecture Theatre, Classroom, Seminar Room, Seminar Hall, Event Hall,
+Reading Room, Computer Laboratory, Laboratory, Studio and Meeting Room: simple app
+categories, not an official OAU classification. Only Seminar Room, Seminar Hall and
+Event Hall use the 15-minute Reserved warning. Existing custom room types are
+preserved but do not use that warning.
 
 The campus-area list was expanded on 25 October 2026 to the 16 faculties and
 colleges requested by the project owner:
@@ -105,15 +107,17 @@ selectable. Computing uses the single label **Faculty of Computing Science and
 Engineering**. These are academic areas for navigating the app, not an official
 numbered-zone inventory.
 
-Zone search does not allow new text options or Others. A room inherits its
-building's campus zone when the room zone is blank. An explicit room zone takes
-precedence in the public API and filters; it does not change the building or other
-rooms. Existing zones and types outside the starter lists remain selectable on
-their own edit forms.
+Campus-area selection now lives on **Buildings** only. Each room must belong to a
+building and inherits its area; the former room-zone selector and stored override
+have been removed. The building form keeps those 16 faculty/college areas and adds
+Central Campus, Halls of Residence, and Research and Service Centres as app location
+categories. Area search does not allow Others; existing custom areas remain
+selectable on their building's edit form. Existing room types remain selectable on
+their room's edit form. See [building catalogue and upgrade notes](building-catalog.md).
 
 Options live in `backend/rooms/catalog.py`. Django's bundled Select2 powers search
 without a CDN or extra runtime package. Without JavaScript, the native selects and
 custom-name input still work and validation stays on the server.
-Both searchable fields follow Django admin's light, dark and automatic themes.
+All catalogue search fields follow Django admin's light, dark and automatic themes.
 The dropdown panel, search input and options use the admin theme colours;
 highlighted options use its contrasting button text and background colours.

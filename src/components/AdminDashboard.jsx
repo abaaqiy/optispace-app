@@ -1,10 +1,8 @@
 import RoomGrid from './RoomGrid';
-import ReservationsPanel from './ReservationsPanel';
 
 const adminLinks = [
   { label: 'Manage Buildings', path: 'rooms/building/' },
   { label: 'Manage Courses', path: 'scheduling/course/' },
-  { label: 'Manage Reservations', path: 'bookings/reservation/' },
   {
     label: 'Manage Rooms',
     path: 'rooms/room/',
@@ -14,12 +12,8 @@ const adminLinks = [
     path: 'rooms/facility/',
   },
   {
-    label: 'Manage Timetable Days',
+    label: 'Manage Timetables',
     path: 'scheduling/timetableday/',
-  },
-  {
-    label: 'Manage Lecture Allocations',
-    path: 'scheduling/allocation/',
   },
   {
     label: 'Manage Users / Activate Lecturers',
@@ -27,7 +21,7 @@ const adminLinks = [
   },
 ];
 
-const AdminDashboard = ({ rooms, onOpenDetails, onReservationChanged }) => {
+const AdminDashboard = ({ rooms, onOpenDetails }) => {
   return (
     <div className="space-y-6">
       <section className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
@@ -37,8 +31,8 @@ const AdminDashboard = ({ rooms, onOpenDetails, onReservationChanged }) => {
 
         <p className="text-sm text-slate-600 mb-4">
           Add rooms, facilities, and lecture times through Django admin.
-          Publish each day's timetable after checking its coverage and sessions.
-          Students see availability from those published schedules.
+          Add one timetable entry per class. Select Cancelled to release a class's time slot.
+          Saved timetables immediately determine room availability.
         </p>
 
         <div className="flex flex-wrap gap-3">
@@ -56,17 +50,6 @@ const AdminDashboard = ({ rooms, onOpenDetails, onReservationChanged }) => {
         </div>
       </section>
 
-      <section className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-        <h2 className="text-lg font-bold text-slate-900 mb-2">
-          Booking Approvals
-        </h2>
-
-        <p className="text-sm text-slate-600">
-          Review student and lecturer requests. Approval checks the room's timetable and existing reservations again.
-        </p>
-        <div className="mt-4"><ReservationsPanel admin onChanged={onReservationChanged} /></div>
-      </section>
-
       {rooms && <section>
         <h2 className="text-lg font-bold text-slate-900 mb-4">
           Room Overview
@@ -75,7 +58,6 @@ const AdminDashboard = ({ rooms, onOpenDetails, onReservationChanged }) => {
         <RoomGrid
           rooms={rooms}
           onOpenDetails={onOpenDetails}
-          canBook={false}
         />
       </section>}
     </div>

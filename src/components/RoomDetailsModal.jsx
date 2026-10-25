@@ -1,3 +1,5 @@
+import { countdownLabel } from '../availability';
+
 const facilityMap = {
   ac: {
     icon: 'fa-snowflake',
@@ -24,8 +26,6 @@ const facilityMap = {
 const RoomDetailsModal = ({
   room,
   onClose,
-  onBook,
-  canBook = false,
 }) => {
   if (!room) return null;
 
@@ -93,9 +93,11 @@ const RoomDetailsModal = ({
             </p>
 
             <p className="mt-1">{room.statusText}</p>
+            {room.status === 'reserved' && <p role="timer" className="font-mono font-bold mt-2">Starts in {countdownLabel(room.reservedSeconds)}</p>}
+            {room.status === 'reserved' && room.currentSchedule && <p>Currently in session: {room.currentSchedule}</p>}
 
             <p className="mt-2 text-slate-600">
-              Based on published timetables and approved reservations. Physical use may differ.
+              Based on timetables. Physical use may differ.
             </p>
           </div>
 
@@ -132,12 +134,12 @@ const RoomDetailsModal = ({
 
           <div>
             <h4 className="font-bold text-slate-800 mb-2">
-              Timetable and reservations for the selected date
+              Timetable for the selected date
             </h4>
 
             {schedule.length === 0 ? (
               <p className="rounded-lg bg-slate-50 p-3 text-slate-600">
-                No published timetable is available for this date.
+                No timetable is available for this date.
                 Do not assume the room is free.
               </p>
             ) : (
@@ -172,15 +174,7 @@ const RoomDetailsModal = ({
             Close
           </button>
 
-          {canBook && (
-            <button
-              type="button"
-              onClick={() => onBook(room)}
-              className="px-6 py-2.5 bg-blue-600 text-white font-bold text-xs rounded-xl"
-            >
-              Reserve Room
-            </button>
-          )}
+
         </div>
       </div>
     </div>

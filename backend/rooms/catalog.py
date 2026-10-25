@@ -1,11 +1,57 @@
 """Admin suggestions only, not a live campus inventory. See docs/room-catalog.md."""
 
 OTHER_ROOM = "__other__"
+OTHER_BUILDING = "__other__"
+
+# Documented buildings/complexes, not room numbers or automatically created rows.
+# Sources, historical names and scope are recorded in docs/building-catalog.md.
+BUILDING_NAMES = (
+    "Faculty of Science Building (White House)",
+    "Mathematics Building Complex (Yellow House)",
+    "Hezekiah Oluwasanmi Library (HOL)",
+    "Senate Building",
+    "Oduduwa Hall Complex",
+    "Faculty of Arts Block I",
+    "Faculty of Arts Block II",
+    "Faculty of Administration Building",
+    "Faculty of Education Building",
+    "Faculty of Law Building",
+    "Faculty of Social Sciences Building",
+    "Faculty of Agriculture Building",
+    "Faculty of Pharmacy Building",
+    "Environmental Design and Management Block I (EDM I)",
+    "Environmental Design and Management Block II (EDM II)",
+    "Biological Sciences Building Complex",
+    "Computer Building Complex",
+    "ICT Centre",
+    "African Centre of Excellence Building (ACE)",
+    "Institute of Cultural Studies Building (ICS)",
+    "Institute of African Studies Building",
+    "Natural History Museum",
+    "Nursing Department New Building",
+    "Agricultural Economics Building",
+    "Science Lecture Theatre Complex",
+    "Ajose Lecture Theatre (AJSLT)",
+    "First Bank Lecture Theatre (FBLT)",
+    "Division of Students' Affairs Building (DSA)",
+    "Students' Union Building (SUB)",
+    "Obafemi Awolowo Hall",
+    "Adekunle Fajuyi Hall",
+    "Angola Hall",
+    "Education Tax Fund Hall (ETF Hall)",
+    "Moremi Hall",
+    "Samuel Ladoke Akintola Hall",
+    "Mozambique Hall",
+    "Alumni Hall",
+    "Murtala Mohammed Postgraduate Hall",
+)
 
 ROOM_TYPES = (
     "Lecture Theatre",
     "Classroom",
     "Seminar Room",
+    "Seminar Hall",
+    "Event Hall",
     "Reading Room",
     "Computer Laboratory",
     "Laboratory",
@@ -86,4 +132,8 @@ CAMPUS_ZONES = (
     "Faculty of Social Sciences",
     "Faculty of Technology",
     "Postgraduate College",
+    # App location categories for buildings outside faculty/college areas.
+    "Central Campus",
+    "Halls of Residence",
+    "Research and Service Centres",
 )

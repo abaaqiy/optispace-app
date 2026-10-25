@@ -3,94 +3,69 @@ from datetime import date, time
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 
-from rooms.models import Room
-
-from .models import Allocation, TimetableDay
+from rooms.models import Building, Room
+from .models import Course, TimetableDay
 
 
 class SchedulingTests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.room = Room.objects.create(
-            code="room-1",
-            name="Demo Lecture Theatre",
-            zone="Demo Faculty",
-            room_type="Lecture Theatre",
-            capacity=100,
-            size_category="small",
-        )
+        cls.room = Room.objects.create(code="test", name="Test room", building=Building.objects.create(name="Test building", campus_zone="Science"), capacity=100, size_category="large", room_type="Classroom")
+        cls.course = Course.objects.create(code="CSC101", title="Computing", department="Computer Science")
 
-        cls.day = TimetableDay.objects.create(
-            room=cls.room,
-            date=date(2026, 10, 22),
-            coverage_start=time(8, 0),
-            coverage_end=time(18, 0),
-        )
-
-    def create_allocation(self, start_hour, end_hour, **extra):
-        return Allocation.objects.create(
-            timetable=self.day,
-            title="Demo lecture",
-            start_time=time(start_hour, 0),
-            end_time=time(end_hour, 0),
-            **extra,
-        )
-
-    def test_timetable_starts_unpublished(self):
-        self.assertFalse(self.day.is_published)
-
-    def test_duplicate_room_date_is_rejected(self):
-        with self.assertRaises(ValidationError):
-            TimetableDay.objects.create(
-                room=self.room,
-                date=self.day.date,
-                coverage_start=time(8, 0),
-                coverage_end=time(18, 0),
-            )
+    def entry(self, start=8, end=10, **extra):
+        return TimetableDay.objects.create(room=self.room, date=date(2030, 1, 15), start_time=time(start), end_time=time(end), course=self.course, academic_session="2029/2030", **extra)
 
     def test_end_must_be_after_start(self):
-        for start_hour, end_hour in [(10, 10), (11, 10)]:
-            with self.subTest(start=start_hour, end=end_hour):
-                with self.assertRaises(ValidationError):
-                    self.create_allocation(start_hour, end_hour)
+        for start, end in [(10, 10), (11, 10)]:
+            with self.subTest(start=start, end=end), self.assertRaises(ValidationError):
+                self.entry(start, end)
 
-    def test_overlapping_allocations_are_rejected(self):
-        self.create_allocation(8, 10)
+    def test_overlaps_rejected_but_adjacent_classes_allowed(self):
+        self.entry()
+        for start, end in [(8, 10), (9, 11), (7, 11)]:
+            with self.subTest(start=start, end=end), self.assertRaises(ValidationError):
+                self.entry(start, end)
+        self.entry(10, 12)
+        self.assertEqual(TimetableDay.objects.count(), 2)
 
+    def test_same_time_on_another_date_is_allowed(self):
+        entry = self.entry()
+        entry.pk = None
+        entry.date = date(2030, 1, 16)
+        entry.save()
+        self.assertEqual(TimetableDay.objects.count(), 2)
+
+    def test_edit_can_move_room_date_and_times(self):
+        entry = self.entry()
+        entry.date = date(2030, 1, 16)
+        entry.start_time = time(9)
+        entry.save()
+        entry.refresh_from_db()
+        self.assertEqual(entry.date, date(2030, 1, 16))
+        self.assertEqual(entry.start_time, time(9))
+        self.assertEqual(entry.title, "CSC101 — Computing")
+
+    def test_moving_to_an_occupied_room_is_rejected(self):
+        self.entry()
+        other = Room.objects.create(code="other", name="Other room", building=self.room.building, capacity=30, size_category="small", room_type="Classroom")
+        entry = TimetableDay.objects.create(room=other, date=date(2030, 1, 15), start_time=time(8), end_time=time(10))
+        entry.room = self.room
         with self.assertRaises(ValidationError):
-            self.create_allocation(9, 11)
+            entry.save()
+        entry.refresh_from_db()
+        self.assertEqual(entry.room, other)
 
-    def test_adjacent_allocations_are_allowed(self):
-        self.create_allocation(8, 10)
-        self.create_allocation(10, 12)
-
-        self.assertEqual(self.day.allocations.count(), 2)
-
-    def test_allocation_must_fit_inside_coverage(self):
-        for start_hour, end_hour in [(7, 9), (17, 19)]:
-            with self.subTest(start=start_hour, end=end_hour):
-                with self.assertRaises(ValidationError):
-                    self.create_allocation(start_hour, end_hour)
-
-    def test_cancelled_allocation_does_not_block_time(self):
-        self.create_allocation(8, 10, is_cancelled=True)
-        self.create_allocation(8, 10)
-
-        active = self.day.allocations.filter(is_cancelled=False)
-        self.assertEqual(active.count(), 1)
-
-    def test_coverage_cannot_exclude_active_allocations(self):
-        self.create_allocation(8, 10)
-        self.day.coverage_start = time(9, 0)
-
+    def test_cancelled_class_can_be_replaced_but_cannot_be_restored_over_another(self):
+        cancelled = self.entry(is_cancelled=True)
+        replacement = self.entry()
+        cancelled.is_cancelled = False
         with self.assertRaises(ValidationError):
-            self.day.save()
-
-    def test_editing_allocation_does_not_conflict_with_itself(self):
-        allocation = self.create_allocation(8, 10)
-        allocation.title = "Updated lecture title"
-        allocation.save()
-
-        allocation.refresh_from_db()
-        self.assertEqual(allocation.title, "Updated lecture title")
-
+            cancelled.save()
+        cancelled.refresh_from_db()
+        self.assertTrue(cancelled.is_cancelled)
+        replacement.is_cancelled = True
+        replacement.save()
+        cancelled.is_cancelled = False
+        cancelled.save()
+        self.assertFalse(TimetableDay.objects.get(pk=cancelled.pk).is_cancelled)

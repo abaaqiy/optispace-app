@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from django.db.models import Prefetch, Q
+from django.db.models import Prefetch
 from django.utils import timezone
 from django.utils.functional import cached_property
 from rest_framework.generics import ListAPIView, RetrieveAPIView
@@ -8,8 +8,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from bookings.models import Reservation
-from scheduling.models import Allocation, TimetableDay
+from scheduling.models import TimetableDay
 
 from .models import Building, Facility, Room
 from .serializers import RoomQuerySerializer, RoomSerializer
@@ -43,38 +42,28 @@ class RoomAvailabilityMixin:
         )
 
     def get_queryset(self):
-        published_days = TimetableDay.objects.filter(
+        timetable_days = TimetableDay.objects.filter(
             date=self.availability_at.date(),
-            is_published=True,
-        ).prefetch_related(
-            Prefetch(
-                "allocations",
-                queryset=Allocation.objects.filter(
-                    is_cancelled=False,
-                ).order_by("start_time"),
-                to_attr="active_allocations",
-            )
-        )
+        ).select_related("course").order_by("start_time")
 
         return Room.objects.select_related("building").prefetch_related(
             "facilities",
             Prefetch(
                 "timetable_days",
-                queryset=published_days,
+                queryset=timetable_days,
                 to_attr="availability_days",
-            ),
-            Prefetch(
-                "reservations",
-                queryset=Reservation.objects.filter(
-                    date=self.availability_at.date(), status=Reservation.Status.APPROVED,
-                ).order_by("start_time"),
-                to_attr="approved_reservations",
             ),
         )
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
         context["availability_at"] = self.availability_at
+        # Consult the entire saved school timetable, independently of room,
+        # capacity, campus or account filters. Cancelled rows still establish
+        # that a timetable was entered for this date.
+        context["has_school_timetable"] = TimetableDay.objects.filter(
+            date=self.availability_at.date(),
+        ).exists()
         return context
 
 
@@ -87,10 +76,7 @@ class RoomListView(RoomAvailabilityMixin, ListAPIView):
         queryset = super().get_queryset()
         values = self.query_values
         if "zone" in values:
-            queryset = queryset.filter(
-                Q(zone=values["zone"])
-                | Q(zone="", building__campus_zone=values["zone"])
-            )
+            queryset = queryset.filter(building__campus_zone=values["zone"])
         if "building" in values:
             queryset = queryset.filter(building_id=values["building"])
         if "capacity" in values:
@@ -105,9 +91,7 @@ class RoomListView(RoomAvailabilityMixin, ListAPIView):
         data = self.get_serializer(self.get_queryset(), many=True).data
         selected_status = self.query_values.get("status")
         if selected_status:
-            # "soon" is free at the selected moment, with a lecture approaching.
-            statuses = {"available", "soon"} if selected_status == "available" else {selected_status}
-            data = [room for room in data if room["status"] in statuses]
+            data = [room for room in data if room["status"] == selected_status]
         return Response(data)
 
 
@@ -121,8 +105,7 @@ class RoomFilterOptionsView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        zones = set(Room.objects.values_list("zone", flat=True))
-        zones.update(Building.objects.values_list("campus_zone", flat=True))
+        zones = set(Building.objects.values_list("campus_zone", flat=True))
         return Response({
             "zones": sorted(zone for zone in zones if zone),
             "buildings": list(Building.objects.values("id", "name", "campus_zone")),

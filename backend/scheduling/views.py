@@ -3,7 +3,7 @@ from rest_framework import serializers
 from rest_framework.generics import ListAPIView
 from rest_framework.permissions import AllowAny
 
-from .models import Allocation
+from .models import TimetableDay
 from .serializers import ScheduleSerializer
 
 
@@ -20,9 +20,8 @@ class ScheduleListView(ListAPIView):
         query = ScheduleQuerySerializer(data=self.request.query_params)
         query.is_valid(raise_exception=True)
         selected_date = query.validated_data.get("date", timezone.localdate())
-        return Allocation.objects.filter(
-            timetable__is_published=True, timetable__date=selected_date,
-            is_cancelled=False,
-        ).select_related("timetable__room", "course").order_by(
-            "start_time", "timetable__room__code", "pk",
+        return TimetableDay.objects.filter(
+            date=selected_date,
+        ).select_related("room", "course").order_by(
+            "start_time", "room__code", "pk",
         )

@@ -33,7 +33,7 @@ class RoomQuerySerializer(AvailabilityQuerySerializer):
         child=serializers.ChoiceField(choices=Facility.Code.choices), required=False,
     )
     status = serializers.ChoiceField(
-        required=False, choices=["available", "occupied", "reserved", "soon", "unknown"],
+        required=False, choices=["available", "occupied", "reserved", "unknown"],
     )
 
 
@@ -71,33 +71,19 @@ class RoomSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_zone(self, instance):
-        return instance.zone or (instance.building.campus_zone if instance.building else "")
+        return instance.building.campus_zone
 
     def get_building(self, instance):
-        if instance.building is None:
-            return None
         return {"id": instance.building_id, "name": instance.building.name}
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
         at = self.context["availability_at"]
 
-        # These records are loaded together by the view.
-        days = instance.availability_days
-        timetable = days[0] if days else None
-
-        allocations = (
-            timetable.active_allocations if timetable else []
-        )
-
-        data.update(
-            build_availability(
-                timetable,
-                allocations,
-                at.time(),
-                instance.approved_reservations,
-            )
-        )
+        data.update(build_availability(
+            instance.availability_days, at, room_type=instance.room_type,
+            has_school_timetable=self.context["has_school_timetable"],
+        ))
 
         # Identify the moment this availability result describes.
         data["availabilityAt"] = at.isoformat()
