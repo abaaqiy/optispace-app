@@ -163,6 +163,14 @@ class Allocation(models.Model):
                 "This room already has an allocation overlapping that time."
             )
 
+        from bookings.models import Reservation
+
+        if Reservation.objects.filter(
+            room_id=timetable.room_id, date=timetable.date, status=Reservation.Status.APPROVED,
+            start_time__lt=self.end_time, end_time__gt=self.start_time,
+        ).exists():
+            raise ValidationError("This lecture overlaps an approved reservation. Cancel or reschedule that reservation first.")
+
     def save(self, *args, **kwargs):
         room_ids = list(TimetableDay.objects.filter(
             pk=self.timetable_id,

@@ -33,7 +33,7 @@ class RoomQuerySerializer(AvailabilityQuerySerializer):
         child=serializers.ChoiceField(choices=Facility.Code.choices), required=False,
     )
     status = serializers.ChoiceField(
-        required=False, choices=["available", "occupied", "soon", "unknown"],
+        required=False, choices=["available", "occupied", "reserved", "soon", "unknown"],
     )
 
 
@@ -95,6 +95,7 @@ class RoomSerializer(serializers.ModelSerializer):
                 timetable,
                 allocations,
                 at.time(),
+                instance.approved_reservations,
             )
         )
 

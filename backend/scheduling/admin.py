@@ -1,6 +1,19 @@
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.core.exceptions import ValidationError
+from django.http import HttpResponseRedirect
 
 from .models import Allocation, Course, TimetableDay
+
+
+class ScheduleAdmin(admin.ModelAdmin):
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        try:
+            return super().changeform_view(request, object_id, form_url, extra_context)
+        except ValidationError as error:
+            # A reservation may be approved after form validation but before
+            # saving. The model's room lock catches that race; show its message.
+            self.message_user(request, " ".join(error.messages), messages.ERROR)
+            return HttpResponseRedirect(request.path)
 
 
 @admin.register(Course)
@@ -11,7 +24,7 @@ class CourseAdmin(admin.ModelAdmin):
 
 
 @admin.register(TimetableDay)
-class TimetableDayAdmin(admin.ModelAdmin):
+class TimetableDayAdmin(ScheduleAdmin):
     list_display = (
         "room",
         "date",
@@ -30,7 +43,7 @@ class TimetableDayAdmin(admin.ModelAdmin):
 
 
 @admin.register(Allocation)
-class AllocationAdmin(admin.ModelAdmin):
+class AllocationAdmin(ScheduleAdmin):
     list_display = (
         "title",
         "course",

@@ -8,6 +8,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from bookings.models import Reservation
 from scheduling.models import Allocation, TimetableDay
 
 from .models import Building, Facility, Room
@@ -61,6 +62,13 @@ class RoomAvailabilityMixin:
                 "timetable_days",
                 queryset=published_days,
                 to_attr="availability_days",
+            ),
+            Prefetch(
+                "reservations",
+                queryset=Reservation.objects.filter(
+                    date=self.availability_at.date(), status=Reservation.Status.APPROVED,
+                ).order_by("start_time"),
+                to_attr="approved_reservations",
             ),
         )
 
