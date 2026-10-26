@@ -6,6 +6,10 @@ timetables in PostgreSQL. There is no SQLite fallback.
 
 ## Free deployment
 
+Live app: [optispace-app.onrender.com](https://optispace-app.onrender.com/).
+Students, approved lecturers and administrators use the same PostgreSQL records
+from any device, with separate browser sessions.
+
 The final milestone packages the React frontend, Django API and administration
 site in one Docker image for a **Free Render web service**, using the existing
 Aiven PostgreSQL database. `render.yaml` explicitly selects Free compute and

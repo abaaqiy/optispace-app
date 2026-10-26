@@ -5,6 +5,27 @@ Django API and Django administration site on the same HTTPS address. It connects
 to the existing Aiven PostgreSQL database, so accounts, rooms and timetables are
 shared by everyone using the deployed app.
 
+## Current deployment
+
+The app is live at [https://optispace-app.onrender.com](https://optispace-app.onrender.com/).
+The first deployment on 26 October 2026 used commit `f59b7fd` on `feature/backend`.
+The service is `srv-dbfbl2nb9u1s73cat9p0`, on **Free** compute in Frankfurt, with
+one Docker instance and automatic deployments disabled.
+Open its [Render dashboard](https://dashboard.render.com/web/srv-dbfbl2nb9u1s73cat9p0)
+to view logs or manually deploy updates.
+
+This service was created directly using the official Render CLI. It is not
+managed by a Blueprint. The `render.yaml` file remains a validated configuration
+for reproducing the setup; creating a new Blueprint would create another service.
+Use the existing service for updates.
+
+Live verification passed for PostgreSQL health, the existing administrator
+login, secure sessions and CSRF, Django admin styling, built frontend assets,
+room lists/details, filters, timetable retrieval and logout. The saved database
+already had all migrations applied. No room or timetable records were changed
+by the deployment verification. The existing administrator password was retained
+at the project owner's explicit request.
+
 The repository includes a Dockerfile and `render.yaml`. Docker builds the React
 frontend, collects Django static files, and starts Gunicorn with one worker and
 four threads. No Redis service, paid disk, background worker, paid domain or
@@ -43,10 +64,10 @@ although Aiven can turn off inactive services and notify you beforehand.
 ## Before publishing
 
 1. Confirm the Aiven Free plan as described above.
-2. Change the existing administrator's short demo password to a strong unique
+2. We recommend changing the existing administrator's short demo password to a strong unique
    password in Django admin. Open **Users**, select the administrator, and use
    the password-change link. This preserves the account and saved records.
-   Do not publish or share the previous demo password.
+   Deployment does not require or automatically perform a password change.
 3. Make sure this deployment commit is present on GitHub's `feature/backend`
    branch. Render builds the GitHub copy, not uncommitted local files.
 4. Sign up or sign in to [Render](https://dashboard.render.com/) and connect the
