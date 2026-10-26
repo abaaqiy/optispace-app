@@ -66,7 +66,7 @@ function App() {
         <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center">
           <h1 className="text-xl font-bold mb-3">Optispace</h1>
           <p role={sessionError ? 'alert' : 'status'}>
-            {sessionError || 'Restoring your session…'}
+            {sessionError || 'Connecting… The first visit may take about a minute.'}
           </p>
           {sessionError && (
             <button className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg" onClick={() => {

@@ -4,6 +4,18 @@ Campus room availability and account management with a React/Vite frontend and
 a Django REST API. Django stores accounts, sessions, rooms, facilities, and
 timetables in PostgreSQL. There is no SQLite fallback.
 
+## Free deployment
+
+The final milestone packages the React frontend, Django API and administration
+site in one Docker image for a **Free Render web service**, using the existing
+Aiven PostgreSQL database. `render.yaml` explicitly selects Free compute and
+generates the production secret; no new database or paid service is created.
+
+See [the deployment guide](docs/deployment.md) for setup, HTTPS configuration,
+administrator password preparation, verification and free service limits.
+Keep the Render workspace on Hobby, do not add payment details, and confirm the
+existing Aiven database is on its permanent Free plan before publishing.
+
 ## Backend setup
 
 Use Python 3.12 or newer and run these commands from the repository root:

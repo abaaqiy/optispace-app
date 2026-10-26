@@ -1,4 +1,7 @@
+from django.conf import settings
 from django.db import DatabaseError, connection
+from django.http import FileResponse, Http404
+from django.views.decorators.http import require_safe
 from rest_framework.decorators import (
     api_view,
     authentication_classes,
@@ -6,6 +9,17 @@ from rest_framework.decorators import (
 )
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+
+
+@require_safe
+def frontend(request):
+    try:
+        index = (settings.FRONTEND_ROOT / "index.html").open("rb")
+    except FileNotFoundError:
+        raise Http404("Build the frontend with npm run build before serving it.") from None
+    response = FileResponse(index, content_type="text/html")
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 @api_view(["GET"])

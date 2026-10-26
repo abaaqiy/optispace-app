@@ -31,7 +31,8 @@ async function request(url, options = {}) {
   const abort = () => controller.abort();
   options.signal?.addEventListener('abort', abort, { once: true });
   if (options.signal?.aborted) controller.abort();
-  const timeout = setTimeout(abort, 15000);
+  // A sleeping free service can take about a minute to start on first visit.
+  const timeout = setTimeout(abort, options.timeoutMs ?? 15000);
 
   try {
     response = await fetch(url, {
@@ -46,7 +47,7 @@ async function request(url, options = {}) {
     });
   } catch {
     throw new Error(
-      'Unable to reach the server. Check that Django and Vite are running.'
+      'Unable to reach the server. Check your connection and try again shortly.'
     );
   } finally {
     clearTimeout(timeout);
@@ -103,7 +104,7 @@ export async function registerUser(details) {
 
 export async function getCurrentUser(options = {}) {
   try {
-    const data = await request('/api/auth/me/', options);
+    const data = await request('/api/auth/me/', { timeoutMs: 90000, ...options });
 
     if (!data.user) {
       throw new Error('The backend did not return the current user.');

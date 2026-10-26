@@ -16,6 +16,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from .database import database_from_url
+from .middleware import frontend_headers, immutable_frontend_asset
+from .runtime import runtime_from_environment
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -24,16 +26,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env', override=False)
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
-
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-$b(ney47$^_psr6-i3e7lp_^7i8v(tp$4onbjf^+pq%s-$rpmp'
-
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
-ALLOWED_HOSTS = []
+# Production fails startup if its secret or allowed hosts are missing.
+globals().update(runtime_from_environment(os.environ))
 
 
 # Application definition
@@ -53,7 +47,10 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'config.middleware.HostValidationMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
+    'config.middleware.PrivateApiMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -124,7 +121,21 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+FRONTEND_ROOT = BASE_DIR.parent / 'dist'
+WHITENOISE_ROOT = FRONTEND_ROOT
+WHITENOISE_ADD_HEADERS_FUNCTION = frontend_headers
+WHITENOISE_IMMUTABLE_FILE_TEST = immutable_frontend_asset
+STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {
+        'BACKEND': (
+            'django.contrib.staticfiles.storage.StaticFilesStorage' if DEBUG
+            else 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+        ),
+    },
+}
 AUTH_USER_MODEL = "accounts.User"
 
 REST_FRAMEWORK = {
@@ -132,16 +143,18 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ],
 }
-# Local development frontend
-CSRF_TRUSTED_ORIGINS = [
-    "http://127.0.0.1:5173",
-]
-
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
 MAILERS = {
     'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
+        # This version has no outgoing email or password-reset feature.
+        'BACKEND': (
+            'django.core.mail.backends.console.EmailBackend' if DEBUG
+            else 'django.core.mail.backends.dummy.EmailBackend'
+        ),
     },
 }
+if not DEBUG:
+    # Email is intentionally disabled; no SMTP credentials or paid service.
+    SILENCED_SYSTEM_CHECKS = ['mail.E001']
