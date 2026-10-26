@@ -1,0 +1,77 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/css/forms.css' %}">
+  <link rel="stylesheet" href="{% static 'scheduling/timetable_import.css' %}">
+{% endblock %}
+
+{% block breadcrumbs %}
+<ol class="breadcrumbs">
+  <li><a href="{% url 'admin:index' %}">Home</a></li>
+  <li><a href="{% url 'admin:scheduling_timetableday_changelist' %}">Timetables</a></li>
+  <li aria-current="page">Import CSV</li>
+</ol>
+{% endblock %}
+
+{% block content %}
+<div id="content-main" class="timetable-import">
+  <p>Upload the school's timetable from a spreadsheet. Review the classes below before saving.</p>
+  <p>Use one row per class and date. Dates use <strong>YYYY-MM-DD</strong>; times use <strong>HH:MM</strong> in Lagos time.</p>
+  <ul>
+    <li>Room names or room codes and course codes must match saved records. Add missing rooms and courses first.</li>
+    <li>Leave <strong>id</strong> blank for a new class. To edit or cancel a saved class, export it from Timetables and keep its ID.</li>
+    <li>Use <strong>cancelled=true</strong> to cancel a class, or <strong>false</strong> for an active class.</li>
+    <li>Identical saved classes are left unchanged. Classes omitted from the file are kept.</li>
+  </ul>
+  <nav aria-label="CSV downloads" class="csv-downloads">
+    <a href="{% url 'admin:scheduling_timetableday_template' %}">Download CSV template</a>
+    <a href="{% url 'admin:scheduling_timetableday_references' %}">Download room names and codes</a>
+    <a href="{% url 'admin:scheduling_timetableday_references' %}?kind=courses">Download course codes</a>
+  </nav>
+
+  {% if errors %}
+    <div role="alert" class="errornote">
+      <p><strong>Nothing was imported.</strong> Correct these issues and upload the file again.</p>
+      <ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul>
+    </div>
+  {% endif %}
+
+  <form method="post" enctype="multipart/form-data" class="csv-upload">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <input type="hidden" name="action" value="preview">
+    <input type="submit" value="Preview CSV" class="default">
+  </form>
+
+  {% if plan %}
+    <h2>Review {{ plan.rows|length }} timetable entries</h2>
+    <p role="status">{{ plan.counts.Add }} to add; {{ plan.counts.Update }} to update; {{ plan.counts.Unchanged }} unchanged.</p>
+    <div class="csv-preview" role="region" aria-label="Timetable preview" tabindex="0">
+      <table>
+        <caption>Checked against the currently saved timetable</caption>
+        <thead><tr><th scope="col">CSV row</th><th scope="col">Action</th><th scope="col">Room</th><th scope="col">Course</th><th scope="col">Date</th><th scope="col">Time</th><th scope="col">Academic session</th><th scope="col">Status</th></tr></thead>
+        <tbody>
+          {% for row in plan.rows %}
+          <tr>
+            <td>{{ row.line }}</td><td>{{ row.action }}{% if row.existing %} (#{{ row.existing.pk }}){% endif %}</td>
+            <td>{{ row.room.name }}</td><td>{{ row.course }}</td><td>{{ row.values.date|date:"Y-m-d" }}</td>
+            <td>{{ row.values.start_time|time:"H:i:s" }}–{{ row.values.end_time|time:"H:i:s" }}</td>
+            <td>{{ row.values.academic_session }}</td><td>{% if row.values.is_cancelled %}Cancelled{% else %}Scheduled{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <form method="post" class="csv-confirm">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="confirm">
+      <input type="hidden" name="preview" value="{{ preview_token }}">
+      <p>Apply the reviewed entries together. If any entry conflicts or the timetable changes, nothing is imported.</p>
+      <input type="submit" class="default" value="Apply import">
+      <a href="{% url 'admin:scheduling_timetableday_changelist' %}">Back to timetables</a>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

@@ -187,6 +187,25 @@ status filters and an open room dialog. The campus schedule retains cancelled
 entries with their status. No scheduled job or manual room-status update is needed.
 A future-date search stays at its chosen moment while reflecting timetable edits.
 
+## Milestone 3: importing the school timetable
+
+Administrators can now import a school timetable from **CSV UTF-8** through
+**Import School Timetable** on the dashboard, or **Manage Timetables → Import CSV**.
+Download the template and saved room/course reference lists, enter one row per
+class/date, and choose **Preview CSV**. The preview reports additions, updates,
+unchanged rows and conflicts. **Apply import** saves the reviewed entries together.
+
+**Export CSV** downloads all entries matching the Timetables page's current search
+and filters. Retain the exported IDs to update or cancel existing classes in bulk.
+Identical uploads do not create duplicates, omitted classes are preserved, and
+any conflict or save error rolls back the whole import. An outdated preview must
+be uploaded again. Imports use the same room locks and availability API as manual
+editing, so the existing frontend picks up imported changes automatically.
+
+See the [CSV format and step-by-step guide](docs/timetable-import.md) for examples,
+limits and validation rules. This milestone requires no new dependencies or database
+migrations. Real school timetable data must be supplied by an administrator.
+
 Booking forms, personal request pages, approvals and reservation API routes have
 been removed for all roles. `/api/reservations/` and its former action URLs return
 404. Historical reservation rows and migration history remain in PostgreSQL; they
@@ -250,6 +269,12 @@ An existing superuser can use **Manage Users → Add user**:
 Staff status alone allows entry to Django admin with assigned permissions; it does
 not make the account an application administrator. Public registration cannot grant
 staff or superuser permissions.
+
+The **Groups** category and group-assignment controls are removed from Django
+admin. Manage accounts individually through Users; administrator access still uses
+Active, Staff status and Superuser status. Django's built-in group tables remain
+internally for compatibility, so this interface change requires no database
+migration and preserves existing accounts.
 
 ## Required-building upgrade
 

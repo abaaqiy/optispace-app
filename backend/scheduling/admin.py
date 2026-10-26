@@ -3,6 +3,7 @@ from django.core.exceptions import ValidationError
 from django.http import HttpResponseRedirect
 
 from .forms import TimetableAdminForm
+from .import_admin import TimetableImportAdminMixin
 from .models import Course, TimetableDay
 from .services.locking import lock_rooms
 
@@ -15,7 +16,7 @@ class CourseAdmin(admin.ModelAdmin):
 
 
 @admin.register(TimetableDay)
-class TimetableDayAdmin(admin.ModelAdmin):
+class TimetableDayAdmin(TimetableImportAdminMixin, admin.ModelAdmin):
     form = TimetableAdminForm
     fields = ("room", "date", "start_time", "end_time", "course", "academic_session", "is_cancelled")
     save_on_top = True

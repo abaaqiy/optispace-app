@@ -3,6 +3,14 @@ from django import forms
 from .models import TimetableDay
 
 
+class TimetableUploadForm(forms.Form):
+    csv_file = forms.FileField(
+        label="Timetable CSV",
+        widget=forms.ClearableFileInput(attrs={"accept": ".csv,text/csv"}),
+        help_text="CSV UTF-8, up to 1 MB and 1,000 classes. Download the template below to get started.",
+    )
+
+
 class TimetableAdminForm(forms.ModelForm):
     class Meta:
         model = TimetableDay

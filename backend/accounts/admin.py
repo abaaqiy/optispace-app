@@ -1,8 +1,14 @@
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
+from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
 
 from .models import User
+
+
+# Keep Django's built-in auth models intact, but remove group management from
+# this application. Accounts are managed individually in the Users screen.
+admin.site.unregister(Group)
 
 
 @admin.register(User)
@@ -35,7 +41,12 @@ class OptispaceUserAdmin(UserAdmin):
 
     ordering = ("email",)
 
-    fieldsets = UserAdmin.fieldsets + (
+    fieldsets = tuple(
+        (title, {**options, "fields": tuple(
+            field for field in options["fields"] if field != "groups"
+        )})
+        for title, options in UserAdmin.fieldsets
+    ) + (
         ("Optispace", {
             "fields": (
                 "role",
@@ -59,6 +70,15 @@ class OptispaceUserAdmin(UserAdmin):
     )
 
     actions = ["approve_lecturers"]
+    filter_horizontal = ("user_permissions",)
+
+    def formfield_for_manytomany(self, db_field, request, **kwargs):
+        if db_field.name == "user_permissions":
+            permissions = kwargs.get("queryset", db_field.remote_field.model.objects.all())
+            kwargs["queryset"] = permissions.exclude(
+                content_type__app_label="auth", content_type__model="group",
+            ).select_related("content_type")
+        return super().formfield_for_manytomany(db_field, request, **kwargs)
 
     @admin.display(description="Account role", ordering="role")
     def account_role(self, obj):
