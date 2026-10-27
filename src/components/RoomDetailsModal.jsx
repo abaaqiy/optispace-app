@@ -1,111 +1,181 @@
-import React from 'react';
+import { countdownLabel } from '../availability';
 
-const RoomDetailsModal = ({ room, onClose, onBook, canBook = true }) => {
+const facilityMap = {
+  ac: {
+    icon: 'fa-snowflake',
+    label: 'Air Conditioning',
+  },
+  projector: {
+    icon: 'fa-video',
+    label: 'Projector',
+  },
+  power: {
+    icon: 'fa-plug',
+    label: 'Power Supply',
+  },
+  audio: {
+    icon: 'fa-microphone',
+    label: 'Sound System',
+  },
+  wifi: {
+    icon: 'fa-wifi',
+    label: 'Campus Wi-Fi',
+  },
+};
+
+const RoomDetailsModal = ({
+  room,
+  onClose,
+  onRequest,
+}) => {
   if (!room) return null;
 
-  // Helper to render facility icons nicely
-  const getFacilityBadge = (facility) => {
-    const facilityMap = {
-      ac: { icon: 'fa-snowflake', label: 'Air Conditioning', color: 'text-blue-600', bg: 'bg-blue-50 border-blue-200' },
-      projector: { icon: 'fa-video', label: 'Projector', color: 'text-purple-600', bg: 'bg-purple-50 border-purple-200' },
-      power: { icon: 'fa-plug', label: 'Power Outlets', color: 'text-amber-600', bg: 'bg-amber-50 border-amber-200' },
-      audio: { icon: 'fa-microphone', label: 'Sound System', color: 'text-rose-600', bg: 'bg-rose-50 border-rose-200' },
-      wifi: { icon: 'fa-wifi', label: 'Campus Wi-Fi', color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-200' },
-    };
-    
-    const info = facilityMap[facility] || { icon: 'fa-check', label: facility, color: 'text-slate-600', bg: 'bg-slate-50 border-slate-200' };
+  const facilities = room.facilities || [];
+  const schedule = room.hourlySchedule || [];
 
-    return (
-      <span key={facility} className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold border ${info.bg} ${info.color}`}>
-        <i className={`fa-solid ${info.icon}`}></i> {info.label}
-      </span>
-    );
-  };
+  const selectedMoment = room.availabilityAt
+    ? new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Africa/Lagos',
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      }).format(new Date(room.availabilityAt))
+    : 'Not specified';
 
   return (
     <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-40 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100">
-        
-        {/* Header */}
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="room-details-title"
+        className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto"
+      >
         <div className="flex justify-between items-start mb-4 pb-3 border-b border-slate-100">
           <div>
-            <h3 className="text-lg font-bold text-slate-900 mt-1">{room.name}</h3>
-            <p className="text-xs text-slate-500"><i className="fa-solid fa-location-dot mr-1"></i> {room.zone}</p>
+            <h3
+              id="room-details-title"
+              className="text-lg font-bold text-slate-900"
+            >
+              {room.name}
+            </h3>
+
+            <p className="text-xs text-slate-500">
+              {room.zone}{room.building ? ` · ${room.building.name}` : ''}{room.roomNumber ? ` · ${room.roomNumber}` : ''}
+            </p>
           </div>
-          <button 
-            onClick={onClose} 
-            className="text-slate-500 hover:text-rose-600 bg-slate-100 hover:bg-rose-50 p-2 rounded-full transition-colors cursor-pointer"
+
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close room details"
+            className="text-slate-500 bg-slate-100 p-2 rounded-full"
           >
-            <i className="fa-solid fa-xmark text-sm"></i>
+            <i className="fa-solid fa-xmark"></i>
           </button>
         </div>
 
         <div className="space-y-5 text-xs">
-          
-          {/* Capacity & Type Grid */}
           <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
             <div>
-              <span className="text-slate-500 block mb-0.5">Total Capacity:</span>
-              <span className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
-                <i className="fa-solid fa-chair text-slate-400"></i> {room.capacity} Seats
-              </span>
+              <p className="text-slate-500">Capacity</p>
+              <p className="font-bold text-sm">
+                {room.capacity} seats
+              </p>
             </div>
+
             <div>
-              <span className="text-slate-500 block mb-0.5">Room Type:</span>
-              <span className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
-                <i className="fa-solid fa-building text-slate-400"></i> {room.type}
-              </span>
+              <p className="text-slate-500">Room type</p>
+              <p className="font-bold text-sm">{room.type}</p>
             </div>
           </div>
 
-          {/* NEW SECTION: Available Facilities */}
+          <div className="rounded-lg bg-blue-50 border border-blue-100 p-3">
+            <p className="font-bold">
+              Selected moment: {selectedMoment} — Africa/Lagos
+            </p>
+
+            <p className="mt-1">{room.statusText}</p>
+            {room.status === 'reserved' && room.reservedSeconds != null && <p role="timer" className="font-mono font-bold mt-2">Reservation ends in {countdownLabel(room.reservedSeconds)}</p>}
+
+            <p className="mt-2 text-slate-600">
+              Based on timetables and approved reservations. Physical use may differ.
+            </p>
+          </div>
+
           <div>
-            <h4 className="font-bold text-slate-800 mb-2 flex items-center gap-1.5">
-              <i className="fa-solid fa-list-check text-blue-500"></i> Available Facilities
+            <h4 className="font-bold text-slate-800 mb-2">
+              Facilities
             </h4>
+
             <div className="flex flex-wrap gap-2">
-              {room.facilities && room.facilities.length > 0 ? (
-                room.facilities.map(fac => getFacilityBadge(fac))
+              {facilities.length > 0 ? (
+                facilities.map((facility) => {
+                  const info = facilityMap[facility] || {
+                    icon: 'fa-check',
+                    label: facility,
+                  };
+
+                  return (
+                    <span
+                      key={facility}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-50 border border-slate-200"
+                    >
+                      <i className={`fa-solid ${info.icon}`}></i>
+                      {info.label}
+                    </span>
+                  );
+                })
               ) : (
-                <span className="text-slate-500 italic">No facilities listed for this room.</span>
+                <p className="text-slate-500">
+                  No facilities have been listed.
+                </p>
               )}
             </div>
           </div>
 
-          {/* Hourly Schedule */}
           <div>
-            <h4 className="font-bold text-slate-800 mb-2 flex items-center gap-1.5">
-              <i className="fa-solid fa-clock text-blue-500"></i> Today's Hourly Schedule
+            <h4 className="font-bold text-slate-800 mb-2">
+              Timetable for the selected date
             </h4>
-            <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-              {room.hourlySchedule.map((s, idx) => (
-                <div key={idx} className={`flex items-center justify-between p-2 rounded-lg text-xs ${s.occupied ? 'bg-rose-50 border border-rose-100 text-rose-900' : 'bg-emerald-50 border border-emerald-100 text-emerald-900'}`}>
-                  <span className="font-mono font-semibold">{s.time}</span>
-                  <span className="font-medium">{s.event}</span>
-                </div>
-              ))}
-            </div>
+
+            {schedule.length === 0 ? (
+              <p className="rounded-lg bg-slate-50 p-3 text-slate-600">
+                No timetable is available for this date.
+                Do not assume the room is free.
+              </p>
+            ) : (
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {schedule.map((slot, index) => (
+                  <div
+                    key={`${slot.time}-${index}`}
+                    className={`flex justify-between gap-3 p-2 rounded-lg border ${
+                      slot.status === 'unknown' ? 'bg-slate-50 border-slate-200 text-slate-700' : slot.reserved ? 'bg-indigo-50 border-indigo-100 text-indigo-900' : slot.occupied
+                        ? 'bg-rose-50 border-rose-100 text-rose-900'
+                        : 'bg-emerald-50 border-emerald-100 text-emerald-900'
+                    }`}
+                  >
+                    <span className="font-mono whitespace-nowrap">
+                      {slot.time}
+                    </span>
+
+                    <span>{slot.event}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Modal Footer Actions */}
         <div className="mt-6 pt-3 border-t border-slate-100 flex justify-end gap-3">
-          <button 
+          {onRequest && <button type="button" onClick={onRequest} className="px-5 py-2.5 bg-blue-700 text-white font-semibold text-xs rounded-xl">Request this room</button>}
+          <button
+            type="button"
             onClick={onClose}
-            className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-colors cursor-pointer"
+            className="px-5 py-2.5 bg-slate-100 text-slate-700 font-semibold text-xs rounded-xl"
           >
             Close
           </button>
-          
-          {/* ONLY SHOW RESERVE BUTTON IF canBook IS TRUE */}
-          {canBook && (
-            <button 
-              onClick={() => onBook(room)} 
-              className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 border border-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer"
-            >
-              <i className="fa-solid fa-calendar-plus"></i> Reserve Room
-            </button>
-          )}
+
+
         </div>
       </div>
     </div>
@@ -113,3 +183,4 @@ const RoomDetailsModal = ({ room, onClose, onBook, canBook = true }) => {
 };
 
 export default RoomDetailsModal;
+

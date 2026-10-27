@@ -1,0 +1,23 @@
+# One Free service serves React, Django API and Django admin on the same URL.
+# The existing PostgreSQL database is supplied as a secret, not created here.
+services:
+  - type: web
+    name: optispace-app
+    runtime: docker
+    repo: https://github.com/abaaqiy/optispace-app
+    branch: feature/backend
+    plan: free
+    region: frankfurt
+    numInstances: 1
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health/
+    autoDeployTrigger: "off"
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "false"
+      - key: DJANGO_TRUST_PROXY
+        value: "true"

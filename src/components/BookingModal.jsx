@@ -1,69 +1,50 @@
-import React, { useState, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { getLagosDateTime, requestReservation } from '../api';
 
-const BookingModal = ({ room, onClose, onConfirm, user }) => {
+export default function BookingModal({ room, onClose, onSuccess }) {
+  const [date, setDate] = useState(() => room.availabilityAt?.slice(0, 10) || getLagosDateTime().date);
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
   const [purpose, setPurpose] = useState('');
-  const [organizer, setOrganizer] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [startTime, setStartTime] = useState('12:00');
-  const [endTime, setEndTime] = useState('14:00');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const dialog = useRef(null);
+  useEffect(() => { dialog.current.showModal(); }, []);
 
-  // Auto-fill organizer name based on logged-in user
-  useEffect(() => {
-    if (user) {
-      setOrganizer(user.name);
-    }
-  }, [user]);
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    onConfirm({
-      roomId: room.id,
-      roomName: room.name,
-      purpose,
-      organizer: user ? user.name : organizer, // Force the logged-in user's name
-      staffId: user ? user.id : "USER/ID/001", // Force the logged-in user's ID
-      date,
-      timeSlot: `${startTime} - ${endTime}`,
-    });
-  };
+  async function submit(event) {
+    event.preventDefault();
+    if (busy) return;
+    if (endTime <= startTime) { setError('End time must be after start time on the same date.'); return; }
+    setBusy(true); setError('');
+    try {
+      await requestReservation({ roomId: room.id, date, startTime, endTime, purpose });
+      onSuccess('Your request was sent. It will hold the room only after administrator approval.');
+    } catch (failure) { setError(failure.message); }
+    finally { setBusy(false); }
+  }
 
   return (
-    <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100">
-        <div className="flex justify-between items-start mb-4 pb-3 border-b border-slate-100">
-          <h3 className="text-lg font-bold text-slate-900">Reserve {room?.name}</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 p-2 rounded-full transition-colors cursor-pointer">
-            <i className="fa-solid fa-xmark text-sm"></i>
-          </button>
+    <dialog ref={dialog} onCancel={event => { event.preventDefault(); if (!busy) onClose(); }} aria-labelledby="booking-title"
+      className="m-auto w-[calc(100%_-_2rem)] max-w-lg rounded-2xl p-6 text-slate-800 bg-white shadow-2xl backdrop:bg-slate-950/60">
+      <h2 id="booking-title" className="text-lg font-bold">Request {room.name}</h2>
+      <p className="text-sm text-slate-600 mt-2">Choose a future slot in Africa/Lagos time. Administrators check requests against classes and approved reservations.</p>
+      <p className="mt-3 text-sm text-amber-800 bg-amber-50 p-3 rounded-lg">A request does not hold the room until an administrator approves it.</p>
+      <form onSubmit={submit} className="mt-5 space-y-4">
+        <label className="block text-sm font-semibold">Purpose
+          <input required maxLength={200} value={purpose} onChange={e => setPurpose(e.target.value)} placeholder="e.g. Group study or departmental meeting"
+            className="block w-full border border-slate-300 rounded-lg p-2 mt-1 font-normal" />
+        </label>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <label className="text-sm font-semibold">Date<input required type="date" min={getLagosDateTime().date} value={date} onChange={e => setDate(e.target.value)} className="block w-full border border-slate-300 rounded-lg p-2 mt-1" /></label>
+          <label className="text-sm font-semibold">Start time<input required type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className="block w-full border border-slate-300 rounded-lg p-2 mt-1" /></label>
+          <label className="text-sm font-semibold">End time<input required type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className="block w-full border border-slate-300 rounded-lg p-2 mt-1" /></label>
         </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-          <div>
-            <label className="block font-bold text-slate-700 mb-1">Purpose / Lecture Title *</label>
-            <input type="text" required value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder="e.g., CSC 201 Lecture" className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 text-slate-800" />
-          </div>
-          <div>
-            <label className="block font-bold text-slate-700 mb-1">Organizer Name *</label>
-            <input type="text" required value={organizer} readOnly className="w-full bg-slate-200 border border-slate-300 rounded-lg px-3 py-2.5 outline-none text-slate-600 cursor-not-allowed" title="Auto-filled based on your login" />
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            <div><label className="block font-bold text-slate-700 mb-1">Date *</label><input type="date" required value={date} onChange={(e) => setDate(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500 text-slate-800" /></div>
-            <div><label className="block font-bold text-slate-700 mb-1">Start *</label><input type="time" required value={startTime} onChange={(e) => setStartTime(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500 text-slate-800" /></div>
-            <div><label className="block font-bold text-slate-700 mb-1">End *</label><input type="time" required value={endTime} onChange={(e) => setEndTime(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500 text-slate-800" /></div>
-          </div>
-          
-          <div className="pt-4 border-t border-slate-100 flex justify-end gap-3">
-            <button type="button" onClick={onClose} className="px-5 py-2.5 border border-slate-300 text-slate-700 font-bold rounded-xl hover:bg-slate-100 transition-colors cursor-pointer">
-              Cancel
-            </button>
-            <button type="submit" className="px-6 py-2.5 bg-blue-600 border border-blue-700 text-white font-bold rounded-xl shadow-md hover:bg-blue-700 active:scale-95 transition-all flex items-center gap-2 cursor-pointer">
-              <i className="fa-solid fa-check"></i> Confirm
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        {error && <p role="alert" className="text-sm text-rose-800 bg-rose-50 p-3 rounded-lg">{error}</p>}
+        <div className="flex justify-end gap-3 pt-3">
+          <button type="button" disabled={busy} onClick={onClose} className="border border-slate-300 rounded-lg px-4 py-2 disabled:opacity-50">Close</button>
+          <button disabled={busy} className="bg-blue-700 text-white rounded-lg px-4 py-2 font-semibold disabled:opacity-50">{busy ? 'Submitting…' : 'Submit request'}</button>
+        </div>
+      </form>
+    </dialog>
   );
-};
-
-export default BookingModal;
+}

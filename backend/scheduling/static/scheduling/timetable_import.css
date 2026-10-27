@@ -1,0 +1,15 @@
+.timetable-import { max-width: 100%; min-width: 0; }
+.csv-downloads { display: flex; flex-wrap: wrap; gap: 12px 20px; margin: 24px 0; }
+.csv-upload, .csv-confirm { margin: 24px 0; padding: 20px; border: 1px solid var(--hairline-color); border-radius: 4px; background: var(--body-bg); }
+.csv-upload input[type=file] { max-width: 100%; }
+.csv-confirm a { margin-inline-start: 16px; }
+.csv-preview { max-width: 100%; overflow-x: auto; border: 1px solid var(--hairline-color); }
+.csv-preview table { width: 100%; }
+.csv-preview th, .csv-preview td { color: var(--body-fg); background: var(--body-bg); }
+.csv-preview th { background: var(--darkened-bg); white-space: nowrap; }
+.csv-preview caption { padding: 12px; text-align: start; }
+.timetable-import .errornote li { color: var(--error-fg); }
+@media (max-width: 600px) {
+  .csv-upload, .csv-confirm { padding: 12px; }
+  .csv-confirm a { display: block; margin: 16px 0 0; }
+}

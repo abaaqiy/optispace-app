@@ -1,20 +1,20 @@
-import React from 'react';
+import { countdownLabel } from '../availability';
 
 const getStatusBadge = (status) => {
   switch(status) {
-    case 'available': return <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full"><span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse"></span> Vacant Now</span>;
-    case 'soon': return <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full"><span className="w-1.5 h-1.5 rounded-full bg-amber-600"></span> Occupied Soon</span>;
-    case 'occupied': return <span className="inline-flex items-center gap-1 bg-rose-100 text-rose-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full"><span className="w-1.5 h-1.5 rounded-full bg-rose-600"></span> In Session</span>;
-    default: return null;
+    case 'available': return <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full"><span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span> Available</span>;
+    case 'occupied': return <span className="inline-flex items-center gap-1 bg-rose-100 text-rose-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full"><span className="w-1.5 h-1.5 rounded-full bg-rose-600"></span> Occupied</span>;
+    case 'reserved': return <span className="inline-flex items-center gap-1 bg-indigo-100 text-indigo-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full"><span className="w-1.5 h-1.5 rounded-full bg-indigo-600"></span> Reserved</span>;
+    default: return <span className="bg-slate-100 text-slate-700 text-[10px] font-bold px-2.5 py-0.5 rounded-full">Unknown</span>;
   }
 };
 
-const RoomGrid = ({ rooms, onOpenDetails, onQuickBook, canBook = true }) => {
+const RoomGrid = ({ rooms, onOpenDetails }) => {
   if (rooms.length === 0) {
     return (
       <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center my-6">
         <h4 className="text-base font-bold text-slate-800">No Rooms Match Your Criteria</h4>
-        <p className="text-xs text-slate-500 mt-1">Try relaxing your filters.</p>
+        <p className="text-xs text-slate-500 mt-1">Try resetting your filters. Rooms appear here after an administrator adds them.</p>
       </div>
     );
   }
@@ -32,12 +32,14 @@ const RoomGrid = ({ rooms, onOpenDetails, onQuickBook, canBook = true }) => {
               {getStatusBadge(room.status)}
             </div>
             <p className="text-xs text-slate-500 mb-4"><i className="fa-solid fa-chair text-slate-400 mr-1"></i> {room.capacity} Capacity • {room.type}</p>
+            {room.building && <p className="text-xs text-slate-500 mb-3">{room.building.name}{room.roomNumber ? ` · ${room.roomNumber}` : ''}</p>}
             
             <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 text-xs space-y-1">
               <div className="flex items-center gap-1.5 font-medium text-slate-800">
                 <i className="fa-solid fa-clock text-slate-400"></i> {room.statusText}
               </div>
-              <div className="text-[11px] text-slate-500 pl-4">Next: {room.nextSchedule}</div>
+              {room.status === 'reserved' && room.reservedSeconds != null && <p className="font-mono font-bold text-indigo-800" role="timer">Reservation ends in {countdownLabel(room.reservedSeconds)}</p>}
+              {room.nextSchedule && <div className="text-[11px] text-slate-500 pl-4">Next: {room.nextSchedule}</div>}
             </div>
           </div>
 
@@ -50,15 +52,6 @@ const RoomGrid = ({ rooms, onOpenDetails, onQuickBook, canBook = true }) => {
               <i className="fa-solid fa-circle-info"></i> Details
             </button>
             
-            {/* Only show Book button if canBook is true */}
-            {canBook && (
-              <button 
-                onClick={() => onQuickBook(room)} 
-                className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 border border-blue-700 rounded-lg shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                <i className="fa-solid fa-calendar-plus"></i> Book
-              </button>
-            )}
           </div>
         </div>
       ))}

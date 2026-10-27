@@ -1,0 +1,48 @@
+.room-name-widget,
+select.room-catalog-select,
+.field-campus_zone .select2-container {
+  width: 100%;
+  max-width: 38rem;
+}
+
+.room-name-widget .select2-container {
+  max-width: 100%;
+}
+
+.room-custom-name {
+  margin-top: 12px;
+}
+
+.room-custom-name[hidden] {
+  display: none;
+}
+
+.room-custom-name label {
+  display: block;
+  float: none;
+  width: auto;
+  margin-bottom: 6px;
+}
+
+.room-custom-name input {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.select2-container--admin-autocomplete .room-catalog-dropdown {
+  color: var(--body-fg);
+  background-color: var(--body-bg);
+  border-color: var(--border-color);
+}
+
+.room-catalog-dropdown .select2-results__option {
+  overflow-wrap: anywhere;
+}
+
+/* Django's light-theme primary colour is too pale behind white option text.
+   Its button palette keeps highlighted results readable in both themes. */
+.select2-container--admin-autocomplete .room-catalog-dropdown
+  .select2-results__option--highlighted[aria-selected] {
+  color: var(--button-fg);
+  background-color: var(--button-bg);
+}
