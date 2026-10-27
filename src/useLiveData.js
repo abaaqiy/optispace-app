@@ -35,10 +35,12 @@ export default function useLiveData(key, load) {
     const onVisible = () => { if (!document.hidden) refresh(); };
     window.addEventListener('focus', refresh);
     window.addEventListener('online', refresh);
+    window.addEventListener('optispace:reservations-changed', refresh);
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       window.removeEventListener('focus', refresh);
       window.removeEventListener('online', refresh);
+      window.removeEventListener('optispace:reservations-changed', refresh);
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [refresh]);

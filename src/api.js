@@ -192,3 +192,22 @@ export function getLagosDateTime() {
   };
 }
 
+export async function getReservations(status = '', options = {}) {
+  const query = status ? `?${new URLSearchParams({ status })}` : '';
+  const data = await request(`/api/reservations/${query}`, options);
+  if (!Array.isArray(data)) throw new Error('Expected a reservation list from the backend.');
+  return data;
+}
+
+export async function requestReservation(details) {
+  const data = await post('/api/reservations/', details);
+  window.dispatchEvent(new Event('optispace:reservations-changed'));
+  return data;
+}
+
+export async function changeReservation(reference, action, note = '') {
+  const data = await post(`/api/reservations/${encodeURIComponent(reference)}/${action}/`, { note });
+  window.dispatchEvent(new Event('optispace:reservations-changed'));
+  return data;
+}
+

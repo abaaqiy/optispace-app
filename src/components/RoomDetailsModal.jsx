@@ -26,6 +26,7 @@ const facilityMap = {
 const RoomDetailsModal = ({
   room,
   onClose,
+  onRequest,
 }) => {
   if (!room) return null;
 
@@ -93,11 +94,10 @@ const RoomDetailsModal = ({
             </p>
 
             <p className="mt-1">{room.statusText}</p>
-            {room.status === 'reserved' && <p role="timer" className="font-mono font-bold mt-2">Starts in {countdownLabel(room.reservedSeconds)}</p>}
-            {room.status === 'reserved' && room.currentSchedule && <p>Currently in session: {room.currentSchedule}</p>}
+            {room.status === 'reserved' && room.reservedSeconds != null && <p role="timer" className="font-mono font-bold mt-2">Reservation ends in {countdownLabel(room.reservedSeconds)}</p>}
 
             <p className="mt-2 text-slate-600">
-              Based on timetables. Physical use may differ.
+              Based on timetables and approved reservations. Physical use may differ.
             </p>
           </div>
 
@@ -148,7 +148,7 @@ const RoomDetailsModal = ({
                   <div
                     key={`${slot.time}-${index}`}
                     className={`flex justify-between gap-3 p-2 rounded-lg border ${
-                      slot.reserved ? 'bg-indigo-50 border-indigo-100 text-indigo-900' : slot.occupied
+                      slot.status === 'unknown' ? 'bg-slate-50 border-slate-200 text-slate-700' : slot.reserved ? 'bg-indigo-50 border-indigo-100 text-indigo-900' : slot.occupied
                         ? 'bg-rose-50 border-rose-100 text-rose-900'
                         : 'bg-emerald-50 border-emerald-100 text-emerald-900'
                     }`}
@@ -166,6 +166,7 @@ const RoomDetailsModal = ({
         </div>
 
         <div className="mt-6 pt-3 border-t border-slate-100 flex justify-end gap-3">
+          {onRequest && <button type="button" onClick={onRequest} className="px-5 py-2.5 bg-blue-700 text-white font-semibold text-xs rounded-xl">Request this room</button>}
           <button
             type="button"
             onClick={onClose}

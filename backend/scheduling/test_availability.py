@@ -36,12 +36,12 @@ class AvailabilityAPITests(APITestCase):
 
     def test_time_boundaries(self):
         cases = [
-            ("07:59", "reserved"),
+            ("07:59", "available"),
             ("08:00", "occupied"),
             ("10:00", "available"),
             ("13:44", "available"),
-            ("13:45", "reserved"),
-            ("13:59", "reserved"),
+            ("13:45", "available"),
+            ("13:59", "available"),
             ("14:00", "occupied"),
             ("16:00", "available"),
             ("18:00", "available"),
@@ -54,17 +54,14 @@ class AvailabilityAPITests(APITestCase):
                     expected_status,
                 )
 
-    def test_reserved_countdown_before_a_lecture(self):
+    def test_upcoming_class_does_not_reserve_a_room(self):
         data = self.room_at("13:45")
-
-        self.assertEqual(data["status"], "reserved")
-        self.assertEqual(data["reservedSeconds"], 900)
-        self.assertEqual(data["reservedUntil"], "2026-11-10T14:00:00+01:00")
+        self.assertEqual(data["status"], "available")
+        self.assertIsNone(data["reservedSeconds"])
+        self.assertIsNone(data["reservedUntil"])
         self.assertIsNone(data["currentSchedule"])
-        self.assertEqual(
-            data["nextSchedule"],
-            "14:00 - CSC201 — Programming",
-        )
+        self.assertIn("available until 14:00", data["statusText"])
+        self.assertEqual(data["nextSchedule"], "14:00 - CSC201 — Programming")
 
     def test_missing_timetable_is_unknown(self):
         response = self.client.get(
@@ -80,18 +77,16 @@ class AvailabilityAPITests(APITestCase):
         self.assertEqual(
             [slot["time"] for slot in slots],
             [
-                "00:00 - 07:45",
-                "07:45 - 08:00",
+                "00:00 - 08:00",
                 "08:00 - 10:00",
-                "10:00 - 13:45",
-                "13:45 - 14:00",
+                "10:00 - 14:00",
                 "14:00 - 16:00",
                 "16:00 - 00:00",
             ],
         )
         self.assertEqual(
             [slot["occupied"] for slot in slots],
-            [False, True, True, False, True, True, False],
+            [False, True, False, True, False],
         )
 
     def test_deleted_entry_is_removed_from_status(self):
@@ -157,19 +152,18 @@ class AvailabilityAPITests(APITestCase):
         )
 
 
-    def test_reserved_overrides_ongoing_lecture_for_back_to_back_sessions(self):
+    def test_back_to_back_hall_classes_stay_occupied(self):
         TimetableDay.objects.create(room=self.room, date=self.day_date, start_time=time(10), end_time=time(11))
-        self.assertEqual(self.room_at("09:44")["status"], "occupied")
-        before = self.room_at("09:45")
-        self.assertEqual(before["status"], "reserved")
-        self.assertEqual(before["currentSchedule"], "CSC101 — Computing")
-        self.assertEqual(before["reservedSeconds"], 900)
+        for clock in ("09:44", "09:45", "09:59"):
+            data = self.room_at(clock)
+            self.assertEqual(data["status"], "occupied")
+            self.assertEqual(data["currentSchedule"], "CSC101 — Computing")
+            self.assertIsNone(data["reservedSeconds"])
         started = self.room_at("10:00")
         self.assertEqual(started["status"], "occupied")
         self.assertEqual(started["currentSchedule"], "Scheduled class")
-        self.assertIsNone(started["reservedSeconds"])
 
-    def test_deleted_next_class_has_no_reserved_window(self):
+    def test_deleted_next_class_leaves_room_available(self):
         self.afternoon.delete()
         data = self.room_at("13:50")
         self.assertEqual(data["status"], "available")
@@ -178,33 +172,37 @@ class AvailabilityAPITests(APITestCase):
     def test_second_precision_and_server_timeline_match(self):
         with patch("rooms.views.timezone.now", return_value=datetime(2026, 11, 10, 12, 59, 59, 500000, tzinfo=UTC)):
             data = self.client.get("/api/rooms/room-1/").data
-        self.assertEqual(data["reservedSeconds"], 1)
-        self.assertEqual(data["status"], "reserved")
+        self.assertIsNone(data["reservedSeconds"])
+        self.assertEqual(data["status"], "available")
         periods = data["statusTimeline"]
         self.assertEqual(periods[0]["start"], "2026-11-10T00:00:00+01:00")
         self.assertEqual(periods[-1]["end"], "2026-11-11T00:00:00+01:00")
         for left, right in zip(periods, periods[1:]):
             self.assertEqual(left["end"], right["start"])
-        self.assertEqual([period["status"] for period in periods], ["available", "reserved", "occupied", "available", "reserved", "occupied", "available"])
+        self.assertEqual([period["status"] for period in periods], ["available", "occupied", "available", "occupied", "available"])
+        with patch("rooms.views.timezone.now", return_value=datetime(2026, 11, 10, 13, 0, tzinfo=UTC)):
+            self.assertEqual(self.client.get("/api/rooms/room-1/").data["status"], "occupied")
 
-    def test_reserved_window_before_first_class(self):
+    def test_room_is_available_until_first_class_starts(self):
         self.morning.start_time = time(8, 10)
         self.morning.save()
-        self.assertEqual(self.room_at("07:54")["status"], "available")
-        self.assertEqual(self.room_at("07:55")["reservedSeconds"], 900)
-        self.assertEqual(self.room_at("08:00")["reservedSeconds"], 600)
+        for clock in ("07:54", "07:55", "08:00", "08:09"):
+            self.assertEqual(self.room_at(clock)["status"], "available")
+            self.assertIsNone(self.room_at(clock)["reservedSeconds"])
         self.assertEqual(self.room_at("08:10")["status"], "occupied")
 
-    def test_reserved_filter_excludes_other_statuses(self):
+    def test_reserved_filter_excludes_timetable_classes(self):
         params = {"date": "2026-11-10", "time": "13:45"}
-        reserved = self.client.get("/api/rooms/", {**params, "status": "reserved"})
-        self.assertEqual([item["id"] for item in reserved.data], [self.room.code])
-        self.assertEqual(self.client.get("/api/rooms/", {**params, "status": "available"}).data, [])
+        self.assertEqual(self.client.get("/api/rooms/", {**params, "status": "reserved"}).data, [])
+        available = self.client.get("/api/rooms/", {**params, "status": "available"})
+        self.assertEqual([item["id"] for item in available.data], [self.room.code])
         self.assertEqual(self.client.get("/api/rooms/", {**params, "status": "occupied"}).data, [])
+        self.assertEqual(self.client.get("/api/rooms/", {**params, "time": "14:00", "status": "reserved"}).data, [])
         self.assertEqual(self.client.get("/api/rooms/", {"status": "soon"}).status_code, 400)
 
-    def test_reserved_is_exclusive_to_seminar_and_event_halls(self):
-        for kind in ("Lecture Theatre", "Classroom", "Reading Room", "Computer Laboratory", "Laboratory", "Studio", "Meeting Room", "Custom Hall"):
+    def test_no_room_type_gets_a_reserved_warning_for_classes(self):
+        from rooms.catalog import ROOM_TYPES
+        for kind in (*ROOM_TYPES, "Custom Hall"):
             with self.subTest(kind=kind):
                 self.room.room_type = kind
                 self.room.save()
@@ -213,11 +211,6 @@ class AvailabilityAPITests(APITestCase):
                 self.assertIsNone(data["reservedUntil"])
                 self.assertFalse(any(slot["status"] == "reserved" for slot in data["statusTimeline"]))
                 self.assertEqual(self.room_at("14:00")["status"], "occupied")
-        for kind in ("Seminar Room", "Seminar Hall", "Event Hall", " seminar hall "):
-            with self.subTest(kind=kind):
-                self.room.room_type = kind
-                self.room.save()
-                self.assertEqual(self.room_at("13:50")["status"], "reserved")
 
     def test_lecture_room_stays_occupied_between_back_to_back_classes(self):
         self.room.room_type = "Lecture Theatre"
@@ -249,7 +242,7 @@ class AvailabilityAPITests(APITestCase):
         self.assertEqual([slot["status"] for slot in data["statusTimeline"]], ["available"])
         self.assertEqual(TimetableDay.objects.count(), 2)
 
-    def test_cancelled_upcoming_event_has_no_reserved_warning(self):
+    def test_cancelled_upcoming_class_does_not_block_the_room(self):
         self.afternoon.is_cancelled = True
         self.afternoon.save()
         self.assertEqual(self.room_at("13:50")["status"], "available")

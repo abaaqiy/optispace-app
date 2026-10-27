@@ -17,7 +17,7 @@ class TimetableAdminForm(forms.ModelForm):
         fields = ("room", "date", "start_time", "end_time", "course", "academic_session", "is_cancelled")
         labels = {"is_cancelled": "Cancelled"}
         help_texts = {
-            "start_time": "Lagos time. Only seminar rooms/halls and event halls show Reserved in the preceding 15 minutes.",
+            "start_time": "Lagos time. An active class makes the room Occupied from its start time.",
             "end_time": "The room shows Occupied from start time until end time.",
             "academic_session": "For example: 2026/2027.",
         }

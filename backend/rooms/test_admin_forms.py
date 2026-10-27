@@ -5,6 +5,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from bookings.models import Reservation
+from bookings.services import change_reservation
 from scheduling.models import TimetableDay
 
 from .catalog import CAMPUS_ZONES, OTHER_ROOM, ROOM_NAMES, ROOM_TYPES
@@ -79,9 +80,10 @@ class RoomAdminFormTests(TestCase):
             username="room-lecturer", email="room-lecturer@oauife.edu.ng", role="lecturer",
         )
         reservation = Reservation.objects.create(
-            room=self.room, user=lecturer, date=self.day.date, start_time=time(12),
-            end_time=time(13), purpose="Existing reservation", status="approved",
+            room=self.room, user=lecturer, date=self.day.date, start_time=time(18),
+            end_time=time(19), purpose="Existing reservation",
         )
+        change_reservation(reservation.reference, self.admin, "approve")
         new_building = Building.objects.create(name="Updated building", campus_zone=CAMPUS_ZONES[0])
         new_facility = Facility.objects.create(code="wifi")
         self.room.facilities.add(self.facility)

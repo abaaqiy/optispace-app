@@ -1,4 +1,4 @@
-// Advance through the server's timetable using elapsed time, not the device's timezone.
+// Advance through classes and bookings using elapsed time, not the device's timezone.
 export function roomAtElapsedTime(room, elapsedMs = 0) {
   const at = Date.parse(room.availabilityAt) + Math.max(0, elapsedMs);
   if (!Number.isFinite(at)) return room;
@@ -10,11 +10,13 @@ export function roomAtElapsedTime(room, elapsedMs = 0) {
   };
   return {
     ...room, ...period, availabilityAt: new Date(at).toISOString(),
-    reservedSeconds: period.reservedUntil ? Math.max(0, Math.ceil((Date.parse(period.reservedUntil) - at) / 1000)) : null,
+    reservedSeconds: period.status === 'reserved' && period.reservedUntil ? Math.max(0, Math.ceil((Date.parse(period.reservedUntil) - at) / 1000)) : null,
   };
 }
 
 export function countdownLabel(seconds) {
   const whole = Math.max(0, Math.ceil(seconds || 0));
-  return `${String(Math.floor(whole / 60)).padStart(2, '0')}:${String(whole % 60).padStart(2, '0')}`;
+  const pad = value => String(value).padStart(2, '0');
+  const minutes = `${pad(Math.floor(whole / 60) % 60)}:${pad(whole % 60)}`;
+  return whole >= 3600 ? `${pad(Math.floor(whole / 3600))}:${minutes}` : minutes;
 }

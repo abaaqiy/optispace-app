@@ -1,6 +1,7 @@
 import RoomGrid from './RoomGrid';
 
 const adminLinks = [
+  { label: 'Manage Reservations', path: 'bookings/reservation/' },
   { label: 'Manage Buildings', path: 'rooms/building/' },
   { label: 'Manage Courses', path: 'scheduling/course/' },
   {

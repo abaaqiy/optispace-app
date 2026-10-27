@@ -78,9 +78,9 @@ merging existing records.
 
 The ten types are Lecture Theatre, Classroom, Seminar Room, Seminar Hall, Event Hall,
 Reading Room, Computer Laboratory, Laboratory, Studio and Meeting Room: simple app
-categories, not an official OAU classification. Only Seminar Room, Seminar Hall and
-Event Hall use the 15-minute Reserved warning. Existing custom room types are
-preserved but do not use that warning.
+categories, not an official OAU classification. Room type does not determine
+availability status: approved bookings show Reserved during their interval for
+all types, including existing custom types. Active classes show Occupied.
 
 The campus-area list was expanded on 25 October 2026 to the 16 faculties and
 colleges requested by the project owner:

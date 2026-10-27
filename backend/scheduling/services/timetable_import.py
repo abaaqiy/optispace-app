@@ -180,9 +180,10 @@ def _identity(values):
     return tuple(values[name] for name in ENTRY_FIELDS if name != "is_cancelled")
 
 
-def _snapshot(rows, existing):
+def _snapshot(rows, existing, reservations):
     payload = {
         "existing": [{"id": entry.pk, **entry_values(entry)} for entry in existing],
+        "reservations": [(item.pk, item.room_id, item.date, item.start_time, item.end_time) for item in reservations],
         "rows": [{"line": row.line, "values": row.values, "id": row.existing.pk if row.existing else None,
                   "action": row.action, "room": (row.room.code, row.room.name),
                   "course": (row.course.code, row.course.title)} for row in rows],
@@ -200,6 +201,11 @@ def build_plan(rows, *, lock_entries=False):
     room_ids = {row.room.pk for row in rows} | {obj.room_id for obj in originals.values()}
     dates = {row.values["date"] for row in rows} | {obj.date for obj in originals.values()}
     existing = list(queryset.filter(room_id__in=room_ids, date__in=dates).order_by("pk"))
+    from bookings.models import Reservation
+    reservations = list(Reservation.objects.filter(
+        room_id__in=room_ids, date__in=dates, status=Reservation.Status.APPROVED,
+        is_archived=False,
+    ).order_by("pk"))
     identities = defaultdict(list)
     for obj in existing:
         identities[_identity(entry_values(obj))].append(obj)
@@ -228,6 +234,10 @@ def build_plan(rows, *, lock_entries=False):
             used_ids.add(row.existing.pk)
 
     final_slots = defaultdict(list)
+    for reservation in reservations:
+        final_slots[(reservation.room_id, reservation.date)].append(
+            (reservation.start_time, reservation.end_time, "an approved reservation")
+        )
     for obj in existing:
         if obj.pk not in used_ids and not obj.is_cancelled:
             final_slots[(obj.room_id, obj.date)].append((obj.start_time, obj.end_time, f"saved timetable #{obj.pk}"))
@@ -242,7 +252,7 @@ def build_plan(rows, *, lock_entries=False):
         slots.append((start, end, f"row {row.line}"))
     if errors:
         raise ImportProblem(errors)
-    return ImportPlan(rows=rows, fingerprint=_snapshot(rows, existing))
+    return ImportPlan(rows=rows, fingerprint=_snapshot(rows, existing, reservations))
 
 
 def preview_import(text):
@@ -267,7 +277,7 @@ def apply_import(text, expected_fingerprint, log_entry):
             # by an import working from an earlier snapshot.
             plan = build_plan(rows, lock_entries=True)
             if plan.fingerprint != expected_fingerprint:
-                raise ImportProblem("The timetable changed after this preview. Upload the CSV again to review the latest records.")
+                raise ImportProblem("The timetable or approved reservations changed after this preview. Upload the CSV again to review the latest records.")
             # Clear only the old occupied periods being updated, inside this
             # transaction. This allows time swaps and cancel+replacement imports.
             # Other readers see the complete result only after commit.

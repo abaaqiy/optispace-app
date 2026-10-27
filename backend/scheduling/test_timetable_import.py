@@ -76,6 +76,41 @@ class TimetableImportTests(TestCase):
     def apply(self, text):
         return apply_import(text, preview_import(text).fingerprint, lambda entry, action: None)
 
+    def approved_booking(self, **changes):
+        from bookings.models import Reservation
+        from bookings.services import change_reservation
+        user = get_user_model().objects.create_user(username="booking-lecturer", email="booking-lecturer@oauife.edu.ng", role="lecturer")
+        booking = Reservation.objects.create(**{
+            "room": self.room, "user": user, "date": date(2030, 1, 15),
+            "start_time": time(10), "end_time": time(12), "purpose": "Department meeting", **changes,
+        })
+        return change_reservation(booking.reference, self.admin, "approve")
+
+    def test_csv_rejects_approved_booking_overlap(self):
+        self.approved_booking()
+        with self.assertRaisesMessage(ImportProblem, "approved reservation"):
+            preview_import(timetable_csv(self.row()))
+        self.assertEqual(TimetableDay.objects.count(), 0)
+
+    def test_approval_after_preview_blocks_whole_import_and_cancellation_allows_it(self):
+        from bookings.services import change_reservation
+        text = timetable_csv(self.row(), self.row(room=self.hall.code))
+        plan = preview_import(text)
+        booking = self.approved_booking()
+        with self.assertRaisesMessage(ImportProblem, "approved reservation"):
+            apply_import(text, plan.fingerprint, lambda entry, action: None)
+        self.assertFalse(TimetableDay.objects.exists())
+        change_reservation(booking.reference, self.admin, "cancel")
+        self.assertEqual(self.apply(text)["Add"], 2)
+
+    def test_nonoverlapping_approval_invalidates_preview_and_adjacent_new_preview_succeeds(self):
+        text = timetable_csv(self.row())
+        plan = preview_import(text)
+        self.approved_booking(start_time=time(12), end_time=time(13))
+        with self.assertRaisesMessage(ImportProblem, "changed after this preview"):
+            apply_import(text, plan.fingerprint, lambda entry, action: None)
+        self.assertEqual(self.apply(text)["Add"], 1)
+
     def test_preview_has_no_writes_then_confirm_updates_existing_frontend_contract(self):
         response = self.upload(timetable_csv(self.row(), self.row(room=self.hall.code)))
         self.assertEqual(response.status_code, 200)
@@ -89,8 +124,10 @@ class TimetableImportTests(TestCase):
         params = {"date": "2030-01-15", "time": "09:45"}
         rooms = {r["id"]: r for r in self.client.get("/api/rooms/", params).json()}
         self.assertEqual(rooms[self.room.code]["status"], "available")
-        self.assertEqual(rooms[self.hall.code]["status"], "reserved")
-        self.assertEqual(rooms[self.hall.code]["reservedSeconds"], 900)
+        self.assertEqual(rooms[self.hall.code]["status"], "available")
+        self.assertIsNone(rooms[self.hall.code]["reservedSeconds"])
+        active = self.client.get("/api/rooms/", {**params, "time": "10:00"}).json()
+        self.assertTrue(all(room["status"] == "occupied" for room in active))
         self.assertEqual(len(self.client.get("/api/schedules/", {"date": "2030-01-15"}).json()), 2)
 
     def test_identical_reupload_is_unchanged_and_does_not_restore_cancelled_classes(self):

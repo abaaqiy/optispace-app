@@ -129,17 +129,18 @@ availability rather than continuing to display it. Status and countdowns advance
 every second in the current-time view. A selected date/time is a fixed preview,
 while the underlying timetable still refreshes.
 
-Availability checks all stored classes for that room/date, regardless of user or
-search filters. A date with no entries anywhere in the school timetable is Unknown.
+Availability checks all active classes and approved reservations for that room/date,
+regardless of user or search filters. An approved reservation shows Reserved during its time slot.
+Outside approved slots, a date without any school timetable entries remains Unknown.
 When the school timetable has entries for that date, a room without an active class
-at the selected time is Available (subject to the hall-only Reserved warning).
+or approved reservation is Available.
 Cancelled rows are ignored for occupancy, but still establish that a timetable
 exists for that date, so cancelling the only class releases the room. Another
 active class in the same slot keeps the room Occupied. This assumes the saved
 school timetable contains every relevant class for that date; the app cannot
 infer classes that have not been entered.
-Availability is derived from the timetable and does not detect unscheduled physical
-occupancy. The automatic Reserved warning is described below.
+Availability is derived from the timetable and approved reservations and does not detect unscheduled physical
+occupancy. The four statuses are described below.
 
 The existing screen layouts and room response fields are preserved. Every room
 requires a building; its public `zone` value and zone filtering come from that
@@ -148,8 +149,8 @@ them remain visible as "Scheduled class" until an administrator fills them in.
 Existing room IDs are retained; timetable rows supply the schedule references.
 The public campus class schedule lists saved classes and marks cancelled entries
 **Cancelled**. The lecturer overview tab is called **Dashboard**.
-Students and lecturers can browse rooms and timetables; booking requests have been
-removed.
+Students can request small rooms; lecturers can request small or large rooms.
+Administrators approve or reject requests from the dashboard. See [Reservations](docs/reservations.md).
 
 ### API routes
 
@@ -159,54 +160,64 @@ removed.
 | `GET /api/rooms/<code>/` | Room details and availability for `date` + `time` (or now) |
 | `GET /api/rooms/filters/` | Saved campus zones/buildings and supported facilities |
 | `GET /api/schedules/?date=YYYY-MM-DD` | Saved timetable classes; defaults to today in Lagos |
+| `GET /api/reservations/` | Own reservations, or all for administrators; optional `status` filter |
+| `POST /api/reservations/` | Submit a pending request |
+| `POST /api/reservations/<reference>/approve/` or `reject/` | Administrator review with an optional note |
+| `POST /api/reservations/<reference>/cancel/` | Owner/administrator cancellation before the reservation ends |
 
 Room list responses stay arrays with `id`, `name`, `zone`, `type`, `capacity`,
 `sizeCategory`, `facilities`, `status`, `statusText`, `currentSchedule`,
 `nextSchedule`, `hourlySchedule`, and `availabilityAt`. `building` and `roomNumber`
 are additive. Responses also include `reservedUntil`, `reservedSeconds` and
-`statusTimeline` (timestamped status periods for the selected date). These let
+`statusTimeline` (timestamped status periods for the selected date). For an active
+reservation, `reservedUntil` is its end time and `reservedSeconds` is the time
+remaining until that end; both are null outside a reservation. These let
 the current-time view advance locally between refreshes, including in an open room
 dialog and when filtering by status. Catalog and timetable writes use Django admin;
 public API routes are read-only.
 
-## Room status and hall-only Reserved warning
+## Room status
 
-The room's **Room type** controls whether Reserved can appear. Only **Seminar Room**,
-**Seminar Hall** and **Event Hall** have the 15-minute warning; the latter two are
-now available in the admin dropdown. Lecture Theatre, Classroom, reading rooms,
-laboratories, studios, meeting rooms and custom types never display Reserved.
+Statuses use Lagos time, the saved timetable and approved reservations, for every
+room type:
 
-Statuses use Lagos time and the school's saved timetable:
+- **Reserved:** an approved reservation covers the selected time.
+- **Occupied:** an active timetable class covers the selected time.
+- **Available:** the school timetable exists for this date and no active class or
+  approved reservation covers this time.
+- **Unknown:** no school timetable has been entered for the selected date and no
+  approved reservation covers this time.
 
-- **Occupied:** an active class covers this time. For lecture rooms this lasts
-  until the class ends, including through back-to-back classes without a gap.
-- **Available:** no active class covers this time, either because the class was
-  cancelled or because no class is scheduled in that interval.
-- **Reserved:** for eligible seminar/event spaces only, the next active session
-  starts within 15 minutes. This warning takes priority even during a preceding
-  session, whose name remains visible. Cancelled sessions never trigger it.
-- **Unknown:** no school timetable has been entered for the selected date.
+The former 15-minute hall warning has been removed. Approval holds only the booked
+interval, not the entire day. Pending, rejected, cancelled and archived requests
+never change availability. Overlapping classes and approvals are rejected on save.
 
-For a single active timetable entry from 10:00 to 12:00:
+For a 10:00–12:00 slot with no adjacent activity and a school timetable for the date:
 
-| Time on that date | Lecture room | Seminar/event hall |
+| Time | Active timetable class | Approved reservation |
 | --- | --- | --- |
-| Before 09:45 | Available | Available |
-| 09:45–10:00 | Available | Reserved |
-| 10:00–12:00 | Occupied | Occupied |
-| After 12:00 | Available | Available |
-| Class cancelled, with no replacement | Available | Available |
+| Before 10:00 (including 09:45) | Available | Available |
+| 10:00–12:00 | Occupied | Reserved |
+| At/after 12:00 | Available | Available |
+| Cancelled, with no replacement | Available | Available |
 
-Intervals include their start and exclude their end. Saved cancellations and
-restorations reach student and lecturer views through automatic polling, including
-status filters and an open room dialog. The campus schedule retains cancelled
-entries with their status. No scheduled job or manual room-status update is needed.
-A future-date search stays at its chosen moment while reflecting timetable edits.
+Intervals include their start and exclude their end. During a reservation, the
+countdown shows **Reservation ends in**. At its end, the next class, booking or gap
+determines status; a booking does not automatically become Occupied. Without a
+school timetable, gaps before/after an approved reservation stay Unknown.
+
+Cancellations and restorations reach student and lecturer views through automatic
+polling, including status filters and open room details. Status boundaries and
+remaining reservation time advance locally every second. A future-date search
+stays at its chosen moment while reflecting timetable and reservation edits.
+The campus class schedule retains cancelled classes. No scheduled job or manual
+room-status update is needed.
 
 ## Milestone 3: importing the school timetable
 
 Administrators can now import a school timetable from **CSV UTF-8** through
 **Import School Timetable** on the dashboard, or **Manage Timetables → Import CSV**.
+
 Download the template and saved room/course reference lists, enter one row per
 class/date, and choose **Preview CSV**. The preview reports additions, updates,
 unchanged rows and conflicts. **Apply import** saves the reviewed entries together.
@@ -222,17 +233,22 @@ See the [CSV format and step-by-step guide](docs/timetable-import.md) for exampl
 limits and validation rules. This milestone requires no new dependencies or database
 migrations. Real school timetable data must be supplied by an administrator.
 
-Booking forms, personal request pages, approvals and reservation API routes have
-been removed for all roles. `/api/reservations/` and its former action URLs return
-404. Historical reservation rows and migration history remain in PostgreSQL; they
-are not exposed in Django admin and do not affect room status or lecture validation.
-The booking removal requires no database migration. The retained `bookings` app only
-keeps those existing records and migration dependencies intact.
+## Restored Milestone 2: reservations
 
-Timetable saves lock the room and reject overlapping active entries, including when
-restoring a cancelled class.
-Use Django admin/model save paths: direct SQL and bulk updates bypass model
-validation.
+The reservation workflow supports requests, administrator approval/rejection,
+owner/admin cancellation and private reservation history. Pending requests do not
+hold rooms. Approval blocks only the requested interval and updates availability.
+During an approved booking the room is Reserved, for every room type. See [workflow, API and local testing](docs/reservations.md).
+
+Migration `bookings.0002_archive_retired_reservations` marks pre-existing reservation
+rows as archived without deleting them. They remain visible as read-only history
+in Django admin, and do not affect availability. New requests are not archived.
+Apply this migration before running the restored version against a database.
+
+Timetable saves and CSV imports share room locks with approvals and
+reject overlapping active classes or approved reservations. Supported writes use
+Django admin, the reservation API or model/service save paths; direct SQL and bulk
+updates bypass these checks.
 
 Focused verification:
 
@@ -247,7 +263,9 @@ Frontend countdown verification (from the repository root):
 node --test src/availability.test.js
 ```
 
-These tests cover retired endpoints, archived record preservation, timetable editing, data migration, countdown boundaries, back-to-back lectures, status filtering, and room
+These tests cover reservation permissions, concurrent approvals, cancellation,
+archived history, import conflicts, timetable editing, migrations, countdown
+boundaries, back-to-back lectures, status filtering, and room
 editing without changing existing record links.
 
 ## Simplified scheduling upgrade

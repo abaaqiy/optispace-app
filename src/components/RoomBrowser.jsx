@@ -5,14 +5,17 @@ import RoomGrid from './RoomGrid';
 import RoomDetailsModal from './RoomDetailsModal';
 import SearchFilters from './SearchFilters';
 import useLiveData from '../useLiveData';
+import BookingModal from './BookingModal';
 
 const emptyFilters = { zone: '', capacity: '', facilities: [], status: '' };
 
-export default function RoomBrowser({ category, children }) {
+export default function RoomBrowser({ category, children, user }) {
   const [filters, setFilters] = useState(emptyFilters);
   const [options, setOptions] = useState({ zones: [] });
   const [clock, setClock] = useState(() => performance.now());
   const [selectedId, setSelectedId] = useState(null);
+  const [bookingRoom, setBookingRoom] = useState(null);
+  const [bookingMessage, setBookingMessage] = useState('');
   const requestKey = JSON.stringify({ filters, category });
   const loadRooms = useCallback(options => getRooms({ ...filters, category, status: '' }, options), [filters, category]);
   const { data, error, receivedAt, updatedAt, loading, refreshing, refresh } = useLiveData(requestKey, loadRooms);
@@ -47,8 +50,8 @@ export default function RoomBrowser({ category, children }) {
       <div className="flex flex-wrap justify-between items-center gap-3 text-xs text-slate-600">
         <div>
           <p className="font-semibold">Availability: {momentLabel} (Africa/Lagos)</p>
-          <p>Availability follows the school timetable. Changes are checked every 5 seconds. Reserved applies only to seminar rooms/halls and event halls, for the 15 minutes before a scheduled session.</p>
-          {filters.date && <p>Showing the selected date and time; this countdown is a fixed preview.</p>}
+          <p>Occupied means a timetable class is in progress. Reserved means an approved booking covers this time, for any room type. Changes are checked every 5 seconds.</p>
+          {filters.date && <p>Showing the selected date and time; the remaining reservation time is a fixed preview.</p>}
         </div>
         <div className="flex items-center gap-3">
           <p role="status">{refreshing ? 'Refreshing room availability…' : error ? 'Refresh failed. Retrying automatically.' : updatedAt ? `Rooms updated at ${new Date(updatedAt).toLocaleTimeString('en-GB', { timeZone: 'Africa/Lagos' })}` : ''}</p>
@@ -80,7 +83,10 @@ export default function RoomBrowser({ category, children }) {
           {children ? children(rooms, openDetails) : <RoomGrid rooms={rooms} onOpenDetails={openDetails} />}
         </>
       )}
-      {selectedRoom && <RoomDetailsModal room={selectedRoom} onClose={() => setSelectedId(null)} />}
+      {bookingMessage && <p role="status" className="bg-emerald-50 text-emerald-800 p-3 rounded-xl text-sm">{bookingMessage}</p>}
+      {selectedRoom && <RoomDetailsModal room={selectedRoom} onClose={() => setSelectedId(null)}
+        onRequest={user && user.role !== 'admin' && (user.role === 'lecturer' || selectedRoom.sizeCategory === 'small') ? () => { setBookingRoom(selectedRoom); setSelectedId(null); setBookingMessage(''); } : undefined} />}
+      {bookingRoom && <BookingModal room={bookingRoom} onClose={() => setBookingRoom(null)} onSuccess={message => { setBookingRoom(null); setBookingMessage(message); refresh(); }} />}
     </section>
   );
 }

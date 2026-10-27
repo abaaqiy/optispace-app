@@ -67,6 +67,12 @@ class TimetableDay(models.Model):
             ).exclude(pk=self.pk)
             if conflicts.exists():
                 raise ValidationError("This room already has a timetable entry overlapping that time.")
+            from bookings.models import Reservation
+            if Reservation.objects.filter(
+                room_id=self.room_id, date=self.date, status=Reservation.Status.APPROVED,
+                is_archived=False, start_time__lt=self.end_time, end_time__gt=self.start_time,
+            ).exists():
+                raise ValidationError("This time overlaps an approved reservation. Cancel that reservation or choose another time.")
 
     def save(self, *args, **kwargs):
         room_ids = [self.room_id]

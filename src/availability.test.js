@@ -9,61 +9,108 @@ const period = (start, end, status, extra = {}) => ({
   reservedUntil: null, reservedSeconds: null, ...extra,
 });
 const room = {
-  id: 'test-room', name: 'Test room', availabilityAt: timestamp('09:44:59'),
+  id: 'test-room', name: 'Test room', availabilityAt: timestamp('09:59:59'),
   statusTimeline: [
-    period('08:00:00', '09:45:00', 'available'),
-    period('09:45:00', '10:00:00', 'reserved', {
-      reservedUntil: timestamp('10:00:00'), nextSchedule: '10:00 - CSC 101',
+    period('00:00:00', '08:00:00', 'available'),
+    period('08:00:00', '10:00:00', 'occupied', { currentSchedule: 'CSC 101' }),
+    period('10:00:00', '12:00:00', 'reserved', {
+      currentSchedule: 'Approved reservation', reservedUntil: timestamp('12:00:00'),
     }),
-    period('10:00:00', '12:00:00', 'occupied', { currentSchedule: 'CSC 101' }),
-    period('12:00:00', '18:00:00', 'available'),
+    period('12:00:00', '13:00:00', 'occupied', { currentSchedule: 'CSC 201' }),
+    period('13:00:00', '23:59:59', 'available'),
   ],
 };
 
-test('live availability crosses the exact warning, lecture and coverage boundaries', () => {
-  assert.equal(roomAtElapsedTime(room).status, 'available');
-  const reserved = roomAtElapsedTime(room, 1000);
-  assert.equal(reserved.status, 'reserved');
-  assert.equal(reserved.reservedSeconds, 900);
-  assert.equal(roomAtElapsedTime(room, 900_000).reservedSeconds, 1);
-  const started = roomAtElapsedTime(room, 901_000);
-  assert.equal(started.status, 'occupied');
-  assert.equal(started.currentSchedule, 'CSC 101');
-  assert.equal(started.reservedSeconds, null);
-  assert.equal(roomAtElapsedTime({ ...room, availabilityAt: timestamp('12:00:00') }).status, 'available');
-  const outside = roomAtElapsedTime({ ...room, availabilityAt: timestamp('18:00:00') });
-  assert.equal(outside.status, 'unknown');
-  assert.equal(outside.currentSchedule, null);
+test('a class stays occupied until an adjacent approved booking begins', () => {
+  assert.equal(roomAtElapsedTime({ ...room, availabilityAt: timestamp('09:45:00') }).status, 'occupied');
+  assert.equal(roomAtElapsedTime(room).status, 'occupied');
+  assert.equal(roomAtElapsedTime(room, 999).currentSchedule, 'CSC 101');
+  const started = roomAtElapsedTime(room, 1000);
+  assert.equal(started.status, 'reserved');
+  assert.equal(started.currentSchedule, 'Approved reservation');
+  assert.equal(started.reservedSeconds, 7200);
 });
 
-test('a selected time stays fixed when no elapsed time is supplied', () => {
-  const preview = { ...room, availabilityAt: timestamp('09:50:00') };
-  assert.equal(roomAtElapsedTime(preview).reservedSeconds, 600);
-  assert.equal(roomAtElapsedTime(preview, 0).reservedSeconds, 600);
-  assert.equal(preview.availabilityAt, timestamp('09:50:00'));
+test('reservation countdown ends at its booked end and the next class becomes occupied', () => {
+  assert.equal(roomAtElapsedTime(room, 7_200_999).reservedSeconds, 1);
+  const ended = roomAtElapsedTime(room, 7_201_000);
+  assert.equal(ended.status, 'occupied');
+  assert.equal(ended.currentSchedule, 'CSC 201');
+  assert.equal(ended.reservedSeconds, null);
+  assert.equal(ended.reservedUntil, null);
+  assert.equal(roomAtElapsedTime({ ...room, availabilityAt: timestamp('13:00:00') }).status, 'available');
 });
 
-test('a warning can retain a current lecture and clears it at the next start', () => {
-  const backToBack = {
-    ...room, availabilityAt: timestamp('09:45:00'),
-    statusTimeline: room.statusTimeline.map(slot => slot.status === 'reserved'
-      ? { ...slot, currentSchedule: 'Previous lecture' } : slot),
+test('an approved booking has no early warning and releases to a free gap', () => {
+  const gap = {
+    ...room,
+    statusTimeline: [
+      period('00:00:00', '10:00:00', 'available'),
+      room.statusTimeline[2],
+      period('12:00:00', '23:59:59', 'available'),
+    ],
   };
-  assert.equal(roomAtElapsedTime(backToBack).currentSchedule, 'Previous lecture');
-  assert.equal(roomAtElapsedTime(backToBack, 900_000).currentSchedule, 'CSC 101');
-  assert.equal(roomAtElapsedTime(backToBack, 900_000).status, 'occupied');
+  assert.equal(roomAtElapsedTime({ ...gap, availabilityAt: timestamp('09:45:00') }).status, 'available');
+  assert.equal(roomAtElapsedTime(gap, 1000).status, 'reserved');
+  assert.equal(roomAtElapsedTime(gap, 7_201_000).status, 'available');
 });
 
-test('no timetable stays Unknown and supplied offsets determine time', () => {
+test('a selected time remains fixed while live time counts down', () => {
+  const preview = { ...room, availabilityAt: timestamp('10:30:00') };
+  assert.equal(roomAtElapsedTime(preview).reservedSeconds, 5400);
+  assert.equal(roomAtElapsedTime(preview, 0).reservedSeconds, 5400);
+  assert.equal(roomAtElapsedTime(preview, 1000).reservedSeconds, 5399);
+  assert.equal(preview.availabilityAt, timestamp('10:30:00'));
+});
+
+test('back-to-back approved bookings reset the timer at the next start', () => {
+  const adjacent = {
+    ...room,
+    statusTimeline: [room.statusTimeline[2], period('12:00:00', '13:00:00', 'reserved', {
+      currentSchedule: 'Approved reservation', reservedUntil: timestamp('13:00:00'),
+    })],
+  };
+  assert.equal(roomAtElapsedTime(adjacent, 7_200_999).reservedSeconds, 1);
+  assert.equal(roomAtElapsedTime(adjacent, 7_201_000).status, 'reserved');
+  assert.equal(roomAtElapsedTime(adjacent, 7_201_000).reservedSeconds, 3600);
+});
+
+test('without a school timetable, only the booked interval is Reserved', () => {
+  const noTimetable = {
+    ...room,
+    statusTimeline: [period('00:00:00', '10:00:00', 'unknown'), room.statusTimeline[2], period('12:00:00', '23:59:59', 'unknown')],
+  };
+  assert.equal(roomAtElapsedTime(noTimetable).status, 'unknown');
+  assert.equal(roomAtElapsedTime(noTimetable, 1000).status, 'reserved');
+  assert.equal(roomAtElapsedTime(noTimetable, 7_201_000).status, 'unknown');
+  const beyondTimeline = roomAtElapsedTime({ ...room, availabilityAt: '2026-11-11T00:00:00+01:00' });
+  assert.equal(beyondTimeline.status, 'unknown');
+  assert.equal(beyondTimeline.currentSchedule, null);
+  assert.equal(beyondTimeline.reservedSeconds, null);
+});
+
+test('updated cancellation data clears the old reserved status and countdown', () => {
+  const cancelled = {
+    ...room, status: 'reserved', reservedUntil: timestamp('12:00:00'), reservedSeconds: 5000,
+    availabilityAt: timestamp('10:30:00'),
+    statusTimeline: [period('00:00:00', '23:59:59', 'available')],
+  };
+  assert.equal(roomAtElapsedTime(cancelled).status, 'available');
+  assert.equal(roomAtElapsedTime(cancelled).reservedSeconds, null);
+  assert.equal(roomAtElapsedTime(cancelled).reservedUntil, null);
+});
+
+test('supplied server offsets determine time independently of device timezone', () => {
+  const utc = { ...room, availabilityAt: '2026-11-10T09:00:00Z' };
+  assert.equal(roomAtElapsedTime(utc).reservedSeconds, 7200);
+  assert.equal(roomAtElapsedTime(room, -1000).status, 'occupied');
   assert.equal(roomAtElapsedTime({ ...room, statusTimeline: [] }).status, 'unknown');
-  const utc = { ...room, availabilityAt: '2026-11-10T08:45:00Z' };
-  assert.equal(roomAtElapsedTime(utc).reservedSeconds, 900);
-  assert.equal(roomAtElapsedTime(room, -1000).status, 'available');
 });
 
-test('countdown never displays zero before the lecture starts', () => {
-  assert.equal(roomAtElapsedTime(room, 900_999).reservedSeconds, 1);
-  assert.equal(countdownLabel(900), '15:00');
+test('remaining time formats multi-hour bookings and rounds the last second up', () => {
+  assert.equal(countdownLabel(7200), '02:00:00');
+  assert.equal(countdownLabel(3661), '01:01:01');
+  assert.equal(countdownLabel(3599), '59:59');
   assert.equal(countdownLabel(61), '01:01');
   assert.equal(countdownLabel(0.1), '00:01');
   assert.equal(countdownLabel(-1), '00:00');

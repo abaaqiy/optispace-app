@@ -38,8 +38,7 @@ const RoomGrid = ({ rooms, onOpenDetails }) => {
               <div className="flex items-center gap-1.5 font-medium text-slate-800">
                 <i className="fa-solid fa-clock text-slate-400"></i> {room.statusText}
               </div>
-              {room.status === 'reserved' && <p className="font-mono font-bold text-indigo-800" role="timer">Starts in {countdownLabel(room.reservedSeconds)}</p>}
-              {room.status === 'reserved' && room.currentSchedule && <p>Currently in session: {room.currentSchedule}</p>}
+              {room.status === 'reserved' && room.reservedSeconds != null && <p className="font-mono font-bold text-indigo-800" role="timer">Reservation ends in {countdownLabel(room.reservedSeconds)}</p>}
               {room.nextSchedule && <div className="text-[11px] text-slate-500 pl-4">Next: {room.nextSchedule}</div>}
             </div>
           </div>

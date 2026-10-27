@@ -7,6 +7,7 @@ import Toast from './components/Toast';
 import { getCurrentUser, logoutUser } from './api';
 import RoomBrowser from './components/RoomBrowser';
 import CampusSchedule from './components/CampusSchedule';
+import ReservationsPanel from './components/ReservationsPanel';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -96,6 +97,7 @@ function App() {
         {user.role === 'admin' ? (
           <>
             <AdminDashboard />
+            <div className="my-6"><ReservationsPanel admin /></div>
             <RoomBrowser />
           </>
         ) : user.role === 'lecturer' ? (
@@ -109,13 +111,14 @@ function App() {
                 <i className="fa-solid fa-magnifying-glass"></i> Find a Room
               </button>
               {/* NEW: Campus Schedule Tab */}
+              <button onClick={() => setActiveTab('reservations')} className={`px-4 py-2.5 font-bold text-sm border-b-2 whitespace-nowrap ${activeTab === 'reservations' ? 'border-blue-700 text-blue-700' : 'border-transparent text-slate-500'}`}>My Reservations</button>
               <button onClick={() => setActiveTab('campus-schedule')} className={`px-4 py-2.5 font-bold text-sm border-b-2 flex items-center gap-2 transition-colors ${activeTab === 'campus-schedule' ? 'border-blue-700 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}>
                 <i className="fa-solid fa-calendar-days"></i> Campus Schedule
               </button>
             </div>
 
             {activeTab === 'dashboard' && (
-              <RoomBrowser>
+              <RoomBrowser user={user}>
                 {(rooms, openDetails) => <LecturerDashboard user={user} rooms={rooms} onOpenDetails={openDetails} setActiveTab={setActiveTab} />}
               </RoomBrowser>
             )}
@@ -124,13 +127,14 @@ function App() {
               <div className="space-y-6">
                 <div className="bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-xl text-sm flex items-start gap-3">
                   <i className="fa-solid fa-circle-info mt-0.5"></i>
-                  <p>Check room availability against the school timetable. Cancelled classes release their time slots. Only seminar rooms/halls and event halls use the 15-minute Reserved countdown.</p>
+                  <p>Check room availability against classes and approved bookings. Classes show Occupied; approved bookings show Reserved during their time slots. Cancellations release those slots.</p>
                 </div>
-                <RoomBrowser />
+                <RoomBrowser user={user} />
               </div>
             )}
 
 
+            {activeTab === 'reservations' && <ReservationsPanel />}
             {activeTab === 'campus-schedule' && (
               <div className="space-y-4">
                 <div className="bg-indigo-50 border border-indigo-200 text-indigo-800 p-4 rounded-xl text-sm flex items-start gap-3">
@@ -154,6 +158,7 @@ function App() {
               <button onClick={() => setActiveTab('schedule')} className={`px-4 py-2.5 font-semibold text-sm border-b-2 flex items-center gap-2 transition-colors ${activeTab === 'schedule' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}>
                 <i className="fa-solid fa-calendar-days"></i> Class Schedule
               </button>
+              <button onClick={() => setActiveTab('reservations')} className={`px-4 py-2.5 font-semibold text-sm border-b-2 whitespace-nowrap ${activeTab === 'reservations' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'}`}>My Reservations</button>
             </div>
 
             {activeTab === 'lecture-rooms' && (
@@ -162,7 +167,7 @@ function App() {
                   <i className="fa-solid fa-circle-info mt-0.5"></i>
                   <p>Check the availability and timetables of large lecture theatres. Use the <strong>Reading Rooms</strong> tab to find smaller spaces for personal or group study.</p>
                 </div>
-                <RoomBrowser category="large" />
+                <RoomBrowser category="large" user={user} />
               </div>
             )}
 
@@ -172,10 +177,11 @@ function App() {
                   <i className="fa-solid fa-check-circle mt-0.5"></i>
                   <p>Find smaller rooms for personal or group study using the timetable and availability status.</p>
                 </div>
-                <RoomBrowser category="small" />
+                <RoomBrowser category="small" user={user} />
               </div>
             )}
 
+            {activeTab === 'reservations' && <ReservationsPanel />}
             {activeTab === 'schedule' && (
               <div className="space-y-6">
                 <div className="bg-indigo-50 border border-indigo-200 text-indigo-800 p-4 rounded-xl text-sm flex items-start gap-3">

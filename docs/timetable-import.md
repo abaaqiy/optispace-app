@@ -2,8 +2,10 @@
 
 Milestone 3 adds spreadsheet import/export to the existing **Timetables** admin
 page. The two scheduling categories remain **Courses** and **Timetables**. Manual
-editing, cancellations, student/lecturer dashboards, and hall-only Reserved
-warnings continue to use the same timetable records and API responses.
+editing, cancellations and student/lecturer dashboards use the same timetable
+records and API responses. Active classes show Occupied during their interval;
+approved reservations show Reserved. Imported classes do not trigger an early
+Reserved warning, for any room type.
 
 ## Import a school timetable
 
@@ -59,7 +61,7 @@ It includes saved timetable IDs and cancellation statuses.
 Edit that file, retain each existing row's `id`, and use Preview CSV → Apply import.
 You can change rooms, dates, times, courses, academic sessions or cancellation
 statuses. Set `cancelled` to `true` to release a class's time slot, or `false` to
-restore it. Restoring fails if another active class overlaps that room/time.
+restore it. Restoring fails if another active class or approved reservation overlaps that room/time.
 Legacy entries without a course or academic session must be completed before import.
 
 - Uploading a class with identical room, course, date, times, session and status
@@ -69,7 +71,7 @@ Legacy entries without a course or academic session must be completed before imp
 - Rows omitted from an import are kept. Importing a file does not delete the
   rest of the school timetable.
 - Duplicate rows, repeated IDs, missing references, invalid times and overlapping
-  active classes are rejected. Adjacent classes are allowed.
+  active classes or approved reservations are rejected. Adjacent slots are allowed.
 - The complete resulting timetable is checked, allowing a time swap or a
   cancellation and replacement in one import.
 
@@ -77,7 +79,7 @@ Legacy entries without a course or academic session must be completed before imp
 
 A preview expires after 30 minutes and belongs to the administrator who uploaded
 it. The server verifies that the reviewed data is unchanged when Apply import is
-submitted. If relevant timetable records changed after the preview, upload again
+submitted. If relevant timetable records or approved reservations changed after the preview, upload again
 to review the current records.
 
 Imports require both add and change permission for Timetables. Export requires
@@ -85,9 +87,9 @@ view permission. Ordinary student and lecturer accounts cannot import or export
 through admin. Each created or updated class has an entry in Django admin History.
 
 All changes in a file are saved in one PostgreSQL transaction under the affected
-room locks. A conflict or save failure rolls back the whole import and its history
-entries. No new database tables, migrations, background workers or dependencies
-are required. CSV uploads are processed in memory; they are not added to the
+room locks, shared with reservation requests and approvals. Imports check approved
+bookings before saving. A conflict or save failure rolls back the whole import
+and its history entries. CSV uploads are processed in memory; they are not added to the
 repository or saved as files on the server.
 
 ## Verification

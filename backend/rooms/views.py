@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from scheduling.models import TimetableDay
+from bookings.models import Reservation
 
 from .models import Building, Facility, Room
 from .serializers import RoomQuerySerializer, RoomSerializer
@@ -53,6 +54,10 @@ class RoomAvailabilityMixin:
                 queryset=timetable_days,
                 to_attr="availability_days",
             ),
+            Prefetch("reservations", queryset=Reservation.objects.filter(
+                date=self.availability_at.date(), status=Reservation.Status.APPROVED,
+                is_archived=False,
+            ).order_by("start_time"), to_attr="availability_reservations"),
         )
 
     def get_serializer_context(self):

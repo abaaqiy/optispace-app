@@ -81,7 +81,7 @@ class RoomSerializer(serializers.ModelSerializer):
         at = self.context["availability_at"]
 
         data.update(build_availability(
-            instance.availability_days, at, room_type=instance.room_type,
+            instance.availability_days, at, reservations=instance.availability_reservations,
             has_school_timetable=self.context["has_school_timetable"],
         ))
 
