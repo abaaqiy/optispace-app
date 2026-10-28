@@ -381,6 +381,12 @@ const Login = ({ onLogin, adminOnly = false }) => {
                 : 'Create Account'}
           </button>
 
+          {isLoginView && (
+            <p className="text-xs text-slate-600 text-center">
+              Forgot your password? Contact {role === 'admin' ? 'another' : 'an'} Optispace administrator to reset it.
+            </p>
+          )}
+
           {/* Login / registration switch */}
           {role !== 'admin' && (
             <div className="text-center mt-4 border-t border-slate-100 pt-4">

@@ -148,7 +148,7 @@ REST_FRAMEWORK = {
 
 MAILERS = {
     'default': {
-        # This version has no outgoing email or password-reset feature.
+        # Administrator password resets do not need outgoing email.
         'BACKEND': (
             'django.core.mail.backends.console.EmailBackend' if DEBUG
             else 'django.core.mail.backends.dummy.EmailBackend'

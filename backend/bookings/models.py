@@ -27,7 +27,7 @@ class Reservation(models.Model):
         "rooms.Room", on_delete=models.PROTECT, related_name="reservations"
     )
     user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="reservations"
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="reservations"
     )
     date = models.DateField()
     start_time = models.TimeField()
@@ -39,7 +39,7 @@ class Reservation(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     reviewed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         null=True,
         blank=True,
         related_name="reviewed_reservations",
@@ -48,7 +48,7 @@ class Reservation(models.Model):
     review_note = models.CharField(max_length=500, blank=True)
     cancelled_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         null=True,
         blank=True,
         related_name="cancelled_reservations",
