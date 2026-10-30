@@ -1,0 +1,53 @@
+.document-workspace { display: grid; grid-template-columns: minmax(260px, 32%) minmax(0, 1fr); gap: 18px; align-items: start; }
+.document-workspace > section { min-width: 0; max-width: 100%; }
+.document-editor > h2 { margin-top: 20px; }
+.document-source { position: sticky; top: 12px; }
+.document-source a { display: inline-block; margin: 10px; }
+.source-canvas { position: relative; border: 1px solid var(--hairline-color); }
+.source-scroll { max-height: 480px; overflow: auto; }
+#source-crop { max-width: 100%; margin-top: 12px; border: 2px solid var(--link-fg); background: white; }
+#heading-mappings { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; }
+.heading-mapping { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; border: 1px solid var(--hairline-color); padding: 12px; }
+.heading-mapping strong, .heading-mapping small { flex-basis: 100%; overflow-wrap: anywhere; }
+.heading-mapping input { max-width: 120px; }
+#ready-groups details { border: 1px solid var(--hairline-color); padding: 12px; overflow-x: auto; }
+#ready-groups summary { cursor: pointer; font-weight: bold; }
+.compact-review { width: 100%; margin: 12px 0; }
+.compact-review td, .compact-review th { background: var(--body-bg); color: var(--body-fg); }
+.compact-review th { background: var(--darkened-bg); }
+#ready-groups label { display: block; margin: 12px 0; }
+#source-image { width: 100%; display: block; }
+#source-highlight { position: absolute; box-sizing: border-box; border: 3px solid #c43d00; background: rgb(255 180 0 / 15%); pointer-events: none; }
+.document-options input, .document-options select { max-width: 100%; }
+.document-options label { float: none !important; display: inline-block; width: auto !important; margin: 0 10px 6px 0; }
+.document-options .help { margin-left: 0 !important; }
+.document-notices { background: var(--darkened-bg); padding: 12px 20px; margin: 20px 0; }
+.document-import button { cursor: pointer; padding: 10px 14px; border: 0; border-radius: 4px; max-width: 100%; white-space: normal; }
+.document-import button:disabled { cursor: not-allowed; opacity: .65; }
+.document-import input, .document-import select, .document-import option { background: var(--body-bg); color: var(--body-fg); }
+#document-table td { vertical-align: top; min-width: 125px; }
+#document-table input:not([type=checkbox]), #document-table select { width: 165px; box-sizing: border-box; margin: 3px 0; }
+#document-table td small { display: block; max-width: 200px; overflow-wrap: anywhere; margin: 5px 0; }
+#document-table .row-validation[hidden] { display: none; }
+#document-table label { display: block; margin-bottom: 8px; white-space: nowrap; }
+#document-table .row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+#document-table .row-actions button { padding: 6px 8px; }
+#document-table tr.skipped td { opacity: .55; }
+#document-table .review-note { color: var(--error-fg); }
+#add-review-row { margin-top: 16px; }
+#extraction-status { margin-inline-start: 12px; }
+.document-mappings { padding: 12px; margin-bottom: 18px; }
+.document-mappings h2 { margin: -12px -12px 12px; }
+#reference-mappings { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin: 12px 0; }
+.reference-mapping { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--hairline-color); min-width: 0; }
+.reference-mapping strong { flex: 1 0 100%; overflow-wrap: anywhere; }
+.reference-mapping select { max-width: 100%; min-width: 180px; }
+.reference-mapping input { max-width: 100%; box-sizing: border-box; }
+.review-toolbar, .review-batch, .review-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 14px 0; }
+.review-toolbar label { display: flex; align-items: center; gap: 6px; }
+.review-batch { padding: 12px; background: var(--darkened-bg); }
+.review-batch label { display: flex; gap: 8px; align-items: center; }
+#batch-status { flex-basis: 100%; }
+#document-table tr.has-issues { box-shadow: inset 4px 0 var(--error-fg); }
+.document-import details { margin: 12px 0; }
+@media (max-width: 1100px) { .document-workspace { grid-template-columns: 1fr; } .document-source { position: static; max-width: 700px; } }

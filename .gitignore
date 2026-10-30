@@ -30,6 +30,7 @@ __pycache__/
 *.py[cod]
 /backend/db.sqlite3*
 /backend/staticfiles/
+/backend/scheduling/ocr_models/
 /backups/
 
 # Local environment files

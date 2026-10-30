@@ -20,6 +20,9 @@ dist-ssr
 **/*.pyc
 **/*.pyo
 **/staticfiles
+**/ocr_models
+*.local
+**/*.local
 **/*.sqlite3
 **/*.sqlite3-*
 **/*.dump

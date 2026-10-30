@@ -17,6 +17,7 @@
 
 {% block content %}
 <div id="content-main" class="timetable-import">
+  <p>Have a lecture timetable image? <a href="{% url 'admin:scheduling_timetableday_document' %}">Import Image with editable review</a>.</p>
   <p>Upload the school's timetable from a spreadsheet. Review the classes below before saving.</p>
   <p>Use one row per class and date. Dates use <strong>YYYY-MM-DD</strong>; times use <strong>HH:MM</strong> in Lagos time.</p>
   <ul>

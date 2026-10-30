@@ -50,7 +50,7 @@ page. Other open pages check every five seconds plus network time. Public room
 schedules display only **Approved reservation**, never the purpose, requester or
 review note. The campus class schedule continues to list classes only.
 
-Timetable edits/restorations and CSV imports reject
+Timetable edits/restorations, CSV imports and reviewed image imports reject
 approved booking conflicts. Imports and approvals share PostgreSQL room locks,
 including simultaneous writes. A changed import preview must be reviewed again.
 
@@ -79,24 +79,24 @@ as archived history. This prevents retired bookings from unexpectedly blocking
 rooms after restoration. Archived rows are viewable in Django admin, immutable,
 and excluded from current requests, conflict checks and room availability.
 
-Use a separate local PostgreSQL database for development and tests. Supply its
-connection URL explicitly; do not use the hosted database for automated tests.
-From the repository root, with your local database running:
+Use the existing isolated development database, never the hosted `.env` database:
 
 ```sh
-export DATABASE_URL='postgresql://LOCAL_USER@127.0.0.1:55439/LOCAL_DATABASE?sslmode=disable'
+export DATABASE_URL='postgresql://optispace_local@127.0.0.1:55439/optispace_document_dev?sslmode=disable'
 venv/bin/python backend/manage.py migrate
 venv/bin/python backend/manage.py test bookings rooms scheduling accounts config
 npm run lint
 npm run build
 node --test src/availability.test.js
-venv/bin/python backend/manage.py runserver 127.0.0.1:8001
+sh scripts/run-document-dev.sh
 ```
 
-Replace `LOCAL_USER` and `LOCAL_DATABASE` with your local PostgreSQL details.
-Open `http://127.0.0.1:8001/`; the separate administrator login is `/staff-login`.
-The existing Render startup script applies pending migrations before starting
-Gunicorn. See [deployment instructions](deployment.md) for production updates.
+See [isolated PostgreSQL and OCR setup](timetable-import.md) if the local database
+has not been initialized. The local app is at `http://127.0.0.1:8001/`, with the
+administrator login at `/staff-login`. The script applies migrations only to this
+isolated local database and explains an occupied port. To use another port:
+`OPTISPACE_DEV_PORT=8002 sh scripts/run-document-dev.sh`. Stop the local server
+before restarting it to load backend changes; the script disables automatic reload.
 
 ### Verification
 
@@ -106,3 +106,5 @@ cancellation, all room types, exact booking/class boundaries, and Unknown gaps.
 Frontend tests cover reservation end countdowns and transitions between classes,
 bookings and free periods. Browser checks cover requests, admin review, conflict
 messages, private history, automatic availability updates and mobile layouts.
+Local demo account instructions are in `.document-dev.local/reservation-testing.md`
+on the development machine; that file is ignored by Git.

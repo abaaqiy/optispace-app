@@ -86,10 +86,17 @@ class TimetableImportTests(TestCase):
         })
         return change_reservation(booking.reference, self.admin, "approve")
 
-    def test_csv_rejects_approved_booking_overlap(self):
+    def test_csv_and_reviewed_document_reject_approved_booking_overlap(self):
+        from .services.document_review import reviewed_csv
         self.approved_booking()
         with self.assertRaisesMessage(ImportProblem, "approved reservation"):
             preview_import(timetable_csv(self.row()))
+        document_text = reviewed_csv([{
+            "course": self.course.code, "room": self.room.code, "date": "2030-01-15",
+            "start_time": "10:00", "end_time": "12:00", "reviewed": True,
+        }], {"mode": "dated", "academic_session": "2029/2030"})
+        with self.assertRaisesMessage(ImportProblem, "approved reservation"):
+            preview_import(document_text)
         self.assertEqual(TimetableDay.objects.count(), 0)
 
     def test_approval_after_preview_blocks_whole_import_and_cancellation_allows_it(self):

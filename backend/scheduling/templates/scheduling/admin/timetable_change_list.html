@@ -2,6 +2,7 @@
 
 {% block object-tools-items %}
   {% if can_import %}
+    <li><a href="{% url 'admin:scheduling_timetableday_document' %}">Import Image</a></li>
     <li><a href="{% url 'admin:scheduling_timetableday_import' %}">Import CSV</a></li>
   {% endif %}
   <li><a href="{{ timetable_export_url }}">Export CSV</a></li>

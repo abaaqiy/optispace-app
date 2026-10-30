@@ -216,8 +216,12 @@ room-status update is needed.
 ## Milestone 3: importing the school timetable
 
 Administrators can now import a school timetable from **CSV UTF-8** through
-**Import School Timetable** on the dashboard, or **Manage Timetables → Import CSV**.
+**Import Timetable CSV** on the dashboard, or **Manage Timetables → Import CSV**.
 
+**Timetables → Import Image** reads PNG/JPEG lecture timetables with local OCR,
+shared heading/name corrections and compact review by weekday. PDF and examination
+uploads are excluded. CSV import/export remains available.
+See [image import and isolated testing](docs/timetable-import.md#lecture-timetable-image-import).
 Download the template and saved room/course reference lists, enter one row per
 class/date, and choose **Preview CSV**. The preview reports additions, updates,
 unchanged rows and conflicts. **Apply import** saves the reviewed entries together.
@@ -230,8 +234,7 @@ be uploaded again. Imports use the same room locks and availability API as manua
 editing, so the existing frontend picks up imported changes automatically.
 
 See the [CSV format and step-by-step guide](docs/timetable-import.md) for examples,
-limits and validation rules. This milestone requires no new dependencies or database
-migrations. Real school timetable data must be supplied by an administrator.
+limits and validation rules. Image OCR uses free local dependencies; no database migration is needed. Real school timetable data must be supplied by an administrator.
 
 ## Restored Milestone 2: reservations
 
@@ -245,7 +248,7 @@ rows as archived without deleting them. They remain visible as read-only history
 in Django admin, and do not affect availability. New requests are not archived.
 Apply this migration before running the restored version against a database.
 
-Timetable saves and CSV imports share room locks with approvals and
+Timetable saves and CSV/image imports share room locks with approvals and
 reject overlapping active classes or approved reservations. Supported writes use
 Django admin, the reservation API or model/service save paths; direct SQL and bulk
 updates bypass these checks.

@@ -1,0 +1,88 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% block extrastyle %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'admin/css/forms.css' %}">
+<link rel="stylesheet" href="{% static 'scheduling/timetable_import.css' %}">
+<link rel="stylesheet" href="{% static 'scheduling/timetable_document.css' %}">
+{% endblock %}
+{% block extrahead %}{{ block.super }}<script src="{% static 'scheduling/timetable_document.js' %}" defer></script>{% endblock %}
+{% block breadcrumbs %}
+<ol class="breadcrumbs"><li><a href="{% url 'admin:index' %}">Home</a></li><li><a href="{% url 'admin:scheduling_timetableday_changelist' %}">Timetables</a></li><li aria-current="page">Import Image</li></ol>
+{% endblock %}
+{% block content %}
+<div id="content-main" class="timetable-import document-import">
+  <p>Upload a lecture timetable image, resolve shared names and headings, then review the clear groups and remaining issues. Nothing is scheduled until you choose <strong>Apply import</strong>.</p>
+  <p>Use clear, upright pages with their headings. <a href="{% url 'admin:scheduling_timetableday_import' %}">Import a CSV instead</a>.</p>
+  {% if errors %}<div class="errornote" role="alert"><p><strong>Nothing was imported.</strong> Correct these issues and validate again.</p><ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
+  <form method="post" enctype="multipart/form-data" class="csv-upload" id="document-upload">
+    {% csrf_token %}{{ form.as_p }}<input type="hidden" name="action" value="extract">
+    <button type="submit" class="button default">Upload and extract</button>
+    <span id="extraction-status" role="status"></span>
+  </form>
+  {% if document %}
+    <div class="document-notices"><h2>Reading complete</h2><ul>{% for note in document.notices %}<li>{{ note }}</li>{% endfor %}</ul>
+    <p>Check entries in batches beside the source. Repeated course and venue names can be matched once for all affected rows. Skip unwanted entries and add any entries the reader missed.</p><p>Drafts last two hours. Use <strong>Save draft</strong> to extend the time while you work. A long teaching period may require several smaller imports.</p></div>
+    {{ rows|json_script:"document-rows" }}{{ references|json_script:"document-references" }}{{ pages|json_script:"document-pages" }}
+    <noscript><p class="errornote">Enable JavaScript to review this document, or use the CSV importer.</p></noscript>
+    <form method="post" id="document-review">
+      {% csrf_token %}<input type="hidden" name="action" value="review"><input type="hidden" name="document_token" value="{{ document_token }}"><input type="hidden" name="rows" id="review-rows">
+      <fieldset class="module aligned document-options"><h2>Dates and academic session</h2>
+        <input id="document-mode" name="mode" type="hidden" value="weekly"><p>Weekly lectures repeat only within the teaching dates you choose. CSV remains available for specific dates.</p>
+        <div class="form-row"><label for="academic-session">Academic session:</label><input id="academic-session" name="academic_session" value="{{ options.academic_session }}" maxlength="30" required placeholder="2026/2027"></div>
+        <div class="form-row" id="teaching-dates"><label for="first-date">First teaching date:</label><input id="first-date" name="first_date" type="date" value="{{ options.first_date }}"> <label for="last-date">Last teaching date:</label><input id="last-date" name="last_date" type="date" value="{{ options.last_date }}"></div>
+        <div class="form-row"><label for="exclude-dates">Exclude dates:</label><input id="exclude-dates" name="exclude_dates" value="{{ options.exclude_dates }}" placeholder="2026-12-25, 2027-01-01"><p class="help">Optional holiday/break dates, separated by commas. Times use Africa/Lagos. Maximum 1,000 dated classes per import.</p></div>
+      </fieldset>
+      <div class="document-workspace">
+        <section class="document-source" aria-label="Original timetable">
+          <h2>Source image</h2><label for="source-page">Page:</label> <select id="source-page"></select>
+          <a id="source-open" target="_blank" rel="noopener noreferrer">Open full-size page</a>
+          <label for="source-zoom">Image zoom</label> <input type="range" id="source-zoom" min="100" max="300" step="25" value="100"><div class="source-scroll"><div class="source-canvas"><img id="source-image" alt="Uploaded timetable"><div id="source-highlight" hidden></div></div></div><canvas id="source-crop" hidden></canvas>
+          <p class="help">Select “Show source” to highlight and enlarge the original cell. Adjust zoom or open the full image for small text.</p>
+        </section>
+        <section class="document-editor" aria-label="Editable extracted timetable">
+          <section class="module document-mappings" aria-label="Resolve missing course and room choices">
+            <h2>Resolve repeated names once</h2>
+            <p id="mapping-status" role="status"></p>
+            <p>Choose the correct saved course or room for each name below. The choice fills all unresolved rows with that same detected name. Check their days and times before marking them reviewed.</p>
+            <p>If a record is missing, <a href="{% url 'admin:scheduling_course_add' %}" target="_blank" rel="noopener noreferrer">add a course</a> or <a href="{% url 'admin:rooms_room_add' %}" target="_blank" rel="noopener noreferrer">add a room</a> in a new tab, then refresh the choices here. A review tick alone does not select a course or room.</p>
+            <div id="reference-mappings"></div>
+            <button type="submit" name="action" value="refresh" formnovalidate class="button">Refresh course and room choices</button>
+          </section>
+          <section class="module document-mappings" aria-label="Shared weekday and time headings">
+            <h2>Check shared headings once</h2>
+            <p>Verify each detected weekday and time against the image. One correction updates every entry that uses that heading.</p>
+            <div id="heading-mappings"></div>
+          </section>
+          <section class="module document-mappings" aria-label="Review clear entries by day">
+            <h2>Review clear entries by day</h2>
+            <p>Open a group to compare its compact list with the image, then mark the group reviewed. Entries with missing fields, uncertain text or unchecked headings remain below for individual correction.</p>
+            <div id="ready-groups"></div>
+          </section>
+          <div class="review-toolbar">
+            <label for="review-filter">Show <select id="review-filter"><option value="issues">Needs correction</option><option value="unreviewed">All unreviewed</option><option value="ready">Ready for batch review</option><option value="reviewed">Reviewed</option><option value="skipped">Skipped</option><option value="all">All entries</option></select></label>
+            <label for="review-search">Search <input id="review-search" type="search" placeholder="Course, room or original text"></label>
+            <label for="review-day">Day <select id="review-day"><option value="">All days</option></select></label>
+            <label for="review-page">Source page <select id="review-page"><option value="">All pages</option></select></label>
+            <button type="submit" name="action" value="save" formnovalidate class="button">Save draft</button>
+            <a href="?review={{ document_token|urlencode }}">Resume saved draft</a><span class="help">Save changes first. Bookmark this link to reopen the draft within two hours.</span>
+          </div>
+          <h2>Review extracted entries</h2><p id="review-status" role="status"></p>
+          <p class="help">“Ready” means fields are complete with no detected warning; it is not a guarantee of correct reading. Check the source for the visible batch, including any omitted cells.</p>
+          <div class="review-batch"><label><input id="batch-checked" type="checkbox"> I checked the source for this visible batch.</label><button id="review-batch" type="button" class="button" disabled>Mark visible ready rows reviewed</button><span id="batch-status" role="status"></span></div>
+          <div class="csv-preview" tabindex="0" role="region" aria-label="Editable timetable rows"><table id="document-table"><thead><tr><th scope="col">Source / actions</th><th scope="col">Course</th><th scope="col">Room</th><th scope="col">Day</th><th scope="col">Time</th><th scope="col">Check</th></tr></thead><tbody></tbody></table></div>
+          <button type="button" id="add-review-row" class="button">Add missing entry</button>
+          <div class="review-pagination"><button id="review-previous" type="button" class="button">Previous 25</button><span id="review-page-status" role="status"></span><button id="review-next" type="button" class="button">Next 25</button></div>
+        </section>
+      </div>
+      <div class="csv-confirm"><label><input type="checkbox" id="coverage-checked" name="coverage_checked" value="yes" required {% if coverage_checked %}checked{% endif %}> I checked the full image for missing entries and confirmed the weekdays and time headings.</label><p>Review rows individually or in checked batches. Rows with warnings need individual review. Editing a row clears its review tick. Validation checks all retained rows, including those outside the current page.</p><button type="submit" name="action" value="review" class="button default">Validate reviewed entries</button></div>
+    </form>
+    {% if plan %}
+    <section id="document-final-preview"><h2>Validated: {{ plan.rows|length }} dated entries</h2><p>{{ plan.counts.Add }} to add; {{ plan.counts.Unchanged }} unchanged. Check the expanded dates before applying.</p>
+      <details><summary>Show all expanded dates ({{ plan.rows|length }} entries)</summary><div class="csv-preview" role="region" aria-label="Validated dated entries" tabindex="0"><table><thead><tr><th>Entry</th><th>Action</th><th>Course</th><th>Room</th><th>Day / date</th><th>Time</th><th>Session</th></tr></thead><tbody>{% for row in plan.rows %}<tr><td>{{ row.line }}</td><td>{{ row.action }}</td><td>{{ row.course }}</td><td>{{ row.room.name }}</td><td>{{ row.values.date|date:"l, Y-m-d" }}</td><td>{{ row.values.start_time|time:"H:i" }}–{{ row.values.end_time|time:"H:i" }}</td><td>{{ row.values.academic_session }}</td></tr>{% endfor %}</tbody></table></div></details>
+      <form method="post" class="csv-confirm">{% csrf_token %}<input type="hidden" name="action" value="confirm"><input type="hidden" name="document_token" value="{{ document_token }}"><input type="hidden" name="preview" value="{{ preview_token }}"><p>The validated entries will be saved together. Existing cancellations are preserved; omitted classes are kept.</p><button type="submit" class="button default">Apply import</button></form>
+    </section>
+    {% endif %}
+  {% endif %}
+</div>
+{% endblock %}
