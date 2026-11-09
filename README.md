@@ -93,9 +93,13 @@ continue to receive the generic invalid-email-or-password message (HTTP 401).
    by name or nickname. Choose its campus area from the searchable dropdown.
    See [building sources and migration behaviour](docs/building-catalog.md).
    Suggestions do not insert database records automatically.
-2. Add a room using the searchable **Room name** dropdown (50 documented OAU
-   suggestions plus **Others** for a custom name). The permanent internal code is
-   generated automatically. Select its room type, capacity, size category and
+2. Add a room using the searchable **Room name** dropdown (134 documented OAU
+   teaching and study spaces, followed by **Others**). Both room name and the
+   14 room-type suggestions offer **Others** to enter a value that is not listed.
+   Existing custom values reopen under Others for editing. Search also recognises documented
+   abbreviations such as `ODLT1`. This catalogue is not a verified complete current
+   campus inventory. The permanent internal code is generated automatically.
+   Select its room type, capacity, size category and
    facilities. A building is required; the room uses that building's campus area.
    There is no separate room-zone field to fill in.
    See [catalogue sources and editing behaviour](docs/room-catalog.md).

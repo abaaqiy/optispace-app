@@ -1,0 +1,1001 @@
+[
+  {
+    "name": "1,000-Seater Lecture Theatre (1000 SLT)",
+    "aliases": [
+      "1000SLT",
+      "1000 Seater",
+      "1000-Seater",
+      "1000 SLT"
+    ],
+    "source": "SER001",
+    "location": "p. 1, allocation 5"
+  },
+  {
+    "name": "Administration Boardroom 236",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 4, venue 203"
+  },
+  {
+    "name": "Administration Room 220/221",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 4, venue 201"
+  },
+  {
+    "name": "Administration Room 232/233",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 4, venue 202"
+  },
+  {
+    "name": "Agricultural Economics Room 313",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 11, venue 504"
+  },
+  {
+    "name": "Agricultural Engineering Annex Lecture Room I (AGE I)",
+    "aliases": [
+      "AGE Annex I",
+      "AGE I"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 38, venue 1301"
+  },
+  {
+    "name": "Agricultural Engineering Annex Lecture Room II (AGE II)",
+    "aliases": [
+      "AGE Annex II",
+      "AGE II"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 38, venue 1302"
+  },
+  {
+    "name": "Agriculture Crop Science Laboratory",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 11, venue 506"
+  },
+  {
+    "name": "Agriculture Lecture Theatre A (AGLT A)",
+    "aliases": [
+      "AGLT A"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 10, venue 501"
+  },
+  {
+    "name": "Agriculture Lecture Theatre B (AGLT B)",
+    "aliases": [
+      "AGLT B"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 10, venue 502"
+  },
+  {
+    "name": "Agriculture Lecture Theatre C (AGLT C)",
+    "aliases": [
+      "AGLT C"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 11, venue 503"
+  },
+  {
+    "name": "Agriculture Soil Science Laboratory",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 11, venue 505"
+  },
+  {
+    "name": "Ajose Lecture Theatre (AJSLT)",
+    "aliases": [
+      "Ajose",
+      "AJSLT"
+    ],
+    "source": "SER001",
+    "location": "p. 1, allocation 7"
+  },
+  {
+    "name": "Amphitheatre (AMPHI)",
+    "aliases": [
+      "AMPHI"
+    ],
+    "source": "LAW_TIMETABLE",
+    "location": "Monday 11–12 and Thursday 12–1 SEL 001 venue cells"
+  },
+  {
+    "name": "Architecture Audio-Visual Studio (Former Central Cafeteria)",
+    "aliases": [
+      "Architecture Audio Visual"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 15, venue 701"
+  },
+  {
+    "name": "Architecture Studio 2 (Former Central Cafeteria)",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 15, venue 702"
+  },
+  {
+    "name": "Architecture Studio 3 (Former Central Cafeteria)",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 15, venue 703"
+  },
+  {
+    "name": "Architecture Studio 4 (Former Central Cafeteria)",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 15, venue 704"
+  },
+  {
+    "name": "Arts Block I Room 402",
+    "aliases": [
+      "Faculty of Arts Block I Room 402"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 1, venue 101"
+  },
+  {
+    "name": "Arts Block I Room 403",
+    "aliases": [
+      "Faculty of Arts Block I Room 403"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 1, venue 102"
+  },
+  {
+    "name": "Arts Block I Room 404",
+    "aliases": [
+      "Faculty of Arts Block I Room 404"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 2, venue 103"
+  },
+  {
+    "name": "Arts Block II Boardroom 402",
+    "aliases": [
+      "Faculty of Arts Block II Boardroom 402"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 2, venue 104"
+  },
+  {
+    "name": "Arts Block II Room 404",
+    "aliases": [
+      "Faculty of Arts Block II Room 404"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 2, venue 105"
+  },
+  {
+    "name": "Auditorium I (AUD I)",
+    "aliases": [
+      "AUD I"
+    ],
+    "source": "SER001",
+    "location": "p. 1, allocation 6"
+  },
+  {
+    "name": "Auditorium II (AUD II)",
+    "aliases": [
+      "AUD II"
+    ],
+    "source": "SER001",
+    "location": "p. 1, allocation 4"
+  },
+  {
+    "name": "Biochemistry Seminar Room G.26/29",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 26, venue 1010"
+  },
+  {
+    "name": "Biological Sciences Lecture Theatre (BOOA)",
+    "aliases": [
+      "BOO A",
+      "BO0A"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 23, venue 1001"
+  },
+  {
+    "name": "Biological Sciences Lecture Theatre (BOOB)",
+    "aliases": [
+      "BOO B",
+      "BO0B"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 23, venue 1002"
+  },
+  {
+    "name": "BOOC Lecture Theatre",
+    "aliases": [
+      "Biological Science BOOC",
+      "BOO C",
+      "BO0C"
+    ],
+    "source": "SER001",
+    "location": "p. 1, allocation 11"
+  },
+  {
+    "name": "Botany Seminar Room G.17",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 26, venue 1011"
+  },
+  {
+    "name": "Chemical Engineering and Food Technology 500-Seater Auditorium",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 39, venue 1404; historical name, not a current capacity"
+  },
+  {
+    "name": "Chemical Engineering and Food Technology Room I (TCH I)",
+    "aliases": [
+      "TCH1",
+      "TCH I"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 39, venue 1401"
+  },
+  {
+    "name": "Chemical Engineering and Food Technology Room II (TCH II)",
+    "aliases": [
+      "TCH2",
+      "TCH II"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 39, venue 1402"
+  },
+  {
+    "name": "Chemical Engineering and Food Technology Room III (TCH III)",
+    "aliases": [
+      "TCH3",
+      "TCH III"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 39, venue 1403"
+  },
+  {
+    "name": "Chemistry Lecture Theatre 102 (CH 102)",
+    "aliases": [
+      "CH102",
+      "CH 102"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 29, venue 1106"
+  },
+  {
+    "name": "Chemistry Lecture Theatre 202 (CH 202)",
+    "aliases": [
+      "CH202",
+      "CH 202"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 30, venue 1108"
+  },
+  {
+    "name": "Chemistry Lecture Theatre 203 (CH 203)",
+    "aliases": [
+      "CH203",
+      "CH 203"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 30, venue 1109"
+  },
+  {
+    "name": "Chemistry Part I Laboratory",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 29, venue 1103"
+  },
+  {
+    "name": "Chemistry Part II Laboratory",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 29, venue 1104"
+  },
+  {
+    "name": "Chemistry Part III Laboratory (Room 2.34)",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 29, venue 1105"
+  },
+  {
+    "name": "Chemistry Room 220 (CH 220)",
+    "aliases": [
+      "CH220",
+      "CH 220"
+    ],
+    "source": "CHEM_TIMETABLE",
+    "location": "Monday and Wednesday lecture venue cells; user-supplied timetable photograph"
+  },
+  {
+    "name": "Chemistry Seminar Room 110 (CH 110)",
+    "aliases": [
+      "CH110",
+      "CH 110"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 30, venue 1107"
+  },
+  {
+    "name": "Civil Engineering Lecture Theatre I (CEG I)",
+    "aliases": [
+      "CEG1",
+      "CEG I"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 41, venue 1501"
+  },
+  {
+    "name": "Civil Engineering Lecture Theatre II (CEG II)",
+    "aliases": [
+      "CEG2",
+      "CEG II"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 41, venue 1502"
+  },
+  {
+    "name": "Civil Engineering Seminar / Auditorium Room B203",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 41, venue 1503"
+  },
+  {
+    "name": "Civil Engineering Seminar Room C209",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 42, venue 1508"
+  },
+  {
+    "name": "Community Health Tutorial Room 1.24",
+    "aliases": [
+      "Health Sciences Community Health"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 19, venue 807"
+  },
+  {
+    "name": "Control and Instrumentation Room 203",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 42, venue 1507"
+  },
+  {
+    "name": "Dental Lecture Theatre Extension",
+    "aliases": [
+      "Health Sciences Dental"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 20, venue 810"
+  },
+  {
+    "name": "EDM Block I Boardroom",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 12, venue 602"
+  },
+  {
+    "name": "EDM Block I URP Part 4 Studio",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 12, venue 601"
+  },
+  {
+    "name": "EDM Block II First Floor URP Part 1 Studio",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 13, venue 606"
+  },
+  {
+    "name": "EDM Block II First Floor URP Part 2 Studio",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 13, venue 605"
+  },
+  {
+    "name": "EDM Block II First Floor URP Part 3 Studio",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 13, venue 607"
+  },
+  {
+    "name": "EDM Block II Ground Floor Room 1",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 13, venue 603"
+  },
+  {
+    "name": "EDM Block II Ground Floor Room 24",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 13, venue 604"
+  },
+  {
+    "name": "Education Room 313/314",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 5, venue 301"
+  },
+  {
+    "name": "Education Room 315",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 5, venue 302"
+  },
+  {
+    "name": "Education Room 316/317",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 6, venue 303"
+  },
+  {
+    "name": "Education SEC Laboratory 324/325",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 6, venue 304"
+  },
+  {
+    "name": "Education Students' Library",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 6, venue 305"
+  },
+  {
+    "name": "ETF Lecture Theatre",
+    "aliases": [
+      "ETF"
+    ],
+    "source": "SER001",
+    "location": "p. 1, allocation 9"
+  },
+  {
+    "name": "First Bank Lecture Theatre (FBLT)",
+    "aliases": [
+      "FBLT"
+    ],
+    "source": "SER001",
+    "location": "p. 2, allocation 16"
+  },
+  {
+    "name": "Geography Teaching Laboratory (Social Sciences Room 207)",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 35, venue 1201"
+  },
+  {
+    "name": "Geology Classroom F13",
+    "aliases": [],
+    "source": "GEOLOGY2022",
+    "location": "Classrooms F5, F13 and F17"
+  },
+  {
+    "name": "Geology Classroom F17",
+    "aliases": [],
+    "source": "GEOLOGY2022",
+    "location": "Classrooms F5, F13 and F17"
+  },
+  {
+    "name": "Geology Classroom F5",
+    "aliases": [],
+    "source": "GEOLOGY2022",
+    "location": "Classrooms F5, F13 and F17"
+  },
+  {
+    "name": "Health Sciences Lecture Theatre A (HSC A)",
+    "aliases": [
+      "HSC Lecture Theatre A",
+      "HSLT A"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 17, venue 801"
+  },
+  {
+    "name": "Health Sciences Lecture Theatre B (HSC B)",
+    "aliases": [
+      "HSC Lecture Theatre B",
+      "HSLT B"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 17, venue 802"
+  },
+  {
+    "name": "Health Sciences Lecture Theatre C (HSC C)",
+    "aliases": [
+      "HSC Lecture Theatre C",
+      "HSLT C"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 18, venue 803"
+  },
+  {
+    "name": "ICAN Lecture Theatre",
+    "aliases": [],
+    "source": "SER001",
+    "location": "p. 2, allocation 12"
+  },
+  {
+    "name": "Law Lecture Theatre I (Moot and Mock Court)",
+    "aliases": [
+      "LLT I",
+      "Moot and Mock Court"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 9, venue 409"
+  },
+  {
+    "name": "Law Lecture Theatre II",
+    "aliases": [
+      "LLT II"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 9, venue 410"
+  },
+  {
+    "name": "Law Room 201",
+    "aliases": [
+      "Faculty of Law Room 201"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 7, venue 401"
+  },
+  {
+    "name": "Law Room 202",
+    "aliases": [
+      "Faculty of Law Room 202"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 7, venue 402"
+  },
+  {
+    "name": "Law Room 203",
+    "aliases": [
+      "Faculty of Law Room 203"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 8, venue 403"
+  },
+  {
+    "name": "Law Room 204",
+    "aliases": [
+      "Faculty of Law Room 204"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 8, venue 404"
+  },
+  {
+    "name": "Law Room 205",
+    "aliases": [
+      "Faculty of Law Room 205"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 8, venue 405"
+  },
+  {
+    "name": "Law Room 206",
+    "aliases": [
+      "Faculty of Law Room 206"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 8, venue 406"
+  },
+  {
+    "name": "Law Room 207",
+    "aliases": [
+      "LAW207"
+    ],
+    "source": "LAW_TIMETABLE",
+    "location": "Monday 12–2, Wednesday 8–9; user-supplied timetable photograph"
+  },
+  {
+    "name": "Law Room 208",
+    "aliases": [
+      "Faculty of Law Room 208"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 8, venue 407"
+  },
+  {
+    "name": "Law Room 209",
+    "aliases": [
+      "Faculty of Law Room 209"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 8, venue 408"
+  },
+  {
+    "name": "Local Government Studies Lecture Theatre",
+    "aliases": [
+      "LGS LT"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 45, venue 1701"
+  },
+  {
+    "name": "Local Government Studies Reading Room",
+    "aliases": [
+      "LGS Rd Rm"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 46, venue 1705"
+  },
+  {
+    "name": "Local Government Studies Seminar Room II",
+    "aliases": [
+      "LGS SRm2",
+      "LGS Seminar Room 2"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 45, venue 1702"
+  },
+  {
+    "name": "Local Government Studies Seminar Room III",
+    "aliases": [
+      "LGS SRm3",
+      "LGS Seminar Room 3"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 46, venue 1703"
+  },
+  {
+    "name": "Local Government Studies Seminar Room IV",
+    "aliases": [
+      "LGS SRm4",
+      "LGS Seminar Room 4"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 46, venue 1704"
+  },
+  {
+    "name": "Materials Science and Mechanical Testing Laboratory C208",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 42, venue 1509"
+  },
+  {
+    "name": "Materials Science X-ray Laboratory C103",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 42, venue 1506"
+  },
+  {
+    "name": "Mathematics Library (MBB 216, Yellow House Phase B)",
+    "aliases": [
+      "MBB216"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 32, venue 1124"
+  },
+  {
+    "name": "Mathematics Seminar Room (MBA 213)",
+    "aliases": [
+      "MBA 213"
+    ],
+    "source": "MATHS2024",
+    "location": "Seminar venue"
+  },
+  {
+    "name": "Mechanical Engineering Room 205A",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 42, venue 1504"
+  },
+  {
+    "name": "Mechanical Engineering Room 205B",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 42, venue 1505"
+  },
+  {
+    "name": "Medical Illustration Seminar Laboratory",
+    "aliases": [
+      "Health Sciences Medical Illustration Seminar Lab"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 20, venue 811"
+  },
+  {
+    "name": "Microbiology Part III Laboratory (MIC 1.03/1.06)",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 25, venue 1008"
+  },
+  {
+    "name": "Microbiology Part IV Laboratory (MIC 1.15)",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 26, venue 1009"
+  },
+  {
+    "name": "Nursing Demonstration Room 1.21",
+    "aliases": [
+      "B.N.Sc. Degree Demonstration Room"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 20, venue 809"
+  },
+  {
+    "name": "Nursing Reading Room 1.30",
+    "aliases": [
+      "Health Sciences Nursing Reading Room"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 19, venue 808"
+  },
+  {
+    "name": "Oduduwa Lecture Theatre I (ODLT I)",
+    "aliases": [
+      "ODLT I",
+      "ODLT 1"
+    ],
+    "source": "SER001",
+    "location": "p. 2, allocation 14"
+  },
+  {
+    "name": "Oduduwa Lecture Theatre II (ODLT II)",
+    "aliases": [
+      "ODLT II",
+      "ODLT 2"
+    ],
+    "source": "SER001",
+    "location": "p. 2, allocation 13"
+  },
+  {
+    "name": "Part-Time Nursing Room",
+    "aliases": [
+      "Health Sciences Part-Time Nursing"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 20, venue 812"
+  },
+  {
+    "name": "Pharmaceutical Chemistry Laboratory (Room 106)",
+    "aliases": [
+      "Pharmacy PharmChem Lab"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 22, venue 905"
+  },
+  {
+    "name": "Pharmaceutical Chemistry Main Laboratory (Room 111)",
+    "aliases": [
+      "Pharmacy PharmChem Main Lab"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 22, venue 906"
+  },
+  {
+    "name": "Pharmaceutics Laboratory (Room 103)",
+    "aliases": [
+      "Pharmacy Pharmaceutics Lab"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 22, venue 907"
+  },
+  {
+    "name": "Pharmacognosy Laboratory (Room 210)",
+    "aliases": [
+      "Pharmacy Pharmacognosy Lab"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 22, venue 903"
+  },
+  {
+    "name": "Pharmacology Laboratory (Room 205/206)",
+    "aliases": [
+      "Pharmacy Pharmacology Lab"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 22, venue 904"
+  },
+  {
+    "name": "Pharmacy Lecture Theatre (ESLT)",
+    "aliases": [
+      "Pharmacy ESLT",
+      "ESLT"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 21, venue 902"
+  },
+  {
+    "name": "Pharmacy Lecture Theatre (MQLT)",
+    "aliases": [
+      "Pharmacy MQLT",
+      "MQLT"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 21, venue 901"
+  },
+  {
+    "name": "Physics Lecture Theatre 102/103",
+    "aliases": [
+      "PY 102/103"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 30, venue 1112"
+  },
+  {
+    "name": "Physics Lecture Theatre 202/203",
+    "aliases": [
+      "PY 202/203"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 31, venue 1115"
+  },
+  {
+    "name": "Physics Part I Laboratory",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 30, venue 1110 (two wings kept together)"
+  },
+  {
+    "name": "Physics Part II Laboratory",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 30, venue 1111"
+  },
+  {
+    "name": "Physics Room 130",
+    "aliases": [
+      "PY 130"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 31, venue 1114"
+  },
+  {
+    "name": "Physics Room 239",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 30, venue 1113"
+  },
+  {
+    "name": "Plant Physiology Laboratory G.21/G.23",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 26, venue 1012"
+  },
+  {
+    "name": "Postgraduate Lecture Theatre C (PG LT C)",
+    "aliases": [
+      "PG LT C"
+    ],
+    "source": "SER001",
+    "location": "p. 2, allocation 15"
+  },
+  {
+    "name": "Social Sciences Boardroom",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 36, venue 1207"
+  },
+  {
+    "name": "Social Sciences Lecture Theatre A (SSLT A)",
+    "aliases": [
+      "SSLT A"
+    ],
+    "source": "SER001",
+    "location": "p. 2, allocation 18"
+  },
+  {
+    "name": "Social Sciences Lecture Theatre B (SSLT B)",
+    "aliases": [
+      "SSLT B"
+    ],
+    "source": "SER001",
+    "location": "p. 2, allocation 20"
+  },
+  {
+    "name": "Social Sciences Room 211",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 35, venue 1203"
+  },
+  {
+    "name": "Social Sciences Room 233",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 35, venue 1204"
+  },
+  {
+    "name": "Urban Design Studio (Social Sciences Room 206)",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 35, venue 1202"
+  },
+  {
+    "name": "Yellow House Phase B Room MBB 020",
+    "aliases": [
+      "Mathematics MBB020"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 31, venue 1118"
+  },
+  {
+    "name": "Yellow House Phase B Room MBB 021",
+    "aliases": [
+      "Mathematics MBB021"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 31, venue 1119"
+  },
+  {
+    "name": "Yellow House Phase B Room MBB 022",
+    "aliases": [
+      "Mathematics MBB022"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 31, venue 1120"
+  },
+  {
+    "name": "Yellow House Phase B Room MBB 114",
+    "aliases": [
+      "Mathematics MBB114"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 31, venue 1121"
+  },
+  {
+    "name": "Yellow House Phase B Room MBB 115",
+    "aliases": [
+      "Mathematics MBB115"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 32, venue 1122"
+  },
+  {
+    "name": "Yellow House Phase B Room MBB 116",
+    "aliases": [
+      "Mathematics MBB116"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 32, venue 1123"
+  },
+  {
+    "name": "Yellow House Phase B Room MBB 218",
+    "aliases": [
+      "Mathematics MBB218"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 32, venue 1125"
+  },
+  {
+    "name": "Yellow House Phase B Room MBB 219",
+    "aliases": [
+      "Mathematics MBB219"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 32, venue 1126"
+  },
+  {
+    "name": "Yellow House Phase C Seminar Room MBB 212",
+    "aliases": [
+      "Mathematics MBB212"
+    ],
+    "source": "PUTME2014",
+    "location": "p. 31, venue 1117"
+  },
+  {
+    "name": "Zoology General Teaching Laboratory 1.23/1.24",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 27, venue 1015"
+  },
+  {
+    "name": "Zoology Part IV Laboratory Z 1.22",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 27, venue 1014"
+  },
+  {
+    "name": "Zoology Undergraduate Laboratory Z 1.01",
+    "aliases": [],
+    "source": "PUTME2014",
+    "location": "p. 26, venue 1013 (two wings kept together)"
+  }
+]

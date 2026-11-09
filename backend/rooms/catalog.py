@@ -1,7 +1,12 @@
-"""Admin suggestions only, not a live campus inventory. See docs/room-catalog.md."""
+"""Documented admin choices, not a complete current inventory. See docs/room-catalog.md."""
 
-OTHER_ROOM = "__other__"
-OTHER_BUILDING = "__other__"
+import json
+import re
+from pathlib import Path
+
+OTHER_CHOICE = "__other__"
+OTHER_BUILDING = OTHER_CHOICE
+OTHER_ROOM = OTHER_CHOICE
 
 # Documented buildings/complexes, not room numbers or automatically created rows.
 # Sources, historical names and scope are recorded in docs/building-catalog.md.
@@ -46,72 +51,45 @@ BUILDING_NAMES = (
     "Murtala Mohammed Postgraduate Hall",
 )
 
+# Functional teaching/study categories, not an official university taxonomy.
+# Other teaching/study functions can be entered through Others.
 ROOM_TYPES = (
     "Lecture Theatre",
     "Classroom",
+    "Tutorial Room",
     "Seminar Room",
-    "Seminar Hall",
-    "Event Hall",
+    "Auditorium",
+    "Amphitheatre",
     "Reading Room",
+    "Library",
     "Computer Laboratory",
     "Laboratory",
     "Studio",
+    "Demonstration Room",
+    "Moot Court",
     "Meeting Room",
 )
 
-# Names and abbreviations stay together in the one visible room-name field.
-ROOM_NAMES = (
-    "Oduduwa Lecture Theatre I (ODLT I)",
-    "Oduduwa Lecture Theatre II (ODLT II)",
-    "First Bank Lecture Theatre (FBLT)",
-    "ICAN Lecture Theatre",
-    "ETF Lecture Theatre",
-    "BOOC Lecture Theatre",
-    "Health Sciences Lecture Theatre (HSLT)",
-    "1,000-Seater Lecture Theatre (1000 SLT)",
-    "Auditorium I (AUD I)",
-    "Auditorium II (AUD II)",
-    "Agriculture Lecture Theatre A (AGLT A)",
-    "Agriculture Lecture Theatre B (AGLT B)",
-    "Agriculture Lecture Theatre C (AGLT C)",
-    "Social Sciences Lecture Theatre A (SSLT A)",
-    "Social Sciences Lecture Theatre B (SSLT B)",
-    "Postgraduate Lecture Theatre C (PG LT C)",
-    "Geology Classroom F5",
-    "Geology Classroom F13",
-    "Geology Classroom F17",
-    "Mathematics Seminar Room (MBA 213)",
-    "Arts Block I Room 402",
-    "Arts Block I Room 403",
-    "Arts Block I Room 404",
-    "Arts Block II Boardroom 402",
-    "Arts Block II Room 404",
-    "Administration Room 220/221",
-    "Administration Room 232/233",
-    "Administration Boardroom 236",
-    "Education Room 313/314",
-    "Education Room 315",
-    "Education Room 316/317",
-    "Education SEC Laboratory 324/325",
-    "Education Students' Library",
-    "Law Room 201",
-    "Law Room 202",
-    "Law Room 203",
-    "Law Room 204",
-    "Law Room 205",
-    "Law Room 206",
-    "Law Room 208",
-    "Law Room 209",
-    "Law Lecture Theatre I (Moot and Mock Court)",
-    "Law Lecture Theatre II",
-    "Agricultural Economics Room 313",
-    "Agriculture Soil Science Laboratory",
-    "Agriculture Crop Science Laboratory",
-    "EDM Block I Boardroom",
-    "EDM Block I URP Part 4 Studio",
-    "EDM Block II Ground Floor Room 1",
-    "EDM Block II Ground Floor Room 24",
-)
+# Each selectable name has its evidence and search aliases in this checked-in
+# catalogue. Loading it never creates database records or changes availability.
+ROOM_CATALOGUE = tuple(json.loads(
+    (Path(__file__).parent / "data" / "teaching_spaces.json").read_text(encoding="utf-8")
+))
+ROOM_NAMES = tuple(entry["name"] for entry in ROOM_CATALOGUE)
+ROOM_ALIASES = {entry["name"]: tuple(entry["aliases"]) for entry in ROOM_CATALOGUE}
+
+
+def room_name_key(value):
+    return re.sub(r"[^a-z0-9]", "", value.casefold())
+
+
+def room_catalogue_name(value):
+    """Resolve only unambiguous documented names/aliases, never fuzzy guesses."""
+    key = room_name_key(value)
+    matches = [entry["name"] for entry in ROOM_CATALOGUE
+               if key and key in {room_name_key(name) for name in (entry["name"], *entry["aliases"])}]
+    return matches[0] if len(matches) == 1 else None
+
 
 # Faculties and colleges used as campus-area choices, including the faculties
 # within Health Sciences. These are app navigation choices, not numbered zones.

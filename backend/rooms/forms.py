@@ -4,7 +4,10 @@ from django import forms
 from django.conf import settings
 from django.utils.text import slugify
 
-from .catalog import BUILDING_NAMES, CAMPUS_ZONES, OTHER_ROOM, ROOM_NAMES, ROOM_TYPES
+from .catalog import (
+    BUILDING_NAMES, CAMPUS_ZONES, OTHER_CHOICE, ROOM_ALIASES, ROOM_NAMES,
+    ROOM_TYPES, room_catalogue_name,
+)
 from .models import Building, Room
 
 
@@ -32,29 +35,37 @@ class SearchableSelect(forms.Select):
         )
 
 
+class RoomNameSelect(SearchableSelect):
+    def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
+        option = super().create_option(name, value, label, selected, index, subindex, attrs)
+        option["attrs"]["data-search-aliases"] = " ".join(ROOM_ALIASES.get(str(value), ()))
+        return option
+
+
 class CatalogNameWidget(forms.MultiWidget):
     template_name = "rooms/widgets/room_name.html"
 
-    def __init__(self, names, kind, attrs=None):
+    def __init__(self, names, kind, attrs=None, *, value_label=None,
+                 max_length=200, select_class=SearchableSelect):
         self.names = names
-        self.kind = kind
+        self.value_label = value_label or f"{kind} name"
         choices = [("", f"Select a {kind}…")]
         choices.extend((name, name) for name in names)
-        choices.append((OTHER_ROOM, f"Others — enter a {kind} name"))
+        choices.append((OTHER_CHOICE, f"Others — enter a {self.value_label}"))
         super().__init__([
-            SearchableSelect(choices=choices),
-            forms.TextInput(attrs={"maxlength": 200, "placeholder": f"Enter the {kind} name"}),
+            select_class(choices=choices),
+            forms.TextInput(attrs={"maxlength": max_length, "placeholder": f"Enter the {self.value_label}"}),
         ], attrs)
 
     def get_context(self, name, value, attrs):
         context = super().get_context(name, value, attrs)
-        context["widget"]["kind"] = self.kind
+        context["widget"]["value_label"] = self.value_label
         return context
 
     def decompress(self, value):
         if not value:
             return ["", ""]
-        return [value, ""] if value in self.names else [OTHER_ROOM, value]
+        return [value, ""] if value in self.names else [OTHER_CHOICE, value]
 
     def id_for_label(self, id_):
         return f"{id_}_0" if id_ else ""
@@ -65,21 +76,25 @@ class CatalogNameWidget(forms.MultiWidget):
 
 
 class CatalogNameField(forms.MultiValueField):
-    def __init__(self, names, kind, **kwargs):
-        self.kind = kind
+    def __init__(self, names, kind, *, value_label=None, max_length=200,
+                 select_class=SearchableSelect, **kwargs):
+        self.value_label = value_label or f"{kind} name"
         super().__init__(fields=(
             forms.ChoiceField(choices=[(name, name) for name in names]
-                              + [(OTHER_ROOM, "Others")]),
-            forms.CharField(required=False, max_length=200),
-        ), widget=CatalogNameWidget(names, kind), require_all_fields=False, **kwargs)
+                              + [(OTHER_CHOICE, "Others")]),
+            forms.CharField(required=False, max_length=max_length),
+        ), widget=CatalogNameWidget(
+            names, kind, value_label=self.value_label, max_length=max_length,
+            select_class=select_class,
+        ), require_all_fields=False, **kwargs)
 
     def compress(self, values):
         if not values:
             return ""
         selected, custom = values
-        if selected == OTHER_ROOM:
+        if selected == OTHER_CHOICE:
             if not custom:
-                raise forms.ValidationError(f"Enter a {self.kind} name when selecting Others.")
+                raise forms.ValidationError(f"Enter a {self.value_label} when selecting Others.")
             return custom
         return selected
 
@@ -117,12 +132,13 @@ class BuildingAdminForm(forms.ModelForm):
 
 class RoomAdminForm(forms.ModelForm):
     name = CatalogNameField(
-        ROOM_NAMES, "room",
+        ROOM_NAMES, "room", select_class=RoomNameSelect,
         label="Room name",
-        help_text="Search by name or abbreviation. Select Others to enter a different room.",
+        help_text="Search by name, department or abbreviation. Select Others to enter a teaching or study space that is not listed.",
     )
-    room_type = forms.ChoiceField(
-        choices=[("", "Select a room type…")] + [(value, value) for value in ROOM_TYPES],
+    room_type = CatalogNameField(
+        ROOM_TYPES, "room type", value_label="room type", max_length=100,
+        help_text="Select the room's teaching or study function. Select Others to enter a different type.",
     )
 
     class Meta:
@@ -135,18 +151,16 @@ class RoomAdminForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["building"].help_text = "Choose a building. This room uses the building's zone / campus area."
-        # Legacy data remains editable without silently renaming or reclassifying
-        # existing rooms. It is not offered when creating unrelated rooms.
-        if self.instance.pk:
-            for field_name in ("room_type",):
-                value = getattr(self.instance, field_name)
-                field = self.fields[field_name]
-                if value and value not in dict(field.choices):
-                    field.choices = [*field.choices, (value, f"{value} (current value)")]
 
     def clean_name(self):
         name = self.cleaned_data["name"]
-        if Room.objects.filter(name__iexact=name).exclude(pk=self.instance.pk).exists():
+        existing = Room.objects.exclude(pk=self.instance.pk)
+        canonical = room_catalogue_name(name)
+        alias_exists = canonical and any(
+            room_catalogue_name(value) == canonical
+            for value in existing.values_list("name", flat=True)
+        )
+        if existing.filter(name__iexact=name).exists() or alias_exists:
             raise forms.ValidationError("This room already exists. Edit its existing record instead.")
         return name
 
