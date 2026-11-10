@@ -1,4 +1,5 @@
 import { countdownLabel } from '../availability';
+import { lagosTimestamp } from '../clock';
 
 const facilityMap = {
   ac: {
@@ -34,11 +35,7 @@ const RoomDetailsModal = ({
   const schedule = room.hourlySchedule || [];
 
   const selectedMoment = room.availabilityAt
-    ? new Intl.DateTimeFormat('en-GB', {
-        timeZone: 'Africa/Lagos',
-        dateStyle: 'medium',
-        timeStyle: 'short',
-      }).format(new Date(room.availabilityAt))
+    ? lagosTimestamp(room.availabilityAt)
     : 'Not specified';
 
   return (

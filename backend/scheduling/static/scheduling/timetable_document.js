@@ -7,6 +7,8 @@
   });
   const form = document.getElementById('document-review');
   if (!form) return;
+  const clock = window.OptispaceClock;
+  const clockRange = row => `${clock.format(row.start_time) || '?'}–${clock.format(row.end_time) || '?'}`;
   const rows = JSON.parse(document.getElementById('document-rows').textContent);
   const refs = JSON.parse(document.getElementById('document-references').textContent);
   const pages = JSON.parse(document.getElementById('document-pages').textContent);
@@ -92,7 +94,7 @@
     const body = element('tbody', undefined, table);
     let flagged = 0;
     for (const time of times) {
-      const tr = element('tr', undefined, body); const th = element('th', time, tr); th.scope = 'row';
+      const tr = element('tr', undefined, body); const th = element('th', time.split('–').map(clock.format).join('–'), tr); th.scope = 'row';
       for (const day of shownDays) {
         const td = element('td', undefined, tr);
         kept.filter(({ row }) => `${row.start_time || '?'}–${row.end_time || '?'}` === time && (row.day === day || day === 'Needs weekday' && (!row.day || !days.includes(row.day)))).forEach(({ row, index }) => {
@@ -140,7 +142,7 @@
           select.value = first.day || ''; inputs.push(select);
         } else {
           for (const [key, label] of [['start_time', 'Start'], ['end_time', 'End']]) {
-            const input = element('input', undefined, section); input.type = 'time'; input.value = first[key] || ''; input.setAttribute('aria-label', `${label} heading ${first.time_group}`); inputs.push(input);
+            const input = clock.input(element('input', undefined, section), first[key] || '', `${label} heading ${first.time_group}`); inputs.push(input);
           }
         }
         if (first[kind + '_note']) element('small', first[kind + '_note'], section);
@@ -149,12 +151,14 @@
         const apply = element('button', affected.every(row => row[kind + '_checked']) ? 'Heading checked' : 'Confirm heading for these entries', section); apply.type = 'button';
         inputs.forEach(input => input.addEventListener('input', () => { apply.textContent = 'Confirm corrected heading'; }));
         apply.addEventListener('click', () => {
-          if (kind === 'day' && !days.slice(1).includes(inputs[0].value) || kind === 'time' && (!inputs[0].value || !inputs[1].value || inputs[0].value >= inputs[1].value)) { window.alert('Choose a valid heading before confirming it.'); return; }
+          const start = kind === 'time' ? clock.parse(inputs[0].value) : '';
+          const end = kind === 'time' ? clock.parse(inputs[1].value) : '';
+          if (kind === 'day' && !days.slice(1).includes(inputs[0].value) || kind === 'time' && (!start || !end || start >= end)) { window.alert('Choose a valid heading before confirming it. Use AM/PM for times.'); return; }
           affected.forEach(row => {
             if (row.skip) return;
-            const changed = kind === 'day' ? row.day !== inputs[0].value : row.start_time !== inputs[0].value || row.end_time !== inputs[1].value;
+            const changed = kind === 'day' ? row.day !== inputs[0].value : row.start_time !== start || row.end_time !== end;
             if (kind === 'day') row.day = inputs[0].value;
-            else { row.start_time = inputs[0].value; row.end_time = inputs[1].value; }
+            else { row.start_time = start; row.end_time = end; }
             row[kind + '_checked'] = true;
             if (changed) row.reviewed = false;
           });
@@ -178,7 +182,7 @@
       const body = element('tbody', undefined, table);
       group.sort((a, b) => a.row.start_time.localeCompare(b.row.start_time)).forEach(({ row, index }) => {
         const tr = element('tr', undefined, body);
-        element('td', `${row.start_time}–${row.end_time}`, tr);
+        element('td', `${clockRange(row)}`, tr);
         element('td', row.course, tr);
         element('td', refs.rooms.find(item => item.value === row.room)?.label || row.room, tr);
         const td = element('td', undefined, tr);
@@ -236,7 +240,7 @@
     affected.forEach(row => {
       const line = element('div', undefined, locations); line.className = 'mapping-location';
       const index = rows.indexOf(row);
-      const show = element('button', `Show row ${index + 1}: ${row.day || '?'} ${row.start_time || '?'}–${row.end_time || '?'} · ${row.room_text || 'venue unreadable'}`, line); show.type = 'button';
+      const show = element('button', `Show row ${index + 1}: ${row.day || '?'} ${clockRange(row)} · ${row.room_text || 'venue unreadable'}`, line); show.type = 'button';
       show.addEventListener('click', () => showPage(row.page, row.box));
       const skip = element('button', 'Skip this entry', line); skip.type = 'button';
       skip.addEventListener('click', () => { row.skip = true; row.reviewed = false; invalidate(); mappings(); headings(); render(); });
@@ -337,35 +341,14 @@
           element('p', 'No verified title for this exact code in the current source catalogue. Check the code in the image, then enter a known title or mark it as awaiting confirmation. A missing suggestion does not mean the course is invalid.', suggestions);
           return;
         }
-        element('p', matches.length > 1 ? 'Different titles or programmes match this code. Check the handbook page and choose the one that applies; a handbook can contain conflicting lists.' : 'Exact course-code match in a source. Check that its curriculum applies to this timetable.', suggestions);
-        matches.forEach(item => {
-          const candidate = element('div', undefined, suggestions);
-          element('strong', `${item.code} — ${item.title}`, candidate);
-          element('p', `${item.department || 'Department must be confirmed'} · ${item.faculty}${item.programme ? ` · ${item.programme}` : ''}`, candidate);
-          item.evidence.forEach(evidence => {
-            const label = `${evidence.source_title}${evidence.page ? `, PDF page ${evidence.page}` : ''} · ${evidence.edition}`;
-            const line = element('p', undefined, candidate);
-            if (evidence.source_url) {
-              const link = element('a', label, line); link.href = `${evidence.source_url}${evidence.page ? `#page=${evidence.page}` : ''}`; link.target = '_blank'; link.rel = 'noopener noreferrer';
-            } else element('span', `${label} — reference file available in local development`, line);
-            if (evidence.notes) element('p', evidence.notes, candidate).className = 'review-note';
-          });
-          const acknowledgement = element('label', undefined, candidate);
-          const applicable = element('input', undefined, acknowledgement); applicable.type = 'checkbox';
-          acknowledgement.append(document.createTextNode(' I checked that this source applies to this programme and academic session.'));
-          const use = element('button', title.value && title.value !== item.title ? 'Replace title with this suggestion' : 'Use this title', candidate); use.type = 'button';
-          use.disabled = true;
-          applicable.addEventListener('change', () => { use.disabled = !applicable.checked; });
-          use.addEventListener('click', () => {
-            if (!applicable.checked) return;
-            title.value = item.title;
-            pendingTitle.checked = false; titleMode();
-            if (item.department) department.value = item.department;
-            selectedCode = key;
-            source = { code: item.code, title: item.title, source_id: item.source_id, source_url: item.source_url, page: item.page, edition: item.edition, programme: item.programme,
-              evidence: item.evidence.map(({ source_id, source_url, page, edition }) => ({ source_id, source_url, page, edition })) };
-            invalidate(); showSuggestions();
-          });
+        window.OptispaceCourseSuggestions.renderCandidates(suggestions, matches, title.value, item => {
+          title.value = item.title;
+          pendingTitle.checked = false; titleMode();
+          if (item.department) department.value = item.department;
+          selectedCode = key;
+          source = { code: item.code, title: item.title, source_id: item.source_id, source_url: item.source_url, page: item.page, edition: item.edition, programme: item.programme,
+            evidence: item.evidence.map(({ source_id, source_url, page, edition }) => ({ source_id, source_url, page, edition })) };
+          invalidate(); showSuggestions();
         });
       }
       code.addEventListener('input', () => { pendingTitle.checked = false; titleMode(); showSuggestions(); });
@@ -563,8 +546,8 @@
       const time = element('td', undefined, tr);
       for (const [key, label] of [['start_time', 'Start'], ['end_time', 'End']]) {
         const wrap = element('label', `${label} `, time); const input = element('input', undefined, wrap);
-        input.type = 'time'; input.value = row[key] || ''; input.setAttribute('aria-label', `${label} time, row ${index + 1}`);
-        input.addEventListener('input', () => { row[key] = input.value; edited(); });
+        clock.input(input, row[key] || '', `${label} time, row ${index + 1}`);
+        input.addEventListener('input', () => { row[key] = clock.parse(input.value); edited(); });
         input.addEventListener('change', () => { row.time_checked = !problems(row).includes('Correct the start/end times'); updateRow(); headings(); status(); });
       }
       const check = element('td', undefined, tr);

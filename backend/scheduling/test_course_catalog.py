@@ -98,6 +98,39 @@ class HandbookFileTests(SimpleTestCase):
 
 
 class HandbookPermissionTests(TestCase):
+    def test_manual_course_add_edit_and_popup_offer_the_same_sourced_catalogue(self):
+        from .models import Course
+        user = get_user_model().objects.create_superuser('course-admin', 'course-admin@oauife.edu.ng', 'local-test')
+        self.client.force_login(user)
+        course = Course.objects.create(code='PUL101', title='', title_pending=True, department='Law')
+        for url, query in (
+            (reverse('admin:scheduling_course_add'), {}),
+            (reverse('admin:scheduling_course_add'), {'_popup': '1'}),
+            (reverse('admin:scheduling_course_change', args=[course.pk]), {}),
+        ):
+            response = self.client.get(url, query)
+            self.assertContains(response, 'manual-course-catalogue')
+            self.assertContains(response, 'scheduling/course_admin.js')
+            self.assertEqual(response.context['course_suggestions']['course_catalogue'], COURSE_CATALOGUE + HANDBOOK_COURSES)
+        course.refresh_from_db()
+        self.assertEqual(course.title, '')
+
+    def test_manual_handbook_access_requires_course_edit_permission(self):
+        from django.contrib.auth.models import Permission
+        url = reverse('admin:scheduling_course_handbook', args=['test-reference'])
+        self.assertEqual(self.client.get(url).status_code, 302)
+        user = get_user_model().objects.create_user('course-reader', 'course-reader@student.oauife.edu.ng', 'local-test', is_staff=True)
+        self.client.force_login(user)
+        self.assertEqual(self.client.get(url).status_code, 403)
+        user.user_permissions.add(Permission.objects.get(codename='add_course'))
+        with patch('scheduling.admin.handbook_file', return_value=(io.BytesIO(b'%PDF-test'), 'test.pdf')):
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('private', response['Cache-Control'])
+            self.assertIn('no-store', response['Cache-Control'])
+            self.assertEqual(b''.join(response.streaming_content), b'%PDF-test')
+            self.assertEqual(self.client.post(url).status_code, 405)
+
     def test_reference_requires_staff_and_import_permission(self):
         url = reverse('admin:scheduling_timetableday_course_handbook', args=['test-reference'])
         self.assertEqual(self.client.get(url).status_code, 302)

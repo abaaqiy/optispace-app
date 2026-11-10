@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="{% static 'scheduling/timetable_import.css' %}">
 <link rel="stylesheet" href="{% static 'scheduling/timetable_document.css' %}">
 {% endblock %}
-{% block extrahead %}{{ block.super }}{{ catalog_media.js }}<script src="{% static 'scheduling/course_suggestions.js' %}" defer></script><script src="{% static 'scheduling/timetable_document.js' %}" defer></script>{% endblock %}
+{% block extrahead %}{{ block.super }}{{ catalog_media.js }}<script src="{% static 'scheduling/clock.js' %}" defer></script><script src="{% static 'scheduling/course_suggestions.js' %}" defer></script><script src="{% static 'scheduling/timetable_document.js' %}" defer></script>{% endblock %}
 {% block breadcrumbs %}
 <ol class="breadcrumbs"><li><a href="{% url 'admin:index' %}">Home</a></li><li><a href="{% url 'admin:scheduling_timetableday_changelist' %}">Timetables</a></li><li aria-current="page">Import Image</li></ol>
 {% endblock %}
@@ -23,7 +23,7 @@
   <section class="module document-mappings" aria-label="Your saved image drafts">
     <h2>Your saved image drafts</h2>
     <p>Return to <strong>Timetables → Import Image</strong> and select a draft below. Drafts are temporary and private to your administrator account. Save while reviewing; each save extends the seven-hour expiry. Temporary storage may be cleared earlier.</p>
-    {% if saved_drafts %}<ul>{% for draft in saved_drafts %}<li><a href="?review={{ draft.token|urlencode }}">{{ draft.filename }}</a> — saved {{ draft.saved_at|date:"j M, H:i" }}; expires {{ draft.expires_at|date:"j M, H:i" }} (Lagos)</li>{% endfor %}</ul>
+    {% if saved_drafts %}<ul>{% for draft in saved_drafts %}<li><a href="?review={{ draft.token|urlencode }}">{{ draft.filename }}</a> — saved {{ draft.saved_at|date:"j M, g:i A" }}; expires {{ draft.expires_at|date:"j M, g:i A" }} (Lagos)</li>{% endfor %}</ul>
     {% else %}<p>No active drafts. Upload an image to begin.</p>{% endif %}
   </section>
   {% if errors %}<div class="errornote" role="alert"><p><strong>Nothing was imported.</strong> Correct these issues and validate again.</p><ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
@@ -107,7 +107,7 @@
     </form>
     {% if plan %}
     <section id="document-final-preview"><h2>Validated: {{ plan.rows|length }} dated entries</h2><p>{{ plan.counts.Add }} to add; {{ plan.counts.Unchanged }} unchanged. Check the expanded dates before applying.</p>
-      <details><summary>Show all expanded dates ({{ plan.rows|length }} entries)</summary><div class="csv-preview" role="region" aria-label="Validated dated entries" tabindex="0"><table><thead><tr><th>Entry</th><th>Action</th><th>Course</th><th>Room</th><th>Day / date</th><th>Time</th><th>Session</th></tr></thead><tbody>{% for row in plan.rows %}<tr><td>{{ row.line }}</td><td>{{ row.action }}</td><td>{{ row.course }}</td><td>{{ row.room.name }}</td><td>{{ row.values.date|date:"l, Y-m-d" }}</td><td>{{ row.values.start_time|time:"H:i" }}–{{ row.values.end_time|time:"H:i" }}</td><td>{{ row.values.academic_session }}</td></tr>{% endfor %}</tbody></table></div></details>
+      <details><summary>Show all expanded dates ({{ plan.rows|length }} entries)</summary><div class="csv-preview" role="region" aria-label="Validated dated entries" tabindex="0"><table><thead><tr><th>Entry</th><th>Action</th><th>Course</th><th>Room</th><th>Day / date</th><th>Time</th><th>Session</th></tr></thead><tbody>{% for row in plan.rows %}<tr><td>{{ row.line }}</td><td>{{ row.action }}</td><td>{{ row.course }}</td><td>{{ row.room.name }}</td><td>{{ row.values.date|date:"l, Y-m-d" }}</td><td>{{ row.values.start_time|time:"g:i A" }}–{{ row.values.end_time|time:"g:i A" }}</td><td>{{ row.values.academic_session }}</td></tr>{% endfor %}</tbody></table></div></details>
       <p>New records to create with these classes:</p><ul>{% for kind, values in document.preview_records.items %}<li>{{ kind|capfirst }}: {{ values|length }}{% if values %}<details><summary>Show {{ kind }}</summary><ul>{% for value in values %}<li>{{ value }}</li>{% endfor %}</ul></details>{% endif %}</li>{% endfor %}</ul>
       <form method="post" class="csv-confirm">{% csrf_token %}<input type="hidden" name="action" value="confirm"><input type="hidden" name="document_token" value="{{ document_token }}"><input type="hidden" name="preview" value="{{ preview_token }}"><p>The confirmed records and classes will be saved together. Existing cancellations are preserved; omitted classes are kept.</p><button type="submit" class="button default">Confirm and import</button></form>
     </section>

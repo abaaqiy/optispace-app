@@ -33,6 +33,7 @@ function editor(t, rows = [row()], pending = { courses: [], rooms: [] }) {
     script.textContent = JSON.stringify(data); document.body.append(script);
   }
   document.getElementById('document-department').value = 'Public Law';
+  window.eval(read('./clock.js'));
   window.eval(read('./course_suggestions.js'));
   window.eval(read('./timetable_document.js'));
   function button(root, text) {
@@ -133,4 +134,29 @@ test('new building uses searchable catalogue and supports Others without free-ty
   e.field(proposed, 'Custom new building name').value = 'Verified teaching block';
   e.button(proposed, 'Update proposed record');
   assert.equal(e.payload().pending.rooms[0].building_name, 'Verified teaching block');
+});
+
+test('image times show AM/PM while corrections retain canonical values and order', t => {
+  const e = editor(t, [{ ...row(), start_time: '12:00', end_time: '14:30' }]);
+  assert.match(e.document.querySelector('#weekly-preview').textContent, /12:00 PM–2:30 PM/);
+  const input = e.document.querySelector('[aria-label="Start time, row 1 (AM/PM)"]');
+  assert.equal(input.value, '12:00 PM');
+  input.value = '1:15 PM'; input.dispatchEvent(new e.window.Event('input'));
+  assert.equal(e.payload().rows[0].start_time, '13:15');
+  assert.equal(e.payload().rows[0].end_time, '14:30');
+  input.value = '1:15'; input.dispatchEvent(new e.window.Event('input'));
+  assert.equal(e.payload().rows[0].start_time, '');
+  assert.equal(input.checkValidity(), false);
+});
+
+test('shared image time headings convert noon correctly for every affected entry', t => {
+  const e = editor(t, [{ ...row(), time_group: 'time-one', time_text: '12-1', start_time: '12:00', end_time: '13:00' }]);
+  const heading = e.document.querySelector('.heading-mapping');
+  const inputs = heading.querySelectorAll('input');
+  assert.equal(inputs[0].value, '12:00 PM');
+  inputs[0].value = '12:30 PM'; inputs[1].value = '1:30 PM';
+  e.button(heading, 'Confirm heading for these entries');
+  assert.equal(e.payload().rows[0].start_time, '12:30');
+  assert.equal(e.payload().rows[0].end_time, '13:30');
+  assert.equal(e.payload().rows[0].time_checked, true);
 });

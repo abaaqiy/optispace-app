@@ -3,6 +3,7 @@ from datetime import datetime, time, timedelta
 from math import ceil
 
 from django.utils import timezone
+from config.clocks import clock_label
 
 
 @dataclass(frozen=True)
@@ -65,7 +66,7 @@ def build_availability(entries, at, *, reservations=(), has_school_timetable):
         values = {
             "currentSchedule": current.title if current else None,
             "nextSchedule": (
-                f"{upcoming.start_time:%H:%M} - {upcoming.title}"
+                f"{clock_label(upcoming.start_time)} - {upcoming.title}"
                 if upcoming
                 else "No further scheduled sessions today"
             ),
@@ -75,14 +76,14 @@ def build_availability(entries, at, *, reservations=(), has_school_timetable):
         if current and current.status == "reserved":
             values.update(
                 status="reserved",
-                statusText=f"Reserved: Approved reservation until {current.end_time:%H:%M}",
+                statusText=f"Reserved: Approved reservation until {clock_label(current.end_time)}",
                 reservedUntil=moment(current.end_time).isoformat(),
                 reservedSeconds=ceil((moment(current.end_time) - when).total_seconds()),
             )
         elif current:
             values.update(
                 status="occupied",
-                statusText=f"Scheduled: {current.title} until {current.end_time:%H:%M}",
+                statusText=f"Scheduled: {current.title} until {clock_label(current.end_time)}",
             )
         elif not has_school_timetable:
             values.update(
@@ -91,7 +92,7 @@ def build_availability(entries, at, *, reservations=(), has_school_timetable):
             )
         else:
             free_until = moment(upcoming.start_time) if upcoming else end
-            until = f"{free_until:%H:%M}" if free_until < end else "the end of the day"
+            until = clock_label(free_until) if free_until < end else "the end of the day"
             values.update(
                 status="available",
                 statusText=f"No active class or approved reservation — available until {until}",
@@ -120,7 +121,7 @@ def build_availability(entries, at, *, reservations=(), has_school_timetable):
         )
         result["hourlySchedule"].append(
             {
-                "time": f"{left:%H:%M} - {right:%H:%M}",
+                "time": f"{clock_label(left)} - {clock_label(right)}",
                 "event": event,
                 "status": values["status"],
                 # Retain the legacy non-available flag; status distinguishes each state.

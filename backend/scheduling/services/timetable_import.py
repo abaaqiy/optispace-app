@@ -6,7 +6,7 @@ import json
 import re
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, time
+from datetime import date
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
@@ -15,6 +15,7 @@ from rooms.models import Room
 from scheduling.models import Course, TimetableDay
 
 from .locking import lock_rooms
+from config.clocks import clock_label, parse_clock
 
 
 CSV_COLUMNS = (
@@ -141,9 +142,10 @@ def resolve_rows(parsed, *, extra_rooms=(), extra_courses=()):
             selected_date = date.fromisoformat(data["date"])
             clocks = []
             for name in ("start_time", "end_time"):
-                if not re.fullmatch(r"\d{2}:\d{2}(:\d{2})?", data[name]):
-                    raise ValueError(f"Use HH:MM or HH:MM:SS for {name}, in Lagos time.")
-                clocks.append(time.fromisoformat(data[name]))
+                try:
+                    clocks.append(parse_clock(data[name]))
+                except ValueError as error:
+                    raise ValueError(f"Use a time such as 2:30 PM for {name}, in Lagos time. Existing 24-hour CSV times are also accepted.") from error
             if clocks[0] >= clocks[1]:
                 raise ValueError("End time must be after start time on the same date.")
             session = data["academic_session"]
@@ -248,7 +250,7 @@ def build_plan(rows, *, lock_entries=False):
         slots = final_slots[(row.room.pk, row.values["date"])]
         for other_start, other_end, label in slots:
             if start < other_end and end > other_start:
-                errors.append(f"Row {row.line}: {row.room.name} overlaps {label} ({other_start:%H:%M}–{other_end:%H:%M}).")
+                errors.append(f"Row {row.line}: {row.room.name} overlaps {label} ({clock_label(other_start)}–{clock_label(other_end)}).")
         slots.append((start, end, f"row {row.line}"))
     if errors:
         raise ImportProblem(errors)

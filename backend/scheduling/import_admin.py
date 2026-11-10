@@ -11,6 +11,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.http import require_GET, require_http_methods
 
 from rooms.models import Room
+from config.clocks import clock_label
 
 from .forms import TimetableUploadForm
 from .models import Course
@@ -127,7 +128,7 @@ class TimetableImportAdminMixin:
             return HttpResponseBadRequest("Invalid timetable filters. Return to Timetables and choose the filters again.")
         rows = (
             (entry.pk, entry.room.code, entry.course.code if entry.course else "", entry.date.isoformat(),
-             entry.start_time.isoformat(), entry.end_time.isoformat(), entry.academic_session,
+             clock_label(entry.start_time), clock_label(entry.end_time), entry.academic_session,
              "true" if entry.is_cancelled else "false")
             for entry in queryset.iterator()
         )

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getLagosDateTime, requestReservation } from '../api';
+import ClockInput from './ClockInput';
 
 export default function BookingModal({ room, onClose, onSuccess }) {
   const [date, setDate] = useState(() => room.availabilityAt?.slice(0, 10) || getLagosDateTime().date);
@@ -36,8 +37,8 @@ export default function BookingModal({ room, onClose, onSuccess }) {
         </label>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <label className="text-sm font-semibold">Date<input required type="date" min={getLagosDateTime().date} value={date} onChange={e => setDate(e.target.value)} className="block w-full border border-slate-300 rounded-lg p-2 mt-1" /></label>
-          <label className="text-sm font-semibold">Start time<input required type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className="block w-full border border-slate-300 rounded-lg p-2 mt-1" /></label>
-          <label className="text-sm font-semibold">End time<input required type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className="block w-full border border-slate-300 rounded-lg p-2 mt-1" /></label>
+          <label className="text-sm font-semibold">Start time (AM/PM)<ClockInput required value={startTime} onChange={setStartTime} className="block w-full border border-slate-300 rounded-lg p-2 mt-1" /></label>
+          <label className="text-sm font-semibold">End time (AM/PM)<ClockInput required value={endTime} onChange={setEndTime} className="block w-full border border-slate-300 rounded-lg p-2 mt-1" /></label>
         </div>
         {error && <p role="alert" className="text-sm text-rose-800 bg-rose-50 p-3 rounded-lg">{error}</p>}
         <div className="flex justify-end gap-3 pt-3">

@@ -6,6 +6,7 @@ import RoomDetailsModal from './RoomDetailsModal';
 import SearchFilters from './SearchFilters';
 import useLiveData from '../useLiveData';
 import BookingModal from './BookingModal';
+import { formatClock, lagosTimestamp } from '../clock';
 
 const emptyFilters = { zone: '', capacity: '', facilities: [], status: '' };
 
@@ -39,9 +40,7 @@ export default function RoomBrowser({ category, children, user }) {
   const rooms = allRooms.filter(room => !filters.status || filters.status === 'all' || room.status === filters.status);
   const selectedRoom = allRooms.find(room => room.id === selectedId);
   const moment = allRooms[0]?.availabilityAt;
-  const momentLabel = moment ? new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Africa/Lagos', dateStyle: 'medium', timeStyle: 'short',
-  }).format(new Date(moment)) : (filters.date ? `${filters.date} ${filters.time}` : 'Current time');
+  const momentLabel = moment ? lagosTimestamp(moment) : (filters.date ? `${filters.date} ${formatClock(filters.time)}` : 'Current time');
   const openDetails = room => setSelectedId(room.id);
 
   return (
@@ -54,7 +53,7 @@ export default function RoomBrowser({ category, children, user }) {
           {filters.date && <p>Showing the selected date and time; the remaining reservation time is a fixed preview.</p>}
         </div>
         <div className="flex items-center gap-3">
-          <p role="status">{refreshing ? 'Refreshing room availability…' : error ? 'Refresh failed. Retrying automatically.' : updatedAt ? `Rooms updated at ${new Date(updatedAt).toLocaleTimeString('en-GB', { timeZone: 'Africa/Lagos' })}` : ''}</p>
+          <p role="status">{refreshing ? 'Refreshing room availability…' : error ? 'Refresh failed. Retrying automatically.' : updatedAt ? `Rooms updated at ${lagosTimestamp(updatedAt, { date: false, seconds: true })}` : ''}</p>
           <button type="button" onClick={refresh} disabled={refreshing} className="px-3 py-2 rounded-lg bg-white border border-slate-300 font-semibold disabled:opacity-50">{refreshing ? 'Refreshing…' : 'Refresh rooms'}</button>
         </div>
       </div>

@@ -63,9 +63,14 @@ see all current workflow records. Ordinary staff cannot approve/reject.
 - `GET /api/reservations/?status=pending` (status optional).
 - `POST /api/reservations/` with `roomId` (room code), `date` (`YYYY-MM-DD`),
   `startTime`/`endTime` (`HH:MM`), `purpose` (at most 200 characters).
+
 - `POST /api/reservations/<reference>/approve/` or `reject/`, optionally with
   `note` (at most 500 characters).
 - `POST /api/reservations/<reference>/cancel/`.
+
+The reservation form and displayed slots use 12-hour AM/PM times (for example,
+2:30 PM); these are converted to the unchanged `HH:MM` API values. Africa/Lagos
+remains the timezone, and countdowns remain elapsed durations.
 
 Account and status fields cannot be supplied when requesting. Invalid submissions
 return 400; conflicting review/cancellation actions return 409. Other users'

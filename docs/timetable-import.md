@@ -31,7 +31,7 @@ next automatic refresh, normally within five seconds plus network/request time.
 | `room` | A saved room name or permanent room code. Matching ignores case. Use the code when a name is ambiguous. |
 | `course` | A saved course code. Matching ignores case; ambiguous codes must be corrected first. |
 | `date` | Specific date in `YYYY-MM-DD` format. |
-| `start_time` | Start time in `HH:MM` or `HH:MM:SS`, using Africa/Lagos time. |
+| `start_time` | Start time with AM/PM, such as `2:30 PM` or `2:30:15 PM`, using Africa/Lagos time. Existing `HH:MM` / `HH:MM:SS` files also work. |
 | `end_time` | End time in the same format, after the start time on that date. |
 | `academic_session` | Required text, for example `2026/2027`, up to 30 characters. |
 | `cancelled` | `true` or `false`. Blank means false. `yes`/`no` and `1`/`0` are also accepted. |
@@ -44,11 +44,15 @@ For example, if the listed room and course already exist:
 
 ```csv
 id,room,course,date,start_time,end_time,academic_session,cancelled
-,Geology Classroom F13,CSC201,2026-11-02,09:00,11:00,2026/2027,false
+,Geology Classroom F13,CSC201,2026-11-02,9:00 AM,11:00 AM,2026/2027,false
 ```
 
 This is a format example, not an official OAU class allocation. Download the saved
 reference lists to get the actual room names/codes and course codes in your database.
+CSV exports use AM/PM and preserve seconds when present. Re-importing them does
+not change the times. Midnight is **12:00 AM**; noon is **12:00 PM**. The timezone
+remains Africa/Lagos. API time values and stored timestamps retain their existing
+formats; clock labels, admin widgets, image-review inputs and dashboards use AM/PM.
 CSV imports require each date as a separate row. The **Import Image**
 workflow described below can expand reviewed weekly entries into actual dates.
 
@@ -156,7 +160,8 @@ remain available**, including dated lectures and bulk corrections.
 The November restructure is local development work, not deployed. Migration
 `scheduling.0006` adds optional import provenance and `scheduling.0007` adds the
 explicit pending-title flag; apply them only to the explicitly configured local
-database while testing. The existing CSV format remains unchanged.
+database while testing. The CSV columns remain unchanged; exported clock times
+now use AM/PM, and the importer accepts both formats.
 
 Reviews are not automatic timetable publication. A recognition score is a review
 aid, not proof that text is correct. At most 300 weekly draft rows and 16,000 expanded

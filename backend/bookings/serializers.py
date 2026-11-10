@@ -1,5 +1,6 @@
 from django.utils import timezone
 from rest_framework import serializers
+from config.clocks import clock_label
 
 from rooms.models import Room
 
@@ -78,7 +79,7 @@ class ReservationSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_timeSlot(self, obj):
-        return f"{obj.start_time:%H:%M} - {obj.end_time:%H:%M}"
+        return f"{clock_label(obj.start_time)} - {clock_label(obj.end_time)}"
 
     def get_organizer(self, obj):
         return obj.user.get_full_name() or obj.user.username

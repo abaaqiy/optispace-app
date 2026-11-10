@@ -114,6 +114,7 @@ AUTH_PASSWORD_VALIDATORS = [
 # https://docs.djangoproject.com/en/6.1/topics/i18n/
 
 LANGUAGE_CODE = 'en-us'
+FORMAT_MODULE_PATH = 'config.formats'
 
 TIME_ZONE = "Africa/Lagos"
 

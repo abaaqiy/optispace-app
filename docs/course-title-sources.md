@@ -19,6 +19,14 @@ using a suggestion; they can edit it and retain their own title. Already saved
 courses can be reused. Source availability is not required during an import;
 there are no external AI calls, API keys, fees or uploaded timetable transmissions.
 
+The same suggestions are available in **Courses → Add course**, **Edit course**,
+and the related-course popup in the timetable form. Enter a complete code; the
+suggestions panel shows exact matches, handbook pages, programmes and editions.
+Confirm applicability, then choose **Use this title** (or **Replace title with
+this suggestion**). This fills the title and any known department, and clears
+the pending-title checkbox. It does not save the form or overwrite a title while
+typing. A missing title can still be explicitly marked awaiting confirmation.
+
 ## Sources inspected on 9 November 2026
 
 | Source | Included coverage | Limitations |
@@ -56,7 +64,8 @@ Conflicting titles or programmes remain separate; admins explicitly select one.
 
 The development launcher sets `OPTISPACE_HANDBOOK_DIR` to
 `$HOME/Downloads/handbooks` unless overridden. Handbook links require a staff
-session with timetable-import permission. They work only with `DEBUG=True` and
+session with timetable-import permission, or course-add/change permission through
+the manual Course form's separate reference endpoint. They work only with `DEBUG=True` and
 a configured directory. The endpoint checks the manifest, directory containment,
 file size and exact PDF checksum; it reads allowlisted ZIP members without
 extracting them. Files are private and not cached publicly. A missing or replaced

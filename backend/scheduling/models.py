@@ -2,6 +2,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 from .services.locking import lock_rooms
+from config.clocks import clock_label
 
 
 class Course(models.Model):
@@ -87,7 +88,7 @@ class TimetableDay(models.Model):
         return str(self.course) if self.course_id else "Scheduled class"
 
     def __str__(self):
-        return f"{self.room.name} — {self.date} — {self.start_time:%H:%M}"
+        return f"{self.room.name} — {self.date} — {clock_label(self.start_time)}"
 
     def clean(self):
         super().clean()

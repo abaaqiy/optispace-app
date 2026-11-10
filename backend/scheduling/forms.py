@@ -26,3 +26,5 @@ class TimetableAdminForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["course"].required = True
         self.fields["academic_session"].required = True
+        for key in ('start_time', 'end_time'):
+            self.fields[key].widget.attrs.update(size=14, placeholder='02:30 PM')

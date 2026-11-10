@@ -1,19 +1,46 @@
 from django.contrib import admin, messages
-from django.core.exceptions import ValidationError
-from django.http import HttpResponseRedirect
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.http import FileResponse, HttpResponseRedirect
+from django.urls import path, reverse
+from django.utils.decorators import method_decorator
+from django.views.decorators.http import require_GET
 
 from .forms import TimetableAdminForm
 from .import_admin import TimetableImportAdminMixin
 from .document_admin import TimetableDocumentAdminMixin
 from .models import Course, TimetableDay
 from .services.locking import lock_rooms
+from .services.course_catalog import catalogue_payload, handbook_file
 
 
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
+    change_form_template = "scheduling/admin/course_change_form.html"
     list_display = ("code", "display_title", "department", "title_pending")
     search_fields = ("code", "title", "department")
     list_filter = ("title_pending", "department")
+
+    def get_urls(self):
+        return [path('course-handbook/<slug:source_id>/', self.admin_site.admin_view(self.course_handbook),
+                     name='scheduling_course_handbook')] + super().get_urls()
+
+    @method_decorator(require_GET)
+    def course_handbook(self, request, source_id):
+        if not (self.has_add_permission(request) or self.has_change_permission(request)):
+            raise PermissionDenied
+        stream, filename = handbook_file(source_id)
+        response = FileResponse(stream, content_type='application/pdf', filename=filename)
+        response['Cache-Control'] = 'private, no-store'
+        response['X-Content-Type-Options'] = 'nosniff'
+        return response
+
+    def render_change_form(self, request, context, add=False, change=False, form_url='', obj=None):
+        can_edit = self.has_add_permission(request) if add else self.has_change_permission(request, obj)
+        if can_edit:
+            context['course_suggestions'] = catalogue_payload(lambda key: reverse(
+                f'{self.admin_site.name}:scheduling_course_handbook', args=[key]
+            ))
+        return super().render_change_form(request, context, add=add, change=change, form_url=form_url, obj=obj)
 
     @admin.display(description="Course title", ordering="title")
     def display_title(self, obj):
