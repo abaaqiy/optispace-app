@@ -190,12 +190,14 @@ The supplied Chemistry handbook lists ICH406 among requirements without a title
 there, so its title remains unverified. These observations are test findings, not
 department-specific automatic corrections.
 
-Drafts expire seven hours after upload or their latest save/validation. Saving
+Drafts expire 24 hours after upload or their latest save/validation. Saving
 renews both the signed link and the database expiry. Reopening or refreshing a
 draft list does not extend this expiry. Time while the computer is off counts
-towards the seven hours. Save before closing the browser or rebooting; unsaved
+towards the 24 hours. Save before closing the browser or rebooting; unsaved
 browser edits cannot be recovered. Legacy drafts cleared from the old temporary
 cache cannot be recovered from the original image without reviewing it again.
+Migration `scheduling.0009` extends existing unexpired drafts to 24 hours from
+their last save. It preserves saved edits and does not restore expired drafts.
 
 ### OCR and hosting
 

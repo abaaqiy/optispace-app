@@ -700,16 +700,16 @@ class DocumentWorkflowTests(TestCase):
         self.assertTrue(response.context["preview_token"])
         self.assertFalse(TimetableDay.objects.exists())
 
-    def test_draft_and_image_survive_six_hours_but_expire_after_seven(self):
-        self.assertEqual(DOCUMENT_TTL, 7 * 60 * 60)
+    def test_draft_and_image_survive_twenty_three_hours_but_expire_after_twenty_four(self):
+        self.assertEqual(DOCUMENT_TTL, 24 * 60 * 60)
         started = timezone.now()
         token = self.upload().context['document_token']
-        with patch('time.time', return_value=started.timestamp() + 6 * 60 * 60), patch('django.utils.timezone.now', return_value=started + timedelta(hours=6)):
+        with patch('time.time', return_value=started.timestamp() + 23 * 60 * 60), patch('django.utils.timezone.now', return_value=started + timedelta(hours=23)):
             response = self.client.get(self.url, {'review': token})
             self.assertEqual(response.context['document_token'], token)
             self.assertEqual(response.context['document']['pages'][0]['image'], b'jpeg')
             self.assertEqual(len(response.context['saved_drafts']), 1)
-        with patch('time.time', return_value=started.timestamp() + 7 * 60 * 60 + 10), patch('django.utils.timezone.now', return_value=started + timedelta(hours=7, seconds=10)):
+        with patch('time.time', return_value=started.timestamp() + 24 * 60 * 60 + 10), patch('django.utils.timezone.now', return_value=started + timedelta(hours=24, seconds=10)):
             response = self.client.get(self.url, {'review': token})
             self.assertContains(response, 'expired or is invalid')
             self.assertEqual(response.context['saved_drafts'], [])

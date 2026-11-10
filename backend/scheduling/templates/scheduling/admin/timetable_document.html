@@ -22,7 +22,7 @@
   </details>
   <section class="module document-mappings" aria-label="Your saved image drafts">
     <h2>Your saved image drafts</h2>
-    <p>Return to <strong>Timetables → Import Image</strong> and select a draft below. Saved images and edits are private to your administrator account and survive app or computer restarts. Each save extends the expiry to seven hours from that save. Time while the computer is off still counts. Save before closing or restarting.</p>
+    <p>Return to <strong>Timetables → Import Image</strong> and select a draft below. Saved images and edits are private to your administrator account and survive app or computer restarts. Each save extends the expiry to 24 hours from that save. Time while the computer is off still counts. Save before closing or restarting.</p>
     {% if saved_drafts %}<ul>{% for draft in saved_drafts %}<li><a href="?review={{ draft.token|urlencode }}">{{ draft.filename }}</a> — saved {{ draft.saved_at|date:"j M, g:i A" }}; expires {{ draft.expires_at|date:"j M, g:i A" }} (Lagos)</li>{% endfor %}</ul>
     {% else %}<p>No active drafts. Upload an image to begin.</p>{% endif %}
   </section>
@@ -34,7 +34,7 @@
   </form>
   {% if document %}
     <div class="document-notices"><h2>Reading complete</h2><ul>{% for note in document.notices %}<li>{{ note }}</li>{% endfor %}</ul>
-    <p>Check entries in batches beside the source. Repeated course and venue names can be matched once for all affected rows. Skip unwanted entries and add any entries the reader missed.</p><p>Drafts last seven hours. Use <strong>Save draft</strong> to extend the time while you work.</p></div>
+    <p>Check entries in batches beside the source. Repeated course and venue names can be matched once for all affected rows. Skip unwanted entries and add any entries the reader missed.</p><p>Drafts last 24 hours. Use <strong>Save draft</strong> to extend the time while you work.</p></div>
     {{ rows|json_script:"document-rows" }}{{ references|json_script:"document-references" }}{{ pages|json_script:"document-pages" }}
     {{ pending|json_script:"document-pending" }}{{ creation_choices|json_script:"document-creation-choices" }}
     <noscript><p class="errornote">Enable JavaScript to review this document, or use the CSV importer.</p></noscript>
@@ -93,7 +93,7 @@
             <label for="review-day">Day <select id="review-day"><option value="">All days</option></select></label>
             <label for="review-page">Source page <select id="review-page"><option value="">All pages</option></select></label>
             <button type="submit" name="action" value="save" formnovalidate class="button">Save draft</button>
-            <a href="?review={{ document_token|urlencode }}">Resume saved draft</a><span class="help">Save changes first. Reopen from Your saved image drafts at the top of Import Image, or bookmark this link. Drafts expire after seven hours.</span>
+            <a href="?review={{ document_token|urlencode }}">Resume saved draft</a><span class="help">Save changes first. Reopen from Your saved image drafts at the top of Import Image, or bookmark this link. Drafts expire after 24 hours.</span>
           </div>
           <h2>Review extracted entries</h2><p id="review-status" role="status"></p>
           <p class="help">“Ready” means fields are complete with no detected warning; it is not a guarantee of correct reading. Check the source for the visible batch, including any omitted cells.</p>

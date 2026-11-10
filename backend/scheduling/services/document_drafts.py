@@ -10,10 +10,10 @@ from scheduling.models import TimetableImageDraft
 from .timetable_import import ImportProblem
 
 DOCUMENT_SALT = 'scheduling.image-review.v3'
-DOCUMENT_TTL = 7 * 60 * 60
+DOCUMENT_TTL = 24 * 60 * 60
 UNAVAILABLE = (
     'This review expired or is invalid. Reopen Your saved image drafts to find an active copy. '
-    'If it is not listed, upload the image again. Drafts expire seven hours after their last save; '
+    'If it is not listed, upload the image again. Drafts expire 24 hours after their last save; '
     'restarting the app or computer does not remove saved drafts.'
 )
 

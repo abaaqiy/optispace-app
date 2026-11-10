@@ -1,4 +1,5 @@
 from datetime import timedelta
+from importlib import import_module
 import json
 import os
 from pathlib import Path
@@ -7,6 +8,7 @@ import sys
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from django.apps import apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core import signing
@@ -69,6 +71,30 @@ class DurableDraftTests(TestCase):
                 save_document(document(), self.user, token=fresh)
             self.assertEqual(saved_drafts(self.user), [])
         self.assertFalse(TimetableImageDraft.objects.exists())
+
+    def test_lifetime_upgrade_extends_active_drafts_without_reviving_expired_ones(self):
+        save_document(document(), self.user)
+        active = TimetableImageDraft.objects.get()
+        now = timezone.now()
+        saved = now - timedelta(hours=6)
+        TimetableImageDraft.objects.filter(pk=active.pk).update(
+            saved_at=saved, expires_at=saved + timedelta(hours=7),
+        )
+        expired = TimetableImageDraft.objects.create(
+            key='expired-before-upgrade', owner=self.user, filename='expired.jpg',
+            document=active.document, image=active.image,
+            saved_at=now - timedelta(hours=8), expires_at=now - timedelta(hours=1),
+        )
+        migrate = import_module('scheduling.migrations.0009_extend_image_draft_lifetime').extend_active_drafts
+        with connection.schema_editor(atomic=False) as schema_editor:
+            migrate(apps, schema_editor)
+            migrate(apps, schema_editor)
+        active.refresh_from_db()
+        expired.refresh_from_db()
+        self.assertEqual(active.saved_at, saved)
+        self.assertEqual(active.expires_at, saved + timedelta(hours=24))
+        self.assertEqual(active.document, document() | {'pages': [{'width': 30, 'height': 20}]})
+        self.assertEqual(expired.expires_at, now - timedelta(hours=1))
 
     def test_cleanup_removes_expired_only_and_never_evicts_active_drafts(self):
         save_document(document(), self.user)

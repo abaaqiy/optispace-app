@@ -264,7 +264,7 @@ class TimetableDocumentAdminMixin:
                     if action in {"save", "refresh"}:
                         self.message_user(
                             request,
-                            "Draft saved for seven hours."
+                            "Draft saved for 24 hours."
                             + (
                                 " Course and room choices refreshed; new exact matches need review."
                                 if action == "refresh"
