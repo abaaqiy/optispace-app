@@ -383,6 +383,56 @@ def reread_headings(tables, cleaned, rotated_cells):
             cell.text = alternative
 
 
+def course_codes(text):
+    """Compare complete codes only; never repair characters or infer a prefix."""
+    return tuple(re.findall(r"\b([A-Z]{2,5})\s*(\d{3})(?!\d)", text.upper()))
+
+
+def reread_course_codes(cells, cleaned):
+    """Flag independent readers' disagreements without rewriting timetable data.
+
+    Atlas rows keep each cell separate. This works for any department and for
+    course/venue cells together; no handbook is used to 'correct' a valid code.
+    """
+    candidates = []
+    for cell in cells:
+        if not course_codes(cell.text):
+            continue
+        x0, y0, x1, y1 = (round(value) for value in cell.box)
+        crop = cleaned[y0 + 4:y1 - 4, x0 + 4:x1 - 4]
+        if not crop.size or crop.shape[0] > 500:
+            continue
+        # Keep batches comfortably below run_ocr's resizing limit.
+        scale = min(1, 1200 / crop.shape[1], 180 / crop.shape[0])
+        crop = Image.fromarray(crop).resize((max(1, round(crop.shape[1] * scale)), max(1, round(crop.shape[0] * scale))))
+        candidates.append((cell, crop))
+    for offset in range(0, len(candidates), 16):
+        batch = candidates[offset:offset + 16]
+        width = max(crop.width for _, crop in batch) + 40
+        height = sum(crop.height + 24 for _, crop in batch) + 20
+        atlas = Image.new('L', (width, height), 255)
+        regions, top = [], 10
+        for cell, crop in batch:
+            atlas.paste(crop, (20, top))
+            regions.append((cell, top, top + crop.height))
+            top += crop.height + 24
+        try:
+            words = run_ocr(atlas, psm=6)
+        except ImportProblem:
+            # A supplementary check must not discard the completed extraction.
+            # Flag every unchecked cell instead, within the original time budget.
+            for cell, _ in candidates[offset:]:
+                cell.note = "The independent course-code check could not finish. Compare this reading with the image."
+            return
+        for cell, top, bottom in regions:
+            alternative = text_words([word for word in words if top <= (word['top'] + word['bottom']) / 2 < bottom])
+            old_codes, new_codes = course_codes(cell.text), course_codes(alternative)
+            if new_codes and old_codes != new_codes:
+                old = ', '.join(prefix + number for prefix, number in old_codes)
+                new = ', '.join(prefix + number for prefix, number in new_codes)
+                cell.note = f"Course-code readers disagree ({old} / {new}). Inspect the image and correct the reading if necessary."
+
+
 def image_tables(source):
     image = prepare_image(source)
     grey = np.asarray(image.convert("L"))
@@ -517,4 +567,5 @@ def image_tables(source):
     # Local thresholding in each crop handles grey photos without altering glyphs.
     read_cells(all_cells, cleaned, rotated_cells)
     reread_headings(tables, cleaned, rotated_cells)
+    reread_course_codes(all_cells, cleaned)
     return image, tables, " ".join(dict.fromkeys(notes))

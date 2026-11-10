@@ -4,6 +4,7 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
 from django.test import TestCase, SimpleTestCase
+from django.urls import reverse
 
 from rooms.models import Building, Room
 from scheduling.models import Course, TimetableDay, TimetableImageImport
@@ -131,6 +132,63 @@ class ImagePlanTests(TestCase):
         *_, fingerprint = self.preview()
         self.confirm(fingerprint)
         self.assertEqual(Course.objects.count(), 1)
+
+    def test_confirmed_code_with_unknown_title_imports_and_keeps_room_occupied(self):
+        self.pending['courses'][0].update(code='PUL301', title='', title_pending=True, department='Public Law')
+        *_, fingerprint = self.preview()
+        self.confirm(fingerprint)
+        course = Course.objects.get()
+        self.assertEqual(course.title, '')
+        self.assertTrue(course.title_pending)
+        room = Room.objects.get()
+        response = self.client.get(f'/api/rooms/{room.code}/', {'date': '2030-01-07', 'time': '08:30'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['status'], 'occupied')
+        self.assertIn('PUL301 — Title awaiting confirmation', response.json()['currentSchedule'])
+
+    def test_unknown_title_requires_explicit_boolean_confirmation(self):
+        for value in (False, 'false', 'true', 1, None):
+            with self.subTest(value=value):
+                self.pending['courses'][0].update(title='', title_pending=value)
+                with self.assertRaises(ImportProblem):
+                    self.preview()
+        self.assertFalse(Course.objects.exists())
+
+    def test_skipped_unknown_course_needs_no_title_and_creates_no_record(self):
+        self.pending['courses'].append({'key': 'draft-course-87654321', 'code': 'CSC999', 'title': ''})
+        self.rows.append({'course': 'draft-course-87654321', 'skip': True})
+        *_, fingerprint = self.preview()
+        self.confirm(fingerprint)
+        self.assertEqual(list(Course.objects.values_list('code', flat=True)), ['CHM102'])
+        self.assertEqual(TimetableDay.objects.count(), 2)
+
+    def test_admin_can_finish_pending_title_without_changing_timetable_links(self):
+        self.pending['courses'][0].update(code='CSC102', title='', title_pending=True, department='Computing')
+        *_, fingerprint = self.preview()
+        self.confirm(fingerprint)
+        course = Course.objects.get()
+        ids = list(TimetableDay.objects.values_list('pk', flat=True))
+        self.client.force_login(self.admin)
+        listing = reverse('admin:scheduling_course_changelist')
+        self.assertContains(self.client.get(listing, {'title_pending__exact': '1'}), course.code)
+        response = self.client.post(reverse('admin:scheduling_course_change', args=[course.pk]), {
+            'code': course.code, 'title': 'Confirmed computing course', 'department': 'Computing',
+            'title_pending': 'on', '_save': 'Save',
+        })
+        self.assertEqual(response.status_code, 302)
+        course.refresh_from_db()
+        self.assertFalse(course.title_pending)
+        self.assertEqual(course.title, 'Confirmed computing course')
+        self.assertEqual(list(TimetableDay.objects.filter(course=course).values_list('pk', flat=True)), ids)
+        self.assertEqual(self.client.get(listing, {'title_pending__exact': '1'}).context['cl'].result_count, 0)
+
+    def test_manual_course_admin_also_requires_pending_confirmation(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(reverse('admin:scheduling_course_add'), {
+            'code': 'DSS101', 'title': '', 'department': 'Demography', '_save': 'Save',
+        })
+        self.assertContains(response, 'Enter a title or explicitly mark it as awaiting confirmation.')
+        self.assertFalse(Course.objects.exists())
 
     def test_full_teaching_period_can_exceed_csv_thousand_class_limit(self):
         self.options['last_date'] = '2031-01-07'

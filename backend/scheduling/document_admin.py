@@ -18,7 +18,7 @@ from django.urls import path, reverse
 from django.utils.decorators import method_decorator
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods
-from rooms.catalog import ROOM_TYPES, ROOM_CATALOGUE, CAMPUS_ZONES
+from rooms.catalog import BUILDING_NAMES, ROOM_TYPES, ROOM_CATALOGUE, CAMPUS_ZONES
 from rooms.models import Building, Facility
 from rooms.forms import SearchableSelect
 
@@ -33,7 +33,7 @@ from .services.document_plan import image_plan, apply_image
 from .services.course_catalog import catalogue_coverage, catalogue_payload, handbook_file
 
 DOCUMENT_SALT = "scheduling.image-review.v3"
-DOCUMENT_TTL = 2 * 60 * 60
+DOCUMENT_TTL = 7 * 60 * 60
 
 
 class DocumentUploadForm(forms.Form):
@@ -84,7 +84,7 @@ def load_document(token, user):
         return payload, document
     except (signing.BadSignature, KeyError, TypeError) as error:
         raise ImportProblem(
-            "This review expired or is invalid. Upload the document again. Reviews last two hours; save your draft regularly."
+            "This review expired or is invalid. Upload the document again. Reviews last seven hours; save your draft regularly."
         ) from error
 
 
@@ -325,7 +325,7 @@ class TimetableDocumentAdminMixin:
                     if action in {"save", "refresh"}:
                         self.message_user(
                             request,
-                            "Draft saved for two hours."
+                            "Draft saved for seven hours."
                             + (
                                 " Course and room choices refreshed; new exact matches need review."
                                 if action == "refresh"
@@ -377,6 +377,7 @@ class TimetableDocumentAdminMixin:
             "course_coverage": catalogue_coverage(),
             "creation_choices": {
                 "buildings": list(Building.objects.values("id", "name", "campus_zone")),
+                "building_names": BUILDING_NAMES,
                 "facilities": [{"value": f.pk, "label": f.get_code_display()} for f in Facility.objects.all()],
                 "room_types": ROOM_TYPES, "room_names": ROOM_CATALOGUE, "faculties": CAMPUS_ZONES,
                 **catalogue_payload(lambda key: reverse(

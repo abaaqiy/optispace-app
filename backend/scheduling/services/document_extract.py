@@ -115,7 +115,7 @@ def _draft(
             if words
             else cell.text[:1200]
         ),
-        "note": note,
+        "note": " ".join(dict.fromkeys(value for value in (note, cell.note) if value)),
         "confidence": confidence,
         "day_group": _group(day_cell, page, "day"),
         "day_text": day_cell.text,
@@ -265,6 +265,7 @@ def parse_table(table, page=1, continuation=None, layout="auto"):
                         default=None,
                     ),
                     cell.words + venue.words,
+                    note=cell.note,
                 )
                 note = (
                     "Check the detected course code."

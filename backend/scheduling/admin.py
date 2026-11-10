@@ -11,9 +11,13 @@ from .services.locking import lock_rooms
 
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
-    list_display = ("code", "title", "department")
+    list_display = ("code", "display_title", "department", "title_pending")
     search_fields = ("code", "title", "department")
-    list_filter = ("department",)
+    list_filter = ("title_pending", "department")
+
+    @admin.display(description="Course title", ordering="title")
+    def display_title(self, obj):
+        return obj.title or "Title awaiting confirmation"
 
 
 @admin.register(TimetableDay)

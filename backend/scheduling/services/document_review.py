@@ -35,7 +35,7 @@ def references():
         for r in Room.objects.select_related("building").order_by("name")
     ]
     courses = [
-        {"value": c.code, "label": f"{c.code} — {c.title}", "keys": [normalise(c.code)]}
+        {"value": c.code, "label": str(c), "keys": [normalise(c.code)]}
         for c in Course.objects.order_by("code")
     ]
     return {"rooms": rooms, "courses": courses}

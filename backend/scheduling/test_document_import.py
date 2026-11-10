@@ -17,6 +17,7 @@ from django.test import Client, SimpleTestCase, TestCase
 from django.urls import reverse
 
 from rooms.models import Building, Room
+from rooms.catalog import BUILDING_NAMES
 
 from .document_admin import DOCUMENT_TTL, DOCUMENT_SALT
 from .models import Course, TimetableDay
@@ -703,6 +704,25 @@ class DocumentWorkflowTests(TestCase):
             response = self.review(saved.context["document_token"])
         self.assertTrue(response.context["preview_token"])
         self.assertFalse(TimetableDay.objects.exists())
+
+    def test_draft_and_image_survive_six_hours_but_expire_after_seven(self):
+        self.assertEqual(DOCUMENT_TTL, 7 * 60 * 60)
+        started = time.time()
+        token = self.upload().context['document_token']
+        with patch('time.time', return_value=started + 6 * 60 * 60):
+            response = self.client.get(self.url, {'review': token})
+            self.assertEqual(response.context['document_token'], token)
+            self.assertEqual(response.context['document']['pages'][0]['image'], b'jpeg')
+            self.assertEqual(len(response.context['saved_drafts']), 1)
+        with patch('time.time', return_value=started + 7 * 60 * 60 + 10):
+            response = self.client.get(self.url, {'review': token})
+            self.assertContains(response, 'expired or is invalid')
+            self.assertEqual(response.context['saved_drafts'], [])
+
+    def test_image_review_uses_same_building_names_as_manual_admin(self):
+        response = self.upload()
+        self.assertEqual(response.context['creation_choices']['building_names'], BUILDING_NAMES)
+        self.assertNotIn('Moremi Hall', response.context['creation_choices']['building_names'])
 
     def test_refresh_preserves_manual_selection_and_unknown_names_stay_blank(self):
         token = self.upload().context["document_token"]

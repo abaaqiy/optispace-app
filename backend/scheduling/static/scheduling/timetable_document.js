@@ -12,9 +12,10 @@
   const pages = JSON.parse(document.getElementById('document-pages').textContent);
   const pending = JSON.parse(document.getElementById('document-pending').textContent);
   const creation = JSON.parse(document.getElementById('document-creation-choices').textContent);
+  const proposedLabel = draft => `${draft.code || draft.name}${draft.title_pending ? ' — Title awaiting confirmation' : ''}`;
   for (const kind of ['courses', 'rooms']) {
     pending[kind] ||= [];
-    for (const draft of pending[kind]) refs[kind].push({ value: draft.key, label: `New: ${draft.code || draft.name}`, keys: [] });
+    for (const draft of pending[kind]) refs[kind].push({ value: draft.key, label: `New: ${proposedLabel(draft)}`, keys: [] });
   }
   const days = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const tbody = document.querySelector('#document-table tbody');
@@ -207,6 +208,7 @@
         groupCount++;
         const section = element('div', undefined, root); section.className = 'reference-mapping';
         element('strong', `${key === 'course' ? 'Course' : 'Room'} “${text}” — ${affected.length} row(s)`, section);
+        referenceActions(section, key, text, affected);
         const query = element('input', undefined, section); query.type = 'search'; query.placeholder = `Search saved or proposed ${key}s`; query.setAttribute('aria-label', `Search choices for ${text}`);
         const choice = element('select', undefined, section); choice.setAttribute('aria-label', `Map ${key} ${text}`);
         [{ value: '', label: `Select correct ${key}…` }, ...refs[key + 's']].forEach(item => { const opt = element('option', item.label, choice); opt.value = item.value; });
@@ -224,8 +226,41 @@
         }
       }
     }
-    document.getElementById('mapping-status').textContent = groupCount ? `${groupCount} distinct detected names need matching. These choices apply only to this upload.` : 'All detected names with readable text are matched. Check individual rows for fields that were not detected.';
+    document.getElementById('mapping-status').textContent = groupCount ? `${groupCount} distinct OCR readings need matching. These are readings from the image, not courses generated from handbooks. Inspect uncertain codes before preparing records.` : 'All retained names are matched. Skipped entries are excluded; use the Skipped filter to restore them.';
     proposedRecords();
+  }
+  function referenceActions(section, key, text, affected) {
+    const locations = element('details', undefined, section);
+    element('summary', 'Inspect locations / correct reading / skip', locations);
+    element('p', 'Compare each reading with its highlighted image area. A course missing from a handbook may still be valid. Correct an OCR error; skip only an entry you do not want to import.', locations);
+    affected.forEach(row => {
+      const line = element('div', undefined, locations); line.className = 'mapping-location';
+      const index = rows.indexOf(row);
+      const show = element('button', `Show row ${index + 1}: ${row.day || '?'} ${row.start_time || '?'}–${row.end_time || '?'} · ${row.room_text || 'venue unreadable'}`, line); show.type = 'button';
+      show.addEventListener('click', () => showPage(row.page, row.box));
+      const skip = element('button', 'Skip this entry', line); skip.type = 'button';
+      skip.addEventListener('click', () => { row.skip = true; row.reviewed = false; invalidate(); mappings(); headings(); render(); });
+      correction(line, [row], row[key + '_text'] || '', `Correct ${key} reading in row ${index + 1}`);
+    });
+    function correction(parent, entries, initial, labelText) {
+      const label = element('label', labelText, parent);
+      const corrected = element('input', undefined, label); corrected.type = 'text'; corrected.value = initial; corrected.maxLength = key === 'course' ? 30 : 200;
+      const apply = element('button', 'Apply corrected reading', parent); apply.type = 'button';
+      const error = element('p', undefined, parent); error.className = 'review-note'; error.setAttribute('role', 'alert');
+      apply.addEventListener('click', () => {
+        const value = key === 'course' ? window.OptispaceCourseSuggestions.codeKey(corrected.value) : corrected.value.trim();
+        if (!value || key === 'course' && !/^[A-Z]{2,5}\d{3}$/.test(value)) { error.textContent = 'Enter the complete reading you confirmed in the image.'; return; }
+        entries.forEach(row => {
+          row['original_' + key + '_text'] ??= row[key + '_text'];
+          row[key + '_text'] = value; row[key] = ''; row.reviewed = false;
+        });
+        invalidate(); mappings(); render();
+      });
+    }
+    if (affected.length > 1) correction(locations, affected, text, `Correct ${key} reading for all ${affected.length} entries`);
+    const skipAll = element('button', 'Skip all these entries', locations); skipAll.type = 'button';
+    skipAll.addEventListener('click', () => { affected.forEach(row => { row.skip = true; row.reviewed = false; }); invalidate(); mappings(); headings(); render(); });
+    element('p', 'Skipped entries need no course title or venue. Restore them using the Skipped filter below.', locations);
   }
   function recordEditor(parent, kind, detected, affected, draft = null) {
     const fields = {};
@@ -242,7 +277,7 @@
       el.addEventListener('input', invalidate);
       return el;
     }
-    function catalogueInput(key, label, value, choices, max) {
+    function catalogueInput(key, label, value, choices, max, required = true) {
       const select = input(key, label, value, { options: choices });
       const holder = element('div'); holder.className = 'room-name-widget'; holder.dataset.optionalEditor = 'true';
       select.parentElement.append(holder); holder.append(select);
@@ -256,7 +291,8 @@
       const listed = choices.some(item => item.value === initial);
       select.value = initial ? (listed ? initial : '__other__') : '';
       text.value = listed ? '' : initial;
-      fields[key] = { label, required: true, el: select,
+      fields[key] = { label, required, el: select,
+        container: select.closest('.room-name-widget').parentElement,
         read: () => select.value === '__other__' ? text.value.trim() : select.value,
         control: () => select.value === '__other__' ? text : select };
       text.addEventListener('input', invalidate);
@@ -267,10 +303,19 @@
     if (kind === 'course') {
       const code = input('code', 'Course code', detected.replace(/\s/g, '').toUpperCase(), { max: 30 });
       const title = input('title', 'Course title');
+      const pendingLabel = element('label', undefined, wrap);
+      const pendingTitle = element('input', undefined, pendingLabel); pendingTitle.type = 'checkbox'; pendingTitle.checked = !!draft?.title_pending;
+      pendingLabel.append(document.createTextNode(' I confirmed this course code in the image; its title is awaiting confirmation.'));
+      fields.title_pending = { read: () => pendingTitle.checked };
+      fields.title.read = () => pendingTitle.checked ? '' : title.value.trim();
+      function titleMode() { title.disabled = pendingTitle.checked; fields.title.required = !pendingTitle.checked; }
+      pendingTitle.addEventListener('change', () => { source = null; titleMode(); invalidate(); });
+      titleMode();
+      element('p', 'If the title is unknown, use the checkbox after checking the code. The class still affects room availability. Complete the title later in Courses → Title awaiting confirmation.', wrap);
       const department = input('department', 'Department', document.getElementById('document-department').value, { max: 150 });
       const suggestions = element('div', undefined, wrap); suggestions.className = 'course-suggestions'; suggestions.setAttribute('aria-live', 'polite');
       let selectedCode = draft?.title_source?.code || '', source = draft?.title_source || null;
-      fields.title_source = { read: () => source && source.code === window.OptispaceCourseSuggestions.codeKey(code.value) && source.title === title.value ? source : null };
+      fields.title_source = { read: () => !pendingTitle.checked && source && source.code === window.OptispaceCourseSuggestions.codeKey(code.value) && source.title === title.value ? source : null };
       function showSuggestions() {
         suggestions.replaceChildren();
         const key = window.OptispaceCourseSuggestions.codeKey(code.value);
@@ -289,7 +334,7 @@
         const matches = window.OptispaceCourseSuggestions.lookup(code.value, creation.course_catalogue, creation.course_sources);
         if (selectedCode && selectedCode !== key && title.value) element('p', 'The code changed. Check the existing title before using this record.', suggestions).className = 'review-note';
         if (!matches.length) {
-          element('p', 'No verified title for this exact code in the current source catalogue. Check a departmental handbook and enter the title. Coverage is growing across OAU; a missing suggestion does not mean the course is invalid.', suggestions);
+          element('p', 'No verified title for this exact code in the current source catalogue. Check the code in the image, then enter a known title or mark it as awaiting confirmation. A missing suggestion does not mean the course is invalid.', suggestions);
           return;
         }
         element('p', matches.length > 1 ? 'Different titles or programmes match this code. Check the handbook page and choose the one that applies; a handbook can contain conflicting lists.' : 'Exact course-code match in a source. Check that its curriculum applies to this timetable.', suggestions);
@@ -314,6 +359,7 @@
           use.addEventListener('click', () => {
             if (!applicable.checked) return;
             title.value = item.title;
+            pendingTitle.checked = false; titleMode();
             if (item.department) department.value = item.department;
             selectedCode = key;
             source = { code: item.code, title: item.title, source_id: item.source_id, source_url: item.source_url, page: item.page, edition: item.edition, programme: item.programme,
@@ -322,7 +368,7 @@
           });
         });
       }
-      code.addEventListener('input', showSuggestions);
+      code.addEventListener('input', () => { pendingTitle.checked = false; titleMode(); showSuggestions(); });
       title.addEventListener('input', () => { source = null; showSuggestions(); });
       showSuggestions();
     } else {
@@ -333,9 +379,9 @@
         ...creation.buildings.map(b => ({ value: b.id, label: `${b.name} — ${b.campus_zone}` })),
         ...(creation.can_add_building ? [{ value: 'new', label: 'Prepare a new building' }] : []),
       ] });
-      const buildingName = input('building_name', 'New building name', '', { required: false });
+      catalogueInput('building_name', 'New building name', '', creation.building_names.map(value => ({ value, label: value })), 200, false);
       const zone = input('campus_zone', 'New building campus area', '', { required: false, options: creation.faculties.map(value => ({ value, label: value })) });
-      function buildingMode() { buildingName.parentElement.hidden = zone.parentElement.hidden = building.value !== 'new'; }
+      function buildingMode() { fields.building_name.container.hidden = zone.parentElement.hidden = building.value !== 'new'; }
       building.addEventListener('change', buildingMode); buildingMode();
       catalogueInput('room_type', 'Room type', '', creation.room_types.map(value => ({ value, label: value })), 100);
       input('room_number', 'Room number (optional)', '', { required: false, max: 50 });
@@ -363,7 +409,7 @@
       const previous = pending[kind + 's'].findIndex(item => item.key === record.key);
       if (previous >= 0) pending[kind + 's'][previous] = record; else pending[kind + 's'].push(record);
       const list = refs[kind + 's']; const old = list.findIndex(item => item.value === record.key);
-      const choice = { value: record.key, label: `New: ${record.code || record.name}`, keys: [] };
+      const choice = { value: record.key, label: `New: ${proposedLabel(record)}`, keys: [] };
       if (old >= 0) list[old] = choice; else list.push(choice);
       valid[kind].add(record.key);
       affected.forEach(row => { row[kind] = record.key; row.reviewed = false; });
@@ -375,8 +421,10 @@
     const root = document.getElementById('proposed-records'); clearEditors(root);
     for (const kind of ['course', 'room']) for (const draft of pending[kind + 's']) {
       const affected = rows.filter(row => !row.skip && row[kind] === draft.key);
+      if (!affected.length) continue;
       const details = element('details', undefined, root);
-      element('summary', `Proposed ${kind}: ${draft.code || draft.name} · ${affected.length} entries`, details);
+      element('summary', `Proposed ${kind}: ${proposedLabel(draft)} · ${affected.length} entries`, details);
+      referenceActions(details, kind, affected[0][kind + '_text'] || '', affected);
       recordEditor(details, kind, '', affected, draft);
       const remove = element('button', 'Remove proposed record', details); remove.type = 'button';
       remove.addEventListener('click', () => {

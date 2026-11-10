@@ -27,7 +27,7 @@ def parse_image_rows(text):
 class NewCourseForm(forms.ModelForm):
     class Meta:
         model = Course
-        fields = ("code", "title", "department")
+        fields = ("code", "title", "department", "title_pending")
 
     def clean_code(self):
         value = re.sub(r"\s+", "", self.cleaned_data["code"]).upper()
@@ -85,6 +85,8 @@ def stage_references(pending, rows, user):
             # Discard unreferenced drafts, e.g. after skipping their last class.
             if key not in used[kind]:
                 continue
+            if kind == "courses" and not isinstance(data.get("title_pending", False), bool):
+                raise ImportProblem("Confirm whether the course title is awaiting confirmation using the checkbox.")
             if any(not isinstance(data.get(name, ""), (str, int)) for name in form_type._meta.fields if name != "facilities"):
                 raise ImportProblem("A proposed course or room contains invalid field values.")
             if kind == "rooms" and (not isinstance(data.get("facilities", []), list) or any(

@@ -116,10 +116,23 @@ remain available**, including dated lectures and bulk corrections.
    unknown codes, and typed titles are never automatically replaced. Coverage is
    partial: see [course-title sources](course-title-sources.md). Historical Pharmacy
    sources are explicitly **not verified for PharmD**.
+   When the code is clear but its title is unknown, select **I confirmed this
+   course code in the image; its title is awaiting confirmation**. This stores
+   the code and an empty title with an explicit pending flag; it never invents a
+   title. Classes still affect availability. Later, use **Courses → Title awaiting
+   confirmation → Yes**, open the course and enter the verified title. Saving a
+   nonempty title clears the flag without changing its timetable links.
+   Use **Inspect locations / correct reading / skip** to open each source cell,
+   correct one reading or an entire group, or skip unwanted entries. Skipped rows
+   require no reference records; unused proposals are not created. The Skipped
+   filter restores them. Missing-reference groups come from OCR readings, not from
+   handbook suggestions. A code absent from the current handbook is not necessarily
+   invalid, especially when timetable and handbook sessions differ.
    Room names/types use the same searchable choices and Others custom entries as
    manual Room admin. The actual building and capacity still need confirmation.
-   An authorised admin can prepare a new building
-   inline with its actual campus area. Facilities and room numbers are optional.
+   An authorised admin can prepare a new building inline using the same searchable
+   teaching/study building catalogue and Others as manual Building admin, with its
+   actual campus area. Facilities and room numbers are optional.
    Prepared records are editable drafts and are reused for repeated labels. Map
    different OCR spellings to the same saved or proposed record. No database rows
    are created at this stage. Save/resume retains the proposals.
@@ -141,8 +154,9 @@ remain available**, including dated lectures and bulk corrections.
    shown on its edit page; no extra scheduling category is added.
 
 The November restructure is local development work, not deployed. Migration
-`scheduling.0006` adds optional import provenance; apply it only to the explicitly
-configured local database while testing. The existing CSV format remains unchanged.
+`scheduling.0006` adds optional import provenance and `scheduling.0007` adds the
+explicit pending-title flag; apply them only to the explicitly configured local
+database while testing. The existing CSV format remains unchanged.
 
 Reviews are not automatic timetable publication. A recognition score is a review
 aid, not proof that text is correct. At most 300 weekly draft rows and 16,000 expanded
@@ -157,6 +171,23 @@ Grouped practical sessions without identifiable venues remain flagged for
 correction/splitting or skipping. Chemistry's small image and Pharmacy's imperfect
 print still produce OCR errors (for example B217 may read 3217); neither image is
 claimed to import without review. Source photographs are not committed.
+
+A second local OCR reader checks recognised course cells. Where complete codes
+disagree it adds a warning, preserving the first reading and its source location
+for inspection. Agreement is not proof of correctness. It uses no handbook-based
+replacement rule and applies across departments. For the supplied Chemistry
+2021/2022 Rain image, visual review confirmed **ICH205 on Tuesday 13:00–14:00 in
+CH102**; **ICH302** was a misreading of **ICH102**, Thursday 15:00–16:00 in CH102
+(the extracted time heading also needs correction). The current run did not
+reproduce ICH408; the image shows **CHM408 on Wednesday 08:00–09:00 in CH220**.
+The supplied Chemistry handbook lists ICH406 among requirements without a title
+there, so its title remains unverified. These observations are test findings, not
+department-specific automatic corrections.
+
+Drafts expire seven hours after upload or their latest save/validation. Saving
+renews both the signed link and cached image/review. Already expired or cleared
+drafts cannot be recovered; re-upload those images. Existing unsaved drafts keep
+their original cache expiry until saved under the new version.
 
 ### OCR and hosting
 
@@ -190,7 +221,7 @@ peaked at approximately 345 MB of proportional memory across the web server and
 OCR processes. These are local measurements, not a guarantee for every upload.
 
 Sources and drafts are stored in a private temporary cache accessible only to the
-uploading administrator with a signed token. **Save draft** extends the two-hour
+uploading administrator with a signed token. **Save draft** extends the seven-hour
 review period. Reopen **Timetables → Import Image → Your saved image drafts** and
 select the filename. The list shows save/expiry times and only your own reviews;
 expired, evicted and imported reviews disappear. You can also bookmark
@@ -240,6 +271,17 @@ The image tests cover field alignment, uncertain codes, merged headings,
 continuations, PDF/exam rejection, actual image recognition when the model is
 installed, explicit review, date expansion, conflicts, signatures, permissions,
 CSRF and saved drafts. CSV tests retain the shared transaction/rollback coverage.
+
+The JavaScript form tests run without a browser using the production review
+template and jsdom (development dependency only):
+
+```sh
+node --test backend/scheduling/static/scheduling/*.test.js
+```
+
+They cover saving/resuming pending course titles, individual OCR corrections,
+skipping/restoring proposals and building-name selections/custom entries. These
+DOM tests do not replace a visual check of Select2 in light and dark mode.
 
 ## Verification
 

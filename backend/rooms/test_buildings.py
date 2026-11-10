@@ -38,6 +38,19 @@ class BuildingAdminTests(TestCase):
         self.assertIn("Mathematics Building Complex (Yellow House)", BUILDING_NAMES)
         self.assertNotIn(OTHER_BUILDING, dict(BuildingAdminForm().fields["campus_zone"].choices))
 
+    def test_teaching_catalog_excludes_residences_but_preserves_legacy_records(self):
+        for residence in ('Moremi Hall', 'Angola Hall', 'Obafemi Awolowo Hall', 'Alumni Hall', 'Mozambique Hall'):
+            self.assertNotIn(residence, BUILDING_NAMES)
+        self.assertNotIn('Halls of Residence', CAMPUS_ZONES)
+        self.assertIn('College of Health Sciences Block Y', BUILDING_NAMES)
+        self.assertIn('Renewed Hope-NITDA Innovation Hub', BUILDING_NAMES)
+        legacy = Building.objects.create(name='Moremi Hall', campus_zone='Halls of Residence')
+        form = BuildingAdminForm(instance=legacy, data=self.data(
+            name_0=OTHER_BUILDING, name_1=legacy.name, campus_zone=legacy.campus_zone,
+        ))
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.save().pk, legacy.pk)
+
     def test_building_add_renders_search_widgets_without_duplicate_libraries(self):
         response = self.client.get(reverse("admin:rooms_building_add"))
         self.assertContains(response, 'name="name_0"')

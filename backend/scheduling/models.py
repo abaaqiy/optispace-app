@@ -6,14 +6,27 @@ from .services.locking import lock_rooms
 
 class Course(models.Model):
     code = models.CharField(max_length=30, unique=True)
-    title = models.CharField(max_length=200)
+    title = models.CharField(max_length=200, blank=True)
+    title_pending = models.BooleanField(
+        default=False,
+        verbose_name="Title awaiting confirmation",
+        help_text="Use only when the course code is confirmed but its title is unknown. Enter the title later to resolve it.",
+    )
     department = models.CharField(max_length=150)
 
     class Meta:
         ordering = ["code"]
 
     def __str__(self):
-        return f"{self.code} — {self.title}"
+        return f"{self.code} — {self.title or 'Title awaiting confirmation'}"
+
+    def clean(self):
+        super().clean()
+        self.title = self.title.strip()
+        if self.title:
+            self.title_pending = False
+        elif not self.title_pending:
+            raise ValidationError({"title": "Enter a title or explicitly mark it as awaiting confirmation."})
 
 
 class TimetableImageImport(models.Model):

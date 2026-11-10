@@ -1,7 +1,7 @@
 # OAU building suggestions and shared campus areas
 
-Researched 25 October 2026. The building-name dropdown contains **38 documented
-buildings or building complexes, followed by Others**. These are suggestions;
+Updated 10 November 2026. The building-name dropdown contains **31 documented
+academic buildings or building complexes, followed by Others**. These are suggestions;
 selecting a name does not seed other buildings, create rooms, or assert that a
 space is currently open for student study. Sources include university notices,
 departmental addresses, university handbooks and historical venue lists. This is
@@ -11,8 +11,12 @@ Names are normalised for selection. A nickname and its descriptive name form one
 option, rather than two apparent buildings. Room numbers remain in Rooms; a
 complex can contain multiple rooms. For example, use **Oduduwa Hall Complex** as
 the building and **Oduduwa Lecture Theatre I (ODLT I)** as a room within it.
-Residence-hall names identify complexes: enter only an authorised study/common
-room within one, not students' accommodation, as a study space.
+The suggestions focus on teaching, learning, laboratories, libraries and academic
+facilities. Residence halls and the Senate, Student Affairs and Students’ Union
+buildings have been removed from suggestions. Existing records are not deleted or
+renamed and remain editable through Others. A specific block can be selected
+instead of its parent complex when its identity is known; these are not duplicate
+room records, and a room must belong to only one saved building.
 
 ## Sources
 
@@ -28,9 +32,10 @@ room within one, not students' accommodation, as a study space.
 - **J:** OAU Nursing Students' Association [contact address](https://nunsa.oauife.edu.ng/contact-us/). Specifies the Nursing Department New Building.
 - **K:** OAU Agricultural Economics [O. D. Omodara staff address](https://aec.oauife.edu.ng/index.php/staff/27-mr-o-d-omodara). Specifies the Agricultural Economics Building.
 - **L:** OAU *Ife Journal of Technology*, [Speech Intelligibility of Lecture Theatres in OAU](https://ijt.oauife.edu.ng/index.php/ijt/article/download/76/67/118), 20(1), 2011, section 4. Describes the Science Lecture Theatre Complex and Ajose Lecture Theatre. Ajose's continuing use is corroborated by OAU's [August 2026 event report](https://oauife.edu.ng/futurum-innovation-awards-crowns-season-ii-champions-at-grand-finale/).
-- **M:** OAU [Chemistry handbook](https://chm.oauife.edu.ng/wp-content/uploads/2024/07/CHEMISTRY-HANDBOOK_-2023.pdf), 2023, sources of information section. Names the Students' Union Building.
-- **N:** OAU [Student Affairs hall list](https://oauife.edu.ng/student-affairs/) and [2025/2026 orientation programme](https://oauife.edu.ng/wp-content/uploads/2025/11/Full-programme_Orientation_2025_2026.pdf), section F. Full hall names are taken from the programme; the main hall list corroborates them. The off-main-campus Clinical Hostel is not included in this starter catalogue.
 - **O:** OAU Demography and Social Statistics [contact address](https://dss.oauife.edu.ng/contact-us/). Explicitly identifies the Faculty of Social Sciences Building.
+- **P:** Supplied OAU *Faculty of Basic Medical Sciences Handbook*, 2019–2024, physical PDF page 22, section “Physical Structures”. Names Biological Sciences Block X, College of Health Sciences Blocks Y and Z and their multidisciplinary laboratories. The local source is checksum-pinned as `hb-e38a84e728b9b83f` in `backend/scheduling/data/handbook_sources.json`. The supplied *Department of Anaesthesia* handbook, 2019, PDF page 4, corroborates Block Y (`hb-6d4d9a28e015c89d`). These historical departmental locations must not be assumed unchanged.
+- **Q:** Supplied OAU *Department of English* handbook, 2019–2021, PDF pages 4–7, staff addresses in Block 3. Normalised as Faculty of Arts Block III, consistent with the existing I/II block naming. Source `hb-0eb5a44e78e58a96`. This identifies an academic block, not a list of available teaching rooms; staff offices are not room suggestions.
+- **R:** OAU [NITDA Innovation Hub commissioning report](https://oauife.edu.ng/oau65-tijani-commissions-nitda-innovation-hub-urges-students-to-build-solutions-for-global-market/), accessed 10 November 2026. Explicitly describes the commissioned Renewed Hope-NITDA Innovation Hub and its AI, robotics, 3D printing and IoT laboratories for student learning. This is an existing facility, unlike the proposed PBAT Intercultural Dialogue Centre, which was excluded.
 
 ## Dropdown entries
 
@@ -39,10 +44,10 @@ room within one, not students' accommodation, as a study space.
 | 1 | Faculty of Science Building (White House) | A |
 | 2 | Mathematics Building Complex (Yellow House) | B, D |
 | 3 | Hezekiah Oluwasanmi Library (HOL) | C |
-| 4 | Senate Building | C |
-| 5 | Oduduwa Hall Complex | A, C, D; combines the hall and its constituent venues |
-| 6 | Faculty of Arts Block I | D |
-| 7 | Faculty of Arts Block II | D |
+| 4 | Oduduwa Hall Complex | A, C, D; combines the hall and its constituent venues |
+| 5 | Faculty of Arts Block I | D |
+| 6 | Faculty of Arts Block II | D |
+| 7 | Faculty of Arts Block III | Q |
 | 8 | Faculty of Administration Building | D; faculty's numbered rooms |
 | 9 | Faculty of Education Building | D; faculty's numbered rooms |
 | 10 | Faculty of Law Building | D; faculty's numbered rooms |
@@ -52,29 +57,22 @@ room within one, not students' accommodation, as a study space.
 | 14 | Environmental Design and Management Block I (EDM I) | D; first block |
 | 15 | Environmental Design and Management Block II (EDM II) | D; second block |
 | 16 | Biological Sciences Building Complex | D; biological sciences venues and blocks |
-| 17 | Computer Building Complex | G |
-| 18 | ICT Centre | G |
-| 19 | African Centre of Excellence Building (ACE) | G |
-| 20 | Institute of Cultural Studies Building (ICS) | H |
-| 21 | Institute of African Studies Building | H |
-| 22 | Natural History Museum | I |
-| 23 | Nursing Department New Building | J |
-| 24 | Agricultural Economics Building | K |
-| 25 | Science Lecture Theatre Complex | L |
-| 26 | Ajose Lecture Theatre (AJSLT) | L |
-| 27 | First Bank Lecture Theatre (FBLT) | D |
-| 28 | Division of Students' Affairs Building (DSA) | C |
-| 29 | Students' Union Building (SUB) | M |
-| 30 | Obafemi Awolowo Hall | N |
-| 31 | Adekunle Fajuyi Hall | N |
-| 32 | Angola Hall | N |
-| 33 | Education Tax Fund Hall (ETF Hall) | N |
-| 34 | Moremi Hall | N |
-| 35 | Samuel Ladoke Akintola Hall | N |
-| 36 | Mozambique Hall | N |
-| 37 | Alumni Hall | N |
-| 38 | Murtala Mohammed Postgraduate Hall | N |
-| 39 | Others — enter a building name | Administrator's custom entry |
+| 17 | Biological Sciences Block X | P |
+| 18 | College of Health Sciences Block Y | P |
+| 19 | College of Health Sciences Block Z | P |
+| 20 | Computer Building Complex | G |
+| 21 | ICT Centre | G |
+| 22 | African Centre of Excellence Building (ACE) | G |
+| 23 | Renewed Hope-NITDA Innovation Hub | R |
+| 24 | Institute of Cultural Studies Building (ICS) | H |
+| 25 | Institute of African Studies Building | H |
+| 26 | Natural History Museum | I |
+| 27 | Nursing Department New Building | J |
+| 28 | Agricultural Economics Building | K |
+| 29 | Science Lecture Theatre Complex | L |
+| 30 | Ajose Lecture Theatre (AJSLT) | L |
+| 31 | First Bank Lecture Theatre (FBLT) | D |
+| 32 | Others — enter a building name | Administrator’s custom entry |
 
 ## Form behaviour
 
@@ -90,9 +88,10 @@ palette as the room catalogue; there are no additional CDN dependencies.
 ## One campus area per building
 
 `Building.campus_zone` is the sole stored campus-area value. Its searchable dropdown
-retains the 16 faculty/college options and adds three app categories for buildings
-outside those areas: **Central Campus**, **Halls of Residence**, and **Research and
-Service Centres**. These are app navigation categories, not an official OAU zoning
+retains the 16 faculty/college options and two app categories for buildings
+outside those areas: **Central Campus** and **Research and Service Centres**.
+Halls of Residence is no longer suggested; existing saved values remain editable.
+These are app navigation categories, not an official OAU zoning
 map. No faculty is inferred automatically from a building name.
 
 Every room requires an existing building; Django admin provides its usual search
