@@ -5,28 +5,34 @@ import os
 from pathlib import Path
 import secrets
 import tempfile
+from datetime import timedelta
 
 from django import forms
 from django.contrib import messages
 from django.core import signing
 from django.core.cache.backends.filebased import FileBasedCache
 from django.core.exceptions import PermissionDenied
-from django.http import Http404, HttpResponse, HttpResponseRedirect
+from django.http import FileResponse, Http404, HttpResponse, HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils.decorators import method_decorator
+from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods
+from rooms.catalog import ROOM_TYPES, ROOM_CATALOGUE, CAMPUS_ZONES
+from rooms.models import Building, Facility
+from rooms.forms import SearchableSelect
 
 from .services.document_extract import MAX_DRAFT_ROWS, MAX_UPLOAD, extract_document
 from .services.document_review import (
     prepare_rows,
     references,
     refresh_rows,
-    reviewed_csv,
 )
-from .services.timetable_import import ImportProblem, apply_import, preview_import
+from .services.timetable_import import ImportProblem
+from .services.document_plan import image_plan, apply_image
+from .services.course_catalog import catalogue_coverage, catalogue_payload, handbook_file
 
-DOCUMENT_SALT = "scheduling.image-review.v2"
+DOCUMENT_SALT = "scheduling.image-review.v3"
 DOCUMENT_TTL = 2 * 60 * 60
 
 
@@ -82,10 +88,45 @@ def load_document(token, user):
         ) from error
 
 
+def remember_draft(token, user, document):
+    """Index this owner's temporary reviews; the signed document remains authoritative."""
+    cache = document_cache()
+    key = f"image-drafts-user-{user.pk}"
+    payload = signing.loads(token, salt=DOCUMENT_SALT, max_age=DOCUMENT_TTL)
+    now = timezone.now()
+    drafts = {key: value for key, value in cache.get(key, {}).items()
+              if value['expires_at'] > now}
+    drafts[payload['key']] = {
+        'token': token, 'filename': document.get('filename', 'Timetable image'),
+        'saved_at': now, 'expires_at': now + timedelta(seconds=DOCUMENT_TTL),
+    }
+    cache.set(key, dict(sorted(drafts.items(), key=lambda item: item[1]['saved_at'], reverse=True)[:60]))
+
+
+def saved_drafts(user):
+    cache = document_cache()
+    drafts = cache.get(f"image-drafts-user-{user.pk}", {})
+    active = []
+    for draft in drafts.values():
+        try:
+            payload = signing.loads(draft['token'], salt=DOCUMENT_SALT, max_age=DOCUMENT_TTL)
+            if payload['user'] != user.pk or not cache.has_key(payload['key']):
+                continue
+        except (signing.BadSignature, KeyError, TypeError):
+            continue
+        active.append(draft)
+    return sorted(active, key=lambda draft: draft['saved_at'], reverse=True)
+
+
 class TimetableDocumentAdminMixin:
     def get_urls(self):
         wrap = self.admin_site.admin_view
         return [
+            path(
+                "course-handbook/<slug:source_id>/",
+                wrap(self.course_handbook),
+                name="scheduling_timetableday_course_handbook",
+            ),
             path(
                 "import-document/",
                 wrap(self.document_view),
@@ -97,6 +138,16 @@ class TimetableDocumentAdminMixin:
                 name="scheduling_timetableday_document_page",
             ),
         ] + super().get_urls()
+
+    @method_decorator(require_GET)
+    def course_handbook(self, request, source_id):
+        if not self.has_import_permission(request):
+            raise PermissionDenied
+        stream, filename = handbook_file(source_id)
+        response = FileResponse(stream, content_type='application/pdf', filename=filename)
+        response['Cache-Control'] = 'private, no-store'
+        response['X-Content-Type-Options'] = 'nosniff'
+        return response
 
     @method_decorator(require_GET)
     def document_page(self, request, page):
@@ -121,6 +172,7 @@ class TimetableDocumentAdminMixin:
         form = DocumentUploadForm()
         errors, document, token, rows, plan, preview = [], None, "", [], None, ""
         coverage_checked = False
+        pending = {"courses": [], "rooms": []}
         refs = references()
         options = {
             "mode": "weekly",
@@ -128,6 +180,7 @@ class TimetableDocumentAdminMixin:
             "first_date": "",
             "last_date": "",
             "exclude_dates": "",
+            "department": "", "faculty": "", "semester": "", "source_version": "",
         }
         if request.method == "GET" and request.GET.get("review"):
             token = request.GET["review"]
@@ -136,6 +189,7 @@ class TimetableDocumentAdminMixin:
                 rows = document.get("review_rows", document["rows"])
                 coverage_checked = document.get("coverage_checked", False)
                 options = document.get("review_options", options).copy()
+                pending = document.get("pending", pending)
             except ImportProblem as error:
                 errors = error.errors
         if request.method == "POST":
@@ -149,11 +203,17 @@ class TimetableDocumentAdminMixin:
                             layout=form.cleaned_data.get("layout") or "auto",
                         )
                         document["rows"] = prepare_rows(document["rows"], refs)
+                        document["filename"] = form.cleaned_data["document"].name
+                        metadata = document.get("metadata", {})
+                        for field in ("academic_session", "department", "faculty", "semester", "source_version"):
+                            options[field] = metadata.get(field, "")
+                        document["review_options"] = options.copy()
                         key = secrets.token_urlsafe(32)
                         document_cache().set(key, document)
                         token = signing.dumps(
                             {"key": key, "user": request.user.pk}, salt=DOCUMENT_SALT
                         )
+                        remember_draft(token, request.user, document)
                         rows = document["rows"]
                 elif action in {"review", "confirm", "save", "refresh"}:
                     token = request.POST.get("document_token", "")
@@ -161,6 +221,7 @@ class TimetableDocumentAdminMixin:
                     rows = document.get("review_rows", document["rows"])
                     options = document.get("review_options", options).copy()
                     coverage_checked = document.get("coverage_checked", False)
+                    pending = document.get("pending", pending)
                     if action == "confirm":
                         try:
                             confirmed = signing.loads(
@@ -187,13 +248,14 @@ class TimetableDocumentAdminMixin:
                                 "Imported from an administrator-reviewed lecture timetable image.",
                             )
 
-                        counts = apply_import(
-                            confirmed["csv"], confirmed["fingerprint"], log
+                        counts = apply_image(
+                            document["review_rows"], options, pending,
+                            confirmed["fingerprint"], request.user, document.get("filename", "Timetable image"), log,
                         )
                         document_cache().delete(payload["key"])
                         self.message_user(
                             request,
-                            f"Timetable import complete: {counts['Add']} added, {counts['Unchanged']} unchanged. Room availability will update automatically.",
+                            f"Timetable import complete: {counts['Add']} added, {counts['Unchanged']} unchanged; {counts['courses']} courses and {counts['rooms']} rooms created. Room availability will update automatically.",
                             messages.SUCCESS,
                         )
                         return HttpResponseRedirect(
@@ -228,18 +290,38 @@ class TimetableDocumentAdminMixin:
                             f"Review at most {MAX_DRAFT_ROWS} rows per image."
                         )
                     document["review_rows"] = rows
+                    pending_raw = request.POST.get("pending", "{\"courses\": [], \"rooms\": []}")
+                    if len(pending_raw) > 300_000:
+                        raise ImportProblem("Too many proposed records. Split the image into smaller sections.")
+                    try:
+                        pending = json.loads(pending_raw)
+                    except (ValueError, TypeError) as error:
+                        raise ImportProblem("Proposed courses and rooms could not be read.") from error
+                    if not isinstance(pending, dict) or any(
+                        not isinstance(pending.get(key, []), list) or len(pending.get(key, [])) > 300
+                        or any(not isinstance(item, dict) for item in pending.get(key, []))
+                        for key in ("courses", "rooms")
+                    ):
+                        raise ImportProblem("Invalid proposed course/room records.")
+                    document["pending"] = pending
                     document["review_options"] = options
                     coverage_checked = request.POST.get("coverage_checked") == "yes"
                     document["coverage_checked"] = coverage_checked
                     document["preview_version"] = secrets.token_urlsafe(16)
                     if action == "refresh":
-                        rows = refresh_rows(rows, refs)
+                        # Draft references are intentionally not saved yet.
+                        draft_refs = {key: [*value, *[
+                            {"value": item.get("key"), "keys": []}
+                            for item in pending.get(key, [])
+                        ]] for key, value in refs.items()}
+                        rows = refresh_rows(rows, draft_refs)
                         document["review_rows"] = rows
                     document_cache().set(payload["key"], document)
                     token = signing.dumps(
                         {"key": payload["key"], "user": request.user.pk},
                         salt=DOCUMENT_SALT,
                     )
+                    remember_draft(token, request.user, document)
                     if action in {"save", "refresh"}:
                         self.message_user(
                             request,
@@ -256,12 +338,14 @@ class TimetableDocumentAdminMixin:
                             raise ImportProblem(
                                 "Check the full image for omitted entries and confirm the weekday/time headings before validation."
                             )
-                        text = reviewed_csv(rows, options, refs=refs)
-                        plan = preview_import(text)
+                        plan, staged, text, fingerprint = image_plan(rows, options, pending, request.user)
+                        document["preview_records"] = {
+                            key: [str(obj) for _, obj, _ in values] for key, values in staged.items()
+                        }
+                        document_cache().set(payload["key"], document)
                         preview = signing.dumps(
                             {
-                                "csv": text,
-                                "fingerprint": plan.fingerprint,
+                                "fingerprint": fingerprint,
                                 "user": request.user.pk,
                                 "document": payload["key"],
                                 "version": document["preview_version"],
@@ -282,11 +366,26 @@ class TimetableDocumentAdminMixin:
             "opts": self.model._meta,
             "title": "Import lecture timetable image",
             "form": form,
+            "catalog_media": SearchableSelect().media,
+            "saved_drafts": saved_drafts(request.user),
             "errors": errors,
             "document": document,
             "document_token": token,
             "rows": rows,
             "references": refs,
+            "pending": pending,
+            "course_coverage": catalogue_coverage(),
+            "creation_choices": {
+                "buildings": list(Building.objects.values("id", "name", "campus_zone")),
+                "facilities": [{"value": f.pk, "label": f.get_code_display()} for f in Facility.objects.all()],
+                "room_types": ROOM_TYPES, "room_names": ROOM_CATALOGUE, "faculties": CAMPUS_ZONES,
+                **catalogue_payload(lambda key: reverse(
+                    f"{self.admin_site.name}:scheduling_timetableday_course_handbook", args=[key]
+                )),
+                "can_add_course": request.user.has_perm("scheduling.add_course"),
+                "can_add_room": request.user.has_perm("rooms.add_room"),
+                "can_add_building": request.user.has_perm("rooms.add_building"),
+            },
             "options": options,
             "coverage_checked": coverage_checked,
             "plan": plan,

@@ -37,6 +37,7 @@ fi
 export DATABASE_URL='postgresql://optispace_local@127.0.0.1:55439/optispace_document_dev?sslmode=disable'
 export DJANGO_DEBUG=true
 export DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
+export OPTISPACE_HANDBOOK_DIR="${OPTISPACE_HANDBOOK_DIR:-$HOME/Downloads/handbooks}"
 export OPTISPACE_IMAGE_MODEL="$document_dev_dir/ocr-models/english.onnx"
 if [ ! -f "$OPTISPACE_IMAGE_MODEL" ]; then
     venv/bin/python scripts/install-image-model.py --directory "$document_dev_dir/ocr-models"

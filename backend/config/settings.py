@@ -29,6 +29,10 @@ load_dotenv(BASE_DIR / '.env', override=False)
 # Production fails startup if its secret or allowed hosts are missing.
 globals().update(runtime_from_environment(os.environ))
 
+# Optional, local-only source references for reviewed course-title suggestions.
+# Complete handbooks are not copied into the repository or served in production.
+COURSE_HANDBOOK_DIRECTORY = os.environ.get('OPTISPACE_HANDBOOK_DIR', '')
+
 
 # Application definition
 

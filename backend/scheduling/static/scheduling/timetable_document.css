@@ -50,4 +50,25 @@
 #batch-status { flex-basis: 100%; }
 #document-table tr.has-issues { box-shadow: inset 4px 0 var(--error-fg); }
 .document-import details { margin: 12px 0; }
+.heading-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.record-editor { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; padding: 12px 0; }
+.record-editor label { display: block; margin-bottom: 6px; }
+.record-editor input:not([type=checkbox]), .record-editor select { box-sizing: border-box; width: 100%; max-width: 100%; }
+.record-editor fieldset, .record-editor > p { grid-column: 1 / -1; }
+.record-editor > div { min-width: 0; }
+.record-editor .course-suggestions { grid-column: 1 / -1; padding: 12px; background: var(--darkened-bg); overflow-wrap: anywhere; }
+.course-suggestions > div { padding: 12px 0; border-top: 1px solid var(--hairline-color); }
+.course-suggestions button { display: block; margin-top: 10px; }
+.record-editor .select2-container { max-width: 100%; }
+.record-editor [hidden] { display: none; }
+.reference-mapping > details { flex-basis: 100%; min-width: 0; }
+#proposed-records > details { border: 1px solid var(--hairline-color); padding: 12px; }
+.weekly-scroll { overflow-x: auto; max-width: 100%; margin: 12px 0; }
+.weekly-grid { min-width: 760px; width: 100%; table-layout: fixed; }
+.weekly-grid th, .weekly-grid td { vertical-align: top; border: 1px solid var(--hairline-color); padding: 5px; }
+.weekly-grid th:first-child { width: 85px; }
+.weekly-card { display: block; width: 100%; margin: 0 0 6px; text-align: left; background: var(--darkened-bg); color: var(--body-fg); border: 1px solid var(--border-color) !important; }
+.weekly-card span, .weekly-card strong, .weekly-card small { display: block; overflow-wrap: anywhere; }
+.weekly-card.weekly-issue { border-left: 4px solid var(--error-fg) !important; }
+.document-import .review-note { color: var(--error-fg); }
 @media (max-width: 1100px) { .document-workspace { grid-template-columns: 1fr; } .document-source { position: static; max-width: 700px; } }

@@ -69,8 +69,8 @@ def decode_upload(upload):
         raise ImportProblem("Save the spreadsheet as CSV UTF-8, then upload it again.") from error
 
 
-def parse_csv(text):
-    if len(text.encode("utf-8")) > MAX_FILE_BYTES:
+def parse_csv(text, *, max_rows=MAX_ROWS, max_bytes=MAX_FILE_BYTES):
+    if len(text.encode("utf-8")) > max_bytes:
         raise ImportProblem("The CSV must be 1 MB or smaller.")
     if "\x00" in text:
         raise ImportProblem("This file contains invalid characters. Save it as CSV UTF-8.")
@@ -95,8 +95,8 @@ def parse_csv(text):
             if not any(value.strip() for value in cells):
                 continue
             record_count += 1
-            if record_count > MAX_ROWS:
-                raise ImportProblem(f"Import up to {MAX_ROWS} classes at a time. Split this file into smaller files.")
+            if record_count > max_rows:
+                raise ImportProblem(f"Import up to {max_rows} classes at a time. Split this file into smaller files.")
             if len(cells) != len(header):
                 errors.append(f"Row {reader.line_num}: expected {len(header)} columns; found {len(cells)}.")
                 continue
@@ -123,12 +123,12 @@ def _find_reference(value, lookup, label):
     return matches[0]
 
 
-def resolve_rows(parsed):
+def resolve_rows(parsed, *, extra_rooms=(), extra_courses=()):
     room_lookup, course_lookup = defaultdict(list), defaultdict(list)
-    for room in Room.objects.select_related("building"):
+    for room in [*Room.objects.select_related("building"), *extra_rooms]:
         for key in {room.name.casefold(), room.code.casefold()}:
             room_lookup[key].append(room)
-    for course in Course.objects.all():
+    for course in [*Course.objects.all(), *extra_courses]:
         course_lookup[course.code.casefold()].append(course)
     errors, rows = [], []
     seen_ids = set()

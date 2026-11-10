@@ -14,6 +14,7 @@ from PIL import Image
 
 from .image_ocr import Cell, OCR_SECONDS, deadline as _deadline, image_tables
 from .timetable_import import ImportProblem
+from .document_heading import parse_heading
 
 MAX_UPLOAD = 10 * 1024 * 1024
 MAX_DRAFT_ROWS = 300
@@ -26,7 +27,7 @@ TIME_RANGE = re.compile(
 
 
 def clock_range(text):
-    matches = list(TIME_RANGE.finditer(text.replace("−", "-").replace(".", ":")))
+    matches = list(TIME_RANGE.finditer(text.replace("−", "-").replace(".", ":").replace("_", " ")))
     if len(matches) != 1:
         return "", ""
     a, am, ap, b, bm, bp = matches[0].groups()
@@ -37,7 +38,7 @@ def clock_range(text):
     if am > 59 or bm > 59:
         return "", ""
     if ap or bp:
-        if not ap and bp and bp.upper() == "PM" and a > b and a != 12:
+        if not ap and bp and bp.upper() == "PM" and (a > b and a != 12 or b == 12 and a < 12):
             ap = "AM"
         ap, bp = (ap or bp).upper(), (bp or ap).upper()
         if not (1 <= a <= 12 and 1 <= b <= 12):
@@ -144,7 +145,7 @@ def _layout(table):
             return (
                 "rows",
                 i,
-                next((j for j, value in enumerate(texts) if "CLASS" in value), None),
+                next((j for j, value in enumerate(texts) if value in {"CLASS", "PART"}), None),
             )
     # Recognise a weekday grid even when a low-resolution COURSE label was missed.
     if len(table[0]) >= 5 and len(table[0]) % 2 == 1:
@@ -162,7 +163,7 @@ def _layout(table):
         return (
             "rows",
             0,
-            next((j for j, value in enumerate(texts) if "CLASS" in value), None),
+            next((j for j, value in enumerate(texts) if value in {"CLASS", "PART"}), None),
         )
     return None, -1, None
 
@@ -203,7 +204,7 @@ def parse_table(table, page=1, continuation=None, layout="auto"):
             1
             if layout == "rows"
             and len(table[0]) > 1
-            and heading_label(table[0][1].text) == "CLASS"
+            and table[0][1].text.upper().strip() in {"CLASS", "PART"}
             else None
         )
     if kind is None:
@@ -301,11 +302,21 @@ def parse_table(table, page=1, continuation=None, layout="auto"):
         day = day_value(heading.text)
         for c in range(first, len(row)):
             cell, time_cell = row[c], table[header][c]
-            if not cell.text.strip() or (id(cell), c) in seen:
+            if not cell.text.strip() or (id(cell), 0 if classcol is not None else c) in seen:
                 continue
-            seen.add((id(cell), c))
+            seen.add((id(cell), 0 if classcol is not None else c))
             start, end = clock_range(time_cell.text)
             if classcol is not None:
+                part_grid = table[header][classcol].text.upper().strip() == "PART"
+                covered = [j for j in range(first, len(row)) if row[j] is cell]
+                if len(covered) > 1:
+                    last_time = table[header][covered[-1]]
+                    _, end = clock_range(last_time.text)
+                    time_cell = Cell(
+                        f"{time_cell.text} through {last_time.text}",
+                        (time_cell.box[0], time_cell.box[1], last_time.box[2], last_time.box[3]),
+                        note="Merged session spans several time columns; confirm the full interval.",
+                    )
                 # Each administration cell represents one course and its own venue.
                 text = " ".join(cell.text.split()).strip(" |[]~")
                 code = _code(text)
@@ -317,6 +328,11 @@ def parse_table(table, page=1, continuation=None, layout="auto"):
                 if code:
                     course, venue = code[0], text[code[1] :].strip(" /,;:.")
                     note = "Check the detected course code." if code[2] else ""
+                if part_grid:
+                    venue = venue.strip("() ")
+                    if not code or re.search(r"[A-Z]{2,5}\s*\d{3}", venue) or re.fullmatch(r"[A-Z](?:\s*[,/]\s*[A-Z])*", venue):
+                        course, venue = (code[0] if code else ""), ""
+                        note = "Grouped/practical session: letters identify groups, not verified venues. Confirm courses and venues, split if needed, or skip."
                 drafts.append(
                     _draft(
                         course,
@@ -331,6 +347,7 @@ def parse_table(table, page=1, continuation=None, layout="auto"):
                         note=note,
                     )
                 )
+                drafts[-1]["class_group"] = row[classcol].text.strip()
                 continue
             # Law cells contain alternating course and venue lines, sometimes wrapped.
             lines = [
@@ -406,9 +423,11 @@ def _extract_document(upload, *, layout="auto"):
     if len(raw) > MAX_UPLOAD:
         raise ImportProblem("Upload a file of at most 10 MB.")
     pages, all_rows, notices, context = [], [], [], None
+    metadata = parse_heading("")
 
     def collect(image, tables, warning=""):
-        nonlocal context
+        nonlocal context, metadata
+        metadata = parse_heading(image.info.get("timetable_heading", ""))
         number = len(pages) + 1
         if warning:
             notices.append(f"Page {number}: {warning}")
@@ -453,7 +472,8 @@ def _extract_document(upload, *, layout="auto"):
     notices.append(
         "Match repeated names and check shared day/time headings once. Review the clear groups beside the image and correct flagged entries; also check for omitted cells. Blank cells do not prove a shared room is free."
     )
-    return {"rows": all_rows, "pages": pages, "notices": list(dict.fromkeys(notices))}
+    return {"rows": all_rows, "pages": pages, "metadata": metadata,
+            "notices": list(dict.fromkeys(notices))}
 
 
 def extract_document(upload, *, layout="auto"):

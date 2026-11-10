@@ -411,15 +411,27 @@ def image_tables(source):
         for box in boxes
         if box[2] > image.width * 0.45 and box[3] > image.height * 0.1
     ]
+    title = ""
+    if boxes and min(box[1] for box in boxes) > 20:
+        title = text_words(run_ocr(image.crop((0, 0, image.width, min(box[1] for box in boxes))), psm=6))
+        if re.search(r"\bEXAM(?:INATION|INATIONS)?\b", title, re.I):
+            raise ImportProblem("This appears to be an examination timetable. Upload a lecture timetable image instead.")
+    image.info["timetable_heading"] = title
+    practical_grid = bool(re.search(r"\bPRACTICAL\b", title, re.I))
     background = cv2.GaussianBlur(grey, (0, 0), 20)
     cleaned = cv2.divide(grey, background, scale=255)
     tables, all_cells, notes, rotated_cells = [], [], [], set()
     for x, y, w, h in boxes[:6]:
+        header_height = max(20, h // 15)
+        # Practical sessions merge many body columns. Short header dividers
+        # still define separate hourly columns and must not be lost.
+        column_strength = (vertical[y : y + h, x : x + w] > 0).sum(axis=0) / (h * 0.28)
+        if practical_grid:
+            header_strength = (vertical[y : y + header_height, x : x + w] > 0).sum(axis=0) / (header_height * 0.5)
+            column_strength = np.maximum(column_strength, header_strength)
         xs = [
             x + i
-            for i in positions(
-                (vertical[y : y + h, x : x + w] > 0).sum(axis=0), h * 0.28
-            )
+            for i in positions(column_strength, 1)
         ]
         ys = [
             y + i
@@ -460,11 +472,11 @@ def image_tables(source):
         for r in range(nr):
             for c in range(nc):
                 x0, x1, y0, y1 = xs[c], xs[c + 1], ys[r], ys[r + 1]
-                if r and c == 0:
+                if r and (c == 0 or practical_grid and c == 1):
                     stroke = horizontal[max(0, y0 - 4) : y0 + 5, x0 + 5 : x1 - 5]
                     if stroke.size and (stroke > 0).any(axis=0).mean() < 0.2:
                         join(r * nc + c, (r - 1) * nc + c)
-                if c and r == 0:
+                if c and (r == 0 or practical_grid and c > 2):
                     stroke = vertical[y0 + 5 : y1 - 5, max(0, x0 - 4) : x0 + 5]
                     if stroke.size and (stroke > 0).any(axis=1).mean() < 0.2:
                         join(r * nc + c, r * nc + c - 1)
@@ -488,7 +500,7 @@ def image_tables(source):
         table = [[cells[(r, c)] for c in range(nc)] for r in range(nr)]
         for row in table:
             cell = row[0]
-            if cell.box[3] - cell.box[1] > (cell.box[2] - cell.box[0]) * 1.3:
+            if not practical_grid and cell.box[3] - cell.box[1] > (cell.box[2] - cell.box[0]) * 1.3:
                 rotated_cells.add(id(cell))
         all_cells.extend({id(cell): cell for row in table for cell in row}.values())
         if len(all_cells) > 1500:
@@ -502,16 +514,6 @@ def image_tables(source):
             [],
             "Table borders were not clear enough. Use a straight, larger image with all headings. You can also enter missing rows manually.",
         )
-    # Read the title to reject examination timetables before any draft can be imported.
-    first_top = min(cell.box[1] for cell in all_cells)
-    if first_top > 20:
-        title = text_words(
-            run_ocr(image.crop((0, 0, image.width, round(first_top))), psm=6)
-        )
-        if re.search(r"\bEXAM(?:INATION|INATIONS)?\b", title, re.I):
-            raise ImportProblem(
-                "This appears to be an examination timetable. Upload a lecture timetable image instead."
-            )
     # Local thresholding in each crop handles grey photos without altering glyphs.
     read_cells(all_cells, cleaned, rotated_cells)
     reread_headings(tables, cleaned, rotated_cells)

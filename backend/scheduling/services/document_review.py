@@ -6,6 +6,7 @@ import re
 from datetime import date, timedelta
 
 from rooms.models import Room
+from rooms.catalog import ROOM_ALIASES, room_catalogue_name
 from scheduling.models import Course
 
 from .document_extract import DAYS, MAX_DRAFT_ROWS
@@ -26,6 +27,7 @@ def references():
                     normalise(r.code),
                     normalise(r.name),
                     normalise(r.room_number),
+                    *(normalise(alias) for alias in ROOM_ALIASES.get(room_catalogue_name(r.name), ())),
                     *(normalise(p) for p in re.findall(r"\(([^)]+)\)", r.name)),
                 }
             ),
@@ -79,7 +81,7 @@ def refresh_rows(rows, refs):
     return result
 
 
-def reviewed_csv(rows, options, *, refs=None):
+def reviewed_csv(rows, options, *, refs=None, max_rows=MAX_ROWS):
     if not isinstance(rows, list) or not 1 <= len(rows) <= MAX_DRAFT_ROWS:
         raise ImportProblem(f"Review between 1 and {MAX_DRAFT_ROWS} rows at a time.")
     if options.get("mode") not in {"weekly", "dated"}:
@@ -184,9 +186,9 @@ def reviewed_csv(rows, options, *, refs=None):
                     "cancelled": "false",
                 }
             )
-            if len(result) > MAX_ROWS:
+            if len(result) > max_rows:
                 raise ImportProblem(
-                    f"This teaching period produces more than {MAX_ROWS} classes. Use a shorter period or skip some rows for a separate import."
+                    f"This teaching period produces more than {max_rows} classes. Use a shorter period or skip some rows for a separate import."
                 )
     if errors:
         raise ImportProblem(errors)

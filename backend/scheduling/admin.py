@@ -19,7 +19,8 @@ class CourseAdmin(admin.ModelAdmin):
 @admin.register(TimetableDay)
 class TimetableDayAdmin(TimetableDocumentAdminMixin, TimetableImportAdminMixin, admin.ModelAdmin):
     form = TimetableAdminForm
-    fields = ("room", "date", "start_time", "end_time", "course", "academic_session", "is_cancelled")
+    fields = ("room", "date", "start_time", "end_time", "course", "academic_session", "is_cancelled", "image_import")
+    readonly_fields = ("image_import",)
     save_on_top = True
     list_display = ("room", "date", "start_time", "end_time", "course", "academic_session", "is_cancelled")
     list_filter = ("date", "academic_session", "is_cancelled")

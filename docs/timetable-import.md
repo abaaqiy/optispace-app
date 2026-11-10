@@ -100,33 +100,63 @@ lecture timetable, up to 10 MB / 20 megapixels. PDF uploads and examination
 layouts are not supported. **CSV import, export, templates and reference downloads
 remain available**, including dated lectures and bulk corrections.
 
-1. Upload one clear image with its weekday/time headings. Automatic layout
-   detection supports Law-style stacked course/venue cells, Administration-style
-   course/room cells and Chemistry-style Course/Venue columns. You can select the
-   matching layout when automatic detection cannot read a heading.
-2. Resolve repeated course and room names once. A selection fills every unresolved
-   row with that exact detected name. Only existing catalogue records can be used;
-   add missing records in a new tab and select **Refresh course and room choices**.
-3. Use **Check shared headings once** to confirm or correct each weekday and time.
-   Each change updates the entries linked to that original heading. A reader
-   disagreement leaves the heading unresolved instead of silently choosing it.
-4. Open **Review clear entries by day** and compare its compact course/room/time
-   list with the image. One acknowledgement marks the eligible group reviewed.
-   Uncertain text and incomplete entries remain in **Needs correction** for
-   individual review. The editor shows 25 entries at a time, with search and filters.
-5. **Show source** highlights the original cell and shows an enlarged crop. The
-   image also has a zoom slider and a full-size view. Correct, duplicate or skip
-   entries; add any missing ones. Editing clears the row's review tick.
-6. Enter the academic session, first and last teaching dates, and optional excluded
-   holiday dates. Confirm that you checked the complete image for omitted entries.
-7. **Validate reviewed entries** expands the weekly rows into dated lectures.
-   **Apply import** saves the checked entries together. Conflicts with classes or
-   approved bookings, stale previews, missing references and invalid times block
-   the entire save. Existing classes/cancellations are preserved.
+1. Upload one clear image with its weekday/time headings. Detection supports
+   Law-style stacked cells, Administration course/room cells, Chemistry Course/Venue
+   columns, and Pharmacy Part II–V grids with times across the top.
+2. **Confirm shared details**: faculty, department, session, semester and source
+   version are suggested from the heading where readable. Enter the first/last
+   teaching dates and optional excluded dates once. A faculty-wide timetable may
+   have no department. Do not infer every course's department or a venue's building
+   from the heading; shared university spaces can belong to other faculties.
+3. Resolve unique course/venue labels once. Match existing records (including
+   documented room aliases), or **prepare a new course/room here**. Codes/names are
+   prefilled. Course-title suggestions match exact codes against sourced OAU
+   handbooks/course pages, across departments. Each shows its edition and source;
+   confirm the curriculum applies before selecting it. No title is guessed for
+   unknown codes, and typed titles are never automatically replaced. Coverage is
+   partial: see [course-title sources](course-title-sources.md). Historical Pharmacy
+   sources are explicitly **not verified for PharmD**.
+   Room names/types use the same searchable choices and Others custom entries as
+   manual Room admin. The actual building and capacity still need confirmation.
+   An authorised admin can prepare a new building
+   inline with its actual campus area. Facilities and room numbers are optional.
+   Prepared records are editable drafts and are reused for repeated labels. Map
+   different OCR spellings to the same saved or proposed record. No database rows
+   are created at this stage. Save/resume retains the proposals.
+4. Compare the **weekly preview** against the image, including missing cells. It
+   keeps course, venue, day, time and Part/group together, flags incomplete entries
+   and overlaps within the draft, and links to the editable row/source crop.
+   Confirm clear entries together after comparison. Uncertain readings and
+   grouped practicals still need individual attention. Shared-heading corrections,
+   day groups, source zoom, search and the 25-row editor remain available.
+5. Validate the reviewed entries. This checks proposed references and their
+   permissions, expands dates, and detects duplicate classes and overlaps with
+   saved timetables/approved reservations. Review the counts and new-record list.
+6. **Confirm and import** saves new buildings/courses/rooms and all classes in one
+   transaction. Any failed validation or save rolls back the whole import. An
+   image-import lock serializes reference creation; room locks coordinate with
+   bookings and CSV imports. Stale previews require validation again. Existing
+   records and cancellations are not overwritten. Each new class retains shared
+   image provenance (faculty, department, semester, version, dates and filename)
+   shown on its edit page; no extra scheduling category is added.
+
+The November restructure is local development work, not deployed. Migration
+`scheduling.0006` adds optional import provenance; apply it only to the explicitly
+configured local database while testing. The existing CSV format remains unchanged.
 
 Reviews are not automatic timetable publication. A recognition score is a review
-aid, not proof that text is correct. At most 300 draft rows and 1,000 expanded
-classes are allowed per import; use shorter teaching periods for larger schedules.
+aid, not proof that text is correct. At most 300 weekly draft rows and 16,000 expanded
+classes are allowed per image import, so an ordinary full teaching period can be
+imported together. CSV retains its independent 1,000-row limit.
+
+The supplied Pharmacy 2024/2025 Rain image confirms B217 and provides a Part II–V
+layout test. The reader keeps part labels separate from courses, reads horizontal
+weekday labels in tall merged cells, and spans merged practical cells across their
+time columns. Group letters such as (A), (B), or (G) are not assumed to be venues.
+Grouped practical sessions without identifiable venues remain flagged for
+correction/splitting or skipping. Chemistry's small image and Pharmacy's imperfect
+print still produce OCR errors (for example B217 may read 3217); neither image is
+claimed to import without review. Source photographs are not committed.
 
 ### OCR and hosting
 
@@ -154,16 +184,20 @@ now produces drafts rather than an empty result. Exam images are rejected.
 One image is processed at a time per web process; additional attempts receive a
 retry message. Processing time and working-image size are capped. The model uses
 one CPU thread and one line per inference for the existing Free service. The
-final local benchmark of the supplied images peaked at approximately 337 MB
+October local benchmark of the supplied images peaked at approximately 337 MB
 for the OCR process. A separate Gunicorn test, including a 20-megapixel upload,
 peaked at approximately 345 MB of proportional memory across the web server and
 OCR processes. These are local measurements, not a guarantee for every upload.
 
 Sources and drafts are stored in a private temporary cache accessible only to the
 uploading administrator with a signed token. **Save draft** extends the two-hour
-review period. Bookmark **Resume saved draft** after saving. Cache eviction or a
-server restart can remove drafts; importing deletes the temporary review. Saved
-classes remain in PostgreSQL. No schema migration is required.
+review period. Reopen **Timetables → Import Image → Your saved image drafts** and
+select the filename. The list shows save/expiry times and only your own reviews;
+expired, evicted and imported reviews disappear. You can also bookmark
+**Resume saved draft** after saving. Older drafts created before this list was
+introduced appear after saving them again with their original link. Temporary
+storage cleanup or replacement can remove drafts. Importing deletes the temporary
+review; saved classes and source metadata remain in PostgreSQL (migration 0006).
 
 ### Local installation and testing
 

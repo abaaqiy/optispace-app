@@ -2,18 +2,30 @@
 {% load static %}
 {% block extrastyle %}
 {{ block.super }}
+{{ catalog_media.css }}
 <link rel="stylesheet" href="{% static 'admin/css/forms.css' %}">
 <link rel="stylesheet" href="{% static 'scheduling/timetable_import.css' %}">
 <link rel="stylesheet" href="{% static 'scheduling/timetable_document.css' %}">
 {% endblock %}
-{% block extrahead %}{{ block.super }}<script src="{% static 'scheduling/timetable_document.js' %}" defer></script>{% endblock %}
+{% block extrahead %}{{ block.super }}{{ catalog_media.js }}<script src="{% static 'scheduling/course_suggestions.js' %}" defer></script><script src="{% static 'scheduling/timetable_document.js' %}" defer></script>{% endblock %}
 {% block breadcrumbs %}
 <ol class="breadcrumbs"><li><a href="{% url 'admin:index' %}">Home</a></li><li><a href="{% url 'admin:scheduling_timetableday_changelist' %}">Timetables</a></li><li aria-current="page">Import Image</li></ol>
 {% endblock %}
 {% block content %}
 <div id="content-main" class="timetable-import document-import">
-  <p>Upload a lecture timetable image, resolve shared names and headings, then review the clear groups and remaining issues. Nothing is scheduled until you choose <strong>Apply import</strong>.</p>
+  <p>Upload an image → confirm shared details → resolve missing records once → check the weekly preview → import. Courses, buildings, rooms and classes are saved together only when you choose <strong>Confirm and import</strong>.</p>
   <p>Use clear, upright pages with their headings. <a href="{% url 'admin:scheduling_timetableday_import' %}">Import a CSV instead</a>.</p>
+  <details class="module document-mappings">
+    <summary>Course-title suggestions: {{ course_coverage.codes }} course codes across {{ course_coverage.handbooks }} supplied handbooks and earlier web sources</summary>
+    <p>When preparing a new course, suggestions appear for its exact code. Check the programme, handbook edition and linked PDF page, then choose <strong>Use this title</strong>. This fills the title for every matching entry when you use the new record. It does not change existing courses.</p>
+    <p>Coverage includes {{ course_coverage.faculties|join:", " }}. Some departments and courses are still missing. Older curricula and conflicting titles need your confirmation; the Pharmacy handbook is B.Pharm, not verified for PharmD.</p>
+  </details>
+  <section class="module document-mappings" aria-label="Your saved image drafts">
+    <h2>Your saved image drafts</h2>
+    <p>Return to <strong>Timetables → Import Image</strong> and select a draft below. Drafts are temporary and private to your administrator account. Save while reviewing; each save extends the two-hour expiry. Temporary storage may be cleared earlier.</p>
+    {% if saved_drafts %}<ul>{% for draft in saved_drafts %}<li><a href="?review={{ draft.token|urlencode }}">{{ draft.filename }}</a> — saved {{ draft.saved_at|date:"j M, H:i" }}; expires {{ draft.expires_at|date:"j M, H:i" }} (Lagos)</li>{% endfor %}</ul>
+    {% else %}<p>No active drafts. Upload an image to begin.</p>{% endif %}
+  </section>
   {% if errors %}<div class="errornote" role="alert"><p><strong>Nothing was imported.</strong> Correct these issues and validate again.</p><ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
   <form method="post" enctype="multipart/form-data" class="csv-upload" id="document-upload">
     {% csrf_token %}{{ form.as_p }}<input type="hidden" name="action" value="extract">
@@ -22,16 +34,23 @@
   </form>
   {% if document %}
     <div class="document-notices"><h2>Reading complete</h2><ul>{% for note in document.notices %}<li>{{ note }}</li>{% endfor %}</ul>
-    <p>Check entries in batches beside the source. Repeated course and venue names can be matched once for all affected rows. Skip unwanted entries and add any entries the reader missed.</p><p>Drafts last two hours. Use <strong>Save draft</strong> to extend the time while you work. A long teaching period may require several smaller imports.</p></div>
+    <p>Check entries in batches beside the source. Repeated course and venue names can be matched once for all affected rows. Skip unwanted entries and add any entries the reader missed.</p><p>Drafts last two hours. Use <strong>Save draft</strong> to extend the time while you work.</p></div>
     {{ rows|json_script:"document-rows" }}{{ references|json_script:"document-references" }}{{ pages|json_script:"document-pages" }}
+    {{ pending|json_script:"document-pending" }}{{ creation_choices|json_script:"document-creation-choices" }}
     <noscript><p class="errornote">Enable JavaScript to review this document, or use the CSV importer.</p></noscript>
     <form method="post" id="document-review">
-      {% csrf_token %}<input type="hidden" name="action" value="review"><input type="hidden" name="document_token" value="{{ document_token }}"><input type="hidden" name="rows" id="review-rows">
-      <fieldset class="module aligned document-options"><h2>Dates and academic session</h2>
+      {% csrf_token %}<input type="hidden" name="action" value="review"><input type="hidden" name="document_token" value="{{ document_token }}"><input type="hidden" name="rows" id="review-rows"><input type="hidden" name="pending" id="pending-records">
+      <fieldset class="module aligned document-options"><h2>1. Confirm shared details</h2>
+        <p>Read from the heading where possible. Correct these once for the whole upload. Faculty identifies this timetable; it does not assign locations to its rooms.</p>
+        <div class="form-row"><label for="document-faculty">Faculty:</label><input id="document-faculty" name="faculty" value="{{ options.faculty }}" maxlength="150"></div>
+        <div class="form-row"><label for="document-department">Department:</label><input id="document-department" name="department" value="{{ options.department }}" maxlength="150"></div>
+        <div class="form-row"><label for="document-semester">Semester:</label><select id="document-semester" name="semester"><option value="">Not identified</option><option {% if options.semester == 'Rain' %}selected{% endif %}>Rain</option><option {% if options.semester == 'Harmattan' %}selected{% endif %}>Harmattan</option></select></div>
+        <div class="form-row"><label for="source-version">Source version:</label><input id="source-version" name="source_version" value="{{ options.source_version }}" maxlength="100"><p class="help">For example, First Draft or Revised. Only import a version you intend to use.</p></div>
+        {% if document.metadata.heading_text %}<details><summary>Text read from the heading</summary><pre class="heading-text">{{ document.metadata.heading_text }}</pre></details>{% endif %}
         <input id="document-mode" name="mode" type="hidden" value="weekly"><p>Weekly lectures repeat only within the teaching dates you choose. CSV remains available for specific dates.</p>
         <div class="form-row"><label for="academic-session">Academic session:</label><input id="academic-session" name="academic_session" value="{{ options.academic_session }}" maxlength="30" required placeholder="2026/2027"></div>
         <div class="form-row" id="teaching-dates"><label for="first-date">First teaching date:</label><input id="first-date" name="first_date" type="date" value="{{ options.first_date }}"> <label for="last-date">Last teaching date:</label><input id="last-date" name="last_date" type="date" value="{{ options.last_date }}"></div>
-        <div class="form-row"><label for="exclude-dates">Exclude dates:</label><input id="exclude-dates" name="exclude_dates" value="{{ options.exclude_dates }}" placeholder="2026-12-25, 2027-01-01"><p class="help">Optional holiday/break dates, separated by commas. Times use Africa/Lagos. Maximum 1,000 dated classes per import.</p></div>
+        <div class="form-row"><label for="exclude-dates">Exclude dates:</label><input id="exclude-dates" name="exclude_dates" value="{{ options.exclude_dates }}" placeholder="2026-12-25, 2027-01-01"><p class="help">Optional holiday/break dates, separated by commas. Times use Africa/Lagos. Up to 300 weekly slots and 16,000 dated classes per image import.</p></div>
       </fieldset>
       <div class="document-workspace">
         <section class="document-source" aria-label="Original timetable">
@@ -42,12 +61,21 @@
         </section>
         <section class="document-editor" aria-label="Editable extracted timetable">
           <section class="module document-mappings" aria-label="Resolve missing course and room choices">
-            <h2>Resolve repeated names once</h2>
+            <h2>2. Resolve missing courses and venues once</h2>
             <p id="mapping-status" role="status"></p>
             <p>Choose the correct saved course or room for each name below. The choice fills all unresolved rows with that same detected name. Check their days and times before marking them reviewed.</p>
-            <p>If a record is missing, <a href="{% url 'admin:scheduling_course_add' %}" target="_blank" rel="noopener noreferrer">add a course</a> or <a href="{% url 'admin:rooms_room_add' %}" target="_blank" rel="noopener noreferrer">add a room</a> in a new tab, then refresh the choices here. A review tick alone does not select a course or room.</p>
+            <p>If a record is missing, prepare it here. Detected codes and names are filled in; provide only the remaining details. Preparing a record applies it to every matching unresolved entry, but saves nothing yet.</p>
             <div id="reference-mappings"></div>
+            <div id="proposed-records"></div>
             <button type="submit" name="action" value="refresh" formnovalidate class="button">Refresh course and room choices</button>
+          </section>
+          <section class="module document-mappings" aria-label="Weekly timetable preview">
+            <h2>3. Compare the weekly preview with the image</h2>
+            <p>Each card keeps its course, room and time together. Select a card to see its source or correct that entry. Check for missing cells as well as highlighted issues.</p>
+            <div id="weekly-preview" class="weekly-scroll" tabindex="0"></div>
+            <p id="weekly-status" role="status"></p>
+            <label><input type="checkbox" id="weekly-checked"> I compared this weekly preview and its headings with the source image.</label>
+            <button type="button" class="button" id="weekly-approve" disabled>Confirm clear entries together</button>
           </section>
           <section class="module document-mappings" aria-label="Shared weekday and time headings">
             <h2>Check shared headings once</h2>
@@ -65,7 +93,7 @@
             <label for="review-day">Day <select id="review-day"><option value="">All days</option></select></label>
             <label for="review-page">Source page <select id="review-page"><option value="">All pages</option></select></label>
             <button type="submit" name="action" value="save" formnovalidate class="button">Save draft</button>
-            <a href="?review={{ document_token|urlencode }}">Resume saved draft</a><span class="help">Save changes first. Bookmark this link to reopen the draft within two hours.</span>
+            <a href="?review={{ document_token|urlencode }}">Resume saved draft</a><span class="help">Save changes first. Reopen from Your saved image drafts at the top of Import Image, or bookmark this link. Drafts expire after two hours.</span>
           </div>
           <h2>Review extracted entries</h2><p id="review-status" role="status"></p>
           <p class="help">“Ready” means fields are complete with no detected warning; it is not a guarantee of correct reading. Check the source for the visible batch, including any omitted cells.</p>
@@ -80,7 +108,8 @@
     {% if plan %}
     <section id="document-final-preview"><h2>Validated: {{ plan.rows|length }} dated entries</h2><p>{{ plan.counts.Add }} to add; {{ plan.counts.Unchanged }} unchanged. Check the expanded dates before applying.</p>
       <details><summary>Show all expanded dates ({{ plan.rows|length }} entries)</summary><div class="csv-preview" role="region" aria-label="Validated dated entries" tabindex="0"><table><thead><tr><th>Entry</th><th>Action</th><th>Course</th><th>Room</th><th>Day / date</th><th>Time</th><th>Session</th></tr></thead><tbody>{% for row in plan.rows %}<tr><td>{{ row.line }}</td><td>{{ row.action }}</td><td>{{ row.course }}</td><td>{{ row.room.name }}</td><td>{{ row.values.date|date:"l, Y-m-d" }}</td><td>{{ row.values.start_time|time:"H:i" }}–{{ row.values.end_time|time:"H:i" }}</td><td>{{ row.values.academic_session }}</td></tr>{% endfor %}</tbody></table></div></details>
-      <form method="post" class="csv-confirm">{% csrf_token %}<input type="hidden" name="action" value="confirm"><input type="hidden" name="document_token" value="{{ document_token }}"><input type="hidden" name="preview" value="{{ preview_token }}"><p>The validated entries will be saved together. Existing cancellations are preserved; omitted classes are kept.</p><button type="submit" class="button default">Apply import</button></form>
+      <p>New records to create with these classes:</p><ul>{% for kind, values in document.preview_records.items %}<li>{{ kind|capfirst }}: {{ values|length }}{% if values %}<details><summary>Show {{ kind }}</summary><ul>{% for value in values %}<li>{{ value }}</li>{% endfor %}</ul></details>{% endif %}</li>{% endfor %}</ul>
+      <form method="post" class="csv-confirm">{% csrf_token %}<input type="hidden" name="action" value="confirm"><input type="hidden" name="document_token" value="{{ document_token }}"><input type="hidden" name="preview" value="{{ preview_token }}"><p>The confirmed records and classes will be saved together. Existing cancellations are preserved; omitted classes are kept.</p><button type="submit" class="button default">Confirm and import</button></form>
     </section>
     {% endif %}
   {% endif %}

@@ -10,6 +10,12 @@
   const rows = JSON.parse(document.getElementById('document-rows').textContent);
   const refs = JSON.parse(document.getElementById('document-references').textContent);
   const pages = JSON.parse(document.getElementById('document-pages').textContent);
+  const pending = JSON.parse(document.getElementById('document-pending').textContent);
+  const creation = JSON.parse(document.getElementById('document-creation-choices').textContent);
+  for (const kind of ['courses', 'rooms']) {
+    pending[kind] ||= [];
+    for (const draft of pending[kind]) refs[kind].push({ value: draft.key, label: `New: ${draft.code || draft.name}`, keys: [] });
+  }
   const days = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const tbody = document.querySelector('#document-table tbody');
   const pageSelect = document.getElementById('source-page');
@@ -28,9 +34,13 @@
   let activeBox = null;
   const pageSize = 25;
   const normalise = value => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  function clearEditors(root) {
+    root.dispatchEvent(new CustomEvent('room-catalog:remove', { bubbles: true }));
+    root.replaceChildren();
+  }
   function problems(row) {
     const errors = [];
-    for (const key of ['course', 'room']) if (!valid[key].has(row[key])) errors.push(`Choose an existing ${key}`);
+    for (const key of ['course', 'room']) if (!valid[key].has(row[key])) errors.push(`Match or prepare a ${key}`);
     if (!/^\d{2}:\d{2}$/.test(row.start_time || '') || !/^\d{2}:\d{2}$/.test(row.end_time || '') || row.start_time >= row.end_time || [row.start_time, row.end_time].some(value => value && (Number(value.slice(0, 2)) > 23 || Number(value.slice(3)) > 59))) errors.push('Correct the start/end times');
     if (mode.value === 'weekly') {
       if (!days.slice(1).includes(row.day)) errors.push('Choose a weekday');
@@ -57,12 +67,52 @@
     if (parent) parent.append(el);
     return el;
   }
-  function invalidate() { document.getElementById('document-final-preview')?.setAttribute('hidden', ''); resetBatch(); }
+  function invalidate() {
+    document.getElementById('document-final-preview')?.setAttribute('hidden', ''); resetBatch();
+    document.getElementById('weekly-checked').checked = false;
+    document.getElementById('weekly-approve').disabled = true;
+  }
   function status() {
     const kept = rows.filter(r => !r.skip);
     document.getElementById('review-status').textContent = `${kept.filter(r => r.reviewed).length} of ${kept.length} retained rows reviewed; ${kept.filter(r => problems(r).length).length} with missing/invalid fields; ${kept.filter(ready).length} ready for batch review; ${rows.length - kept.length} skipped.`;
     batchStatus();
     readyGroups();
+    weeklyPreview();
+  }
+  function weeklyPreview() {
+    const root = document.getElementById('weekly-preview'); root.replaceChildren();
+    const kept = rows.map((row, index) => ({ row, index })).filter(({ row }) => !row.skip);
+    const times = [...new Set(kept.map(({ row }) => `${row.start_time || '?'}–${row.end_time || '?'}`))].sort();
+    const table = element('table', undefined, root); table.className = 'weekly-grid';
+    const header = element('tr', undefined, element('thead', undefined, table));
+    const shownDays = days.slice(1).filter(day => kept.some(({ row }) => row.day === day));
+    if (kept.some(({ row }) => !days.includes(row.day) || !row.day)) shownDays.push('Needs weekday');
+    ['Time', ...shownDays].forEach(label => { const th = element('th', label, header); th.scope = 'col'; });
+    const body = element('tbody', undefined, table);
+    let flagged = 0;
+    for (const time of times) {
+      const tr = element('tr', undefined, body); const th = element('th', time, tr); th.scope = 'row';
+      for (const day of shownDays) {
+        const td = element('td', undefined, tr);
+        kept.filter(({ row }) => `${row.start_time || '?'}–${row.end_time || '?'}` === time && (row.day === day || day === 'Needs weekday' && (!row.day || !days.includes(row.day)))).forEach(({ row, index }) => {
+          const issue = problems(row).length || (!row.reviewed && (row.note || row.confidence != null && Number(row.confidence) < 90));
+          const overlap = kept.some(({ row: other, index: i }) => i !== index && row.room && row.room === other.room && row.day === other.day && row.start_time < other.end_time && row.end_time > other.start_time);
+          const button = element('button', undefined, td); button.type = 'button'; button.className = `weekly-card${issue || overlap ? ' weekly-issue' : ''}`;
+          if (issue || overlap) flagged++;
+          element('strong', refs.courses.find(item => item.value === row.course)?.label || row.course_text || 'Course missing', button);
+          element('span', refs.rooms.find(item => item.value === row.room)?.label || row.room_text || 'Venue missing', button);
+          element('small', `Row ${index + 1}${overlap ? ' · Overlap — check' : issue ? ' · Needs attention' : row.reviewed ? ' · Reviewed' : ''}`, button);
+          if (row.class_group) element('small', `Part / group: ${row.class_group}`, button);
+          button.addEventListener('click', () => {
+            filter.value = 'all'; search.value = ''; dayFilter.value = ''; sourceFilter.value = '';
+            offset = Math.floor(index / pageSize) * pageSize; render();
+            showPage(row.page, row.box);
+            tbody.children[index % pageSize]?.scrollIntoView({ block: 'center' });
+          });
+        });
+      }
+    }
+    document.getElementById('weekly-status').textContent = `${kept.length} weekly entries; ${flagged} need attention. Saved timetable/reservation conflicts are checked during validation.`;
   }
   function headings() {
     const root = document.getElementById('heading-mappings');
@@ -142,15 +192,14 @@
   }
   function mappings() {
     const root = document.getElementById('reference-mappings');
-    root.replaceChildren();
+    clearEditors(root);
     let groupCount = 0;
     for (const key of ['course', 'room']) {
       const groups = new Map();
-      rows.forEach(row => {
+      rows.forEach((row, index) => {
         if (row.skip || valid[key].has(row[key])) return;
         const text = row[key + '_text'] || '';
-        const group = normalise(text);
-        if (!group) return;
+        const group = normalise(text) || `missing-${index}`;
         if (!groups.has(group)) groups.set(group, { text, rows: [] });
         groups.get(group).rows.push(row);
       });
@@ -158,7 +207,7 @@
         groupCount++;
         const section = element('div', undefined, root); section.className = 'reference-mapping';
         element('strong', `${key === 'course' ? 'Course' : 'Room'} “${text}” — ${affected.length} row(s)`, section);
-        const query = element('input', undefined, section); query.type = 'search'; query.placeholder = `Search saved ${key}s`; query.setAttribute('aria-label', `Search choices for ${text}`);
+        const query = element('input', undefined, section); query.type = 'search'; query.placeholder = `Search saved or proposed ${key}s`; query.setAttribute('aria-label', `Search choices for ${text}`);
         const choice = element('select', undefined, section); choice.setAttribute('aria-label', `Map ${key} ${text}`);
         [{ value: '', label: `Select correct ${key}…` }, ...refs[key + 's']].forEach(item => { const opt = element('option', item.label, choice); opt.value = item.value; });
         query.addEventListener('input', () => { for (const opt of choice.options) opt.hidden = !!opt.value && !opt.text.toLowerCase().includes(query.value.toLowerCase()); });
@@ -168,9 +217,175 @@
           affected.filter(row => !row.skip && !valid[key].has(row[key])).forEach(row => { row[key] = choice.value; row.reviewed = false; });
           invalidate(); offset = 0; mappings(); render();
         });
+        if (creation['can_add_' + key]) {
+          const details = element('details', undefined, section);
+          element('summary', `Prepare a new ${key} here`, details);
+          recordEditor(details, key, text, affected);
+        }
       }
     }
     document.getElementById('mapping-status').textContent = groupCount ? `${groupCount} distinct detected names need matching. These choices apply only to this upload.` : 'All detected names with readable text are matched. Check individual rows for fields that were not detected.';
+    proposedRecords();
+  }
+  function recordEditor(parent, kind, detected, affected, draft = null) {
+    const fields = {};
+    const prefix = draft?.key || `edit-${crypto.randomUUID()}`;
+    const wrap = element('div', undefined, parent); wrap.className = 'record-editor';
+    function input(key, label, value = '', { type = 'text', options = null, required = true, max = 200 } = {}) {
+      const row = element('div', undefined, wrap);
+      const labelEl = element('label', label, row); labelEl.htmlFor = `${prefix}-${key}`;
+      const el = element(options ? 'select' : 'input', undefined, row); el.id = labelEl.htmlFor;
+      if (options) {
+        [{ value: '', label: 'Choose…' }, ...options].forEach(item => { const option = element('option', item.label, el); option.value = item.value; });
+      } else { el.type = type; el.maxLength = max; if (type === 'number') el.min = '1'; }
+      el.value = draft?.[key] ?? value; fields[key] = { el, required, label };
+      el.addEventListener('input', invalidate);
+      return el;
+    }
+    function catalogueInput(key, label, value, choices, max) {
+      const select = input(key, label, value, { options: choices });
+      const holder = element('div'); holder.className = 'room-name-widget'; holder.dataset.optionalEditor = 'true';
+      select.parentElement.append(holder); holder.append(select);
+      select.className = 'room-catalog-select';
+      for (const option of select.options) option.dataset.searchAliases = choices.find(item => item.value === option.value)?.aliases?.join(' ') || '';
+      const other = element('option', `Others — enter a ${label.toLowerCase()}`, select); other.value = '__other__';
+      const custom = element('div', undefined, holder); custom.className = 'room-custom-name';
+      const customLabel = element('label', `Custom ${label.toLowerCase()}`, custom); customLabel.htmlFor = `${prefix}-${key}-custom`;
+      const text = element('input', undefined, custom); text.id = customLabel.htmlFor; text.maxLength = max;
+      const initial = String(draft?.[key] ?? value);
+      const listed = choices.some(item => item.value === initial);
+      select.value = initial ? (listed ? initial : '__other__') : '';
+      text.value = listed ? '' : initial;
+      fields[key] = { label, required: true, el: select,
+        read: () => select.value === '__other__' ? text.value.trim() : select.value,
+        control: () => select.value === '__other__' ? text : select };
+      text.addEventListener('input', invalidate);
+      window.django.jQuery(select).on('change', invalidate);
+      holder.dispatchEvent(new CustomEvent('room-catalog:added', { bubbles: true }));
+      return select;
+    }
+    if (kind === 'course') {
+      const code = input('code', 'Course code', detected.replace(/\s/g, '').toUpperCase(), { max: 30 });
+      const title = input('title', 'Course title');
+      const department = input('department', 'Department', document.getElementById('document-department').value, { max: 150 });
+      const suggestions = element('div', undefined, wrap); suggestions.className = 'course-suggestions'; suggestions.setAttribute('aria-live', 'polite');
+      let selectedCode = draft?.title_source?.code || '', source = draft?.title_source || null;
+      fields.title_source = { read: () => source && source.code === window.OptispaceCourseSuggestions.codeKey(code.value) && source.title === title.value ? source : null };
+      function showSuggestions() {
+        suggestions.replaceChildren();
+        const key = window.OptispaceCourseSuggestions.codeKey(code.value);
+        const saved = refs.courses.filter(item => !item.value.startsWith('draft-') && window.OptispaceCourseSuggestions.codeKey(item.value) === key);
+        if (saved.length) {
+          element('p', 'This course is already saved. Use its existing record from the choices above.', suggestions);
+          saved.forEach(item => {
+            const use = element('button', `Use saved ${item.label}`, suggestions); use.type = 'button';
+            use.addEventListener('click', () => {
+              affected.forEach(row => { row.course = item.value; row.reviewed = false; });
+              invalidate(); mappings(); render();
+            });
+          });
+          return;
+        }
+        const matches = window.OptispaceCourseSuggestions.lookup(code.value, creation.course_catalogue, creation.course_sources);
+        if (selectedCode && selectedCode !== key && title.value) element('p', 'The code changed. Check the existing title before using this record.', suggestions).className = 'review-note';
+        if (!matches.length) {
+          element('p', 'No verified title for this exact code in the current source catalogue. Check a departmental handbook and enter the title. Coverage is growing across OAU; a missing suggestion does not mean the course is invalid.', suggestions);
+          return;
+        }
+        element('p', matches.length > 1 ? 'Different titles or programmes match this code. Check the handbook page and choose the one that applies; a handbook can contain conflicting lists.' : 'Exact course-code match in a source. Check that its curriculum applies to this timetable.', suggestions);
+        matches.forEach(item => {
+          const candidate = element('div', undefined, suggestions);
+          element('strong', `${item.code} — ${item.title}`, candidate);
+          element('p', `${item.department || 'Department must be confirmed'} · ${item.faculty}${item.programme ? ` · ${item.programme}` : ''}`, candidate);
+          item.evidence.forEach(evidence => {
+            const label = `${evidence.source_title}${evidence.page ? `, PDF page ${evidence.page}` : ''} · ${evidence.edition}`;
+            const line = element('p', undefined, candidate);
+            if (evidence.source_url) {
+              const link = element('a', label, line); link.href = `${evidence.source_url}${evidence.page ? `#page=${evidence.page}` : ''}`; link.target = '_blank'; link.rel = 'noopener noreferrer';
+            } else element('span', `${label} — reference file available in local development`, line);
+            if (evidence.notes) element('p', evidence.notes, candidate).className = 'review-note';
+          });
+          const acknowledgement = element('label', undefined, candidate);
+          const applicable = element('input', undefined, acknowledgement); applicable.type = 'checkbox';
+          acknowledgement.append(document.createTextNode(' I checked that this source applies to this programme and academic session.'));
+          const use = element('button', title.value && title.value !== item.title ? 'Replace title with this suggestion' : 'Use this title', candidate); use.type = 'button';
+          use.disabled = true;
+          applicable.addEventListener('change', () => { use.disabled = !applicable.checked; });
+          use.addEventListener('click', () => {
+            if (!applicable.checked) return;
+            title.value = item.title;
+            if (item.department) department.value = item.department;
+            selectedCode = key;
+            source = { code: item.code, title: item.title, source_id: item.source_id, source_url: item.source_url, page: item.page, edition: item.edition, programme: item.programme,
+              evidence: item.evidence.map(({ source_id, source_url, page, edition }) => ({ source_id, source_url, page, edition })) };
+            invalidate(); showSuggestions();
+          });
+        });
+      }
+      code.addEventListener('input', showSuggestions);
+      title.addEventListener('input', () => { source = null; showSuggestions(); });
+      showSuggestions();
+    } else {
+      const matches = creation.room_names.filter(entry => [entry.name, ...entry.aliases].some(value => normalise(value) === normalise(detected)));
+      catalogueInput('name', 'Room name', matches.length === 1 ? matches[0].name : normalise(detected) ? detected : '',
+        creation.room_names.map(item => ({ value: item.name, label: item.name, aliases: item.aliases })), 200);
+      const building = input('building', 'Building', '', { options: [
+        ...creation.buildings.map(b => ({ value: b.id, label: `${b.name} — ${b.campus_zone}` })),
+        ...(creation.can_add_building ? [{ value: 'new', label: 'Prepare a new building' }] : []),
+      ] });
+      const buildingName = input('building_name', 'New building name', '', { required: false });
+      const zone = input('campus_zone', 'New building campus area', '', { required: false, options: creation.faculties.map(value => ({ value, label: value })) });
+      function buildingMode() { buildingName.parentElement.hidden = zone.parentElement.hidden = building.value !== 'new'; }
+      building.addEventListener('change', buildingMode); buildingMode();
+      catalogueInput('room_type', 'Room type', '', creation.room_types.map(value => ({ value, label: value })), 100);
+      input('room_number', 'Room number (optional)', '', { required: false, max: 50 });
+      input('capacity', 'Capacity', '', { type: 'number' });
+      input('size_category', 'Size category', '', { options: [{ value: 'small', label: 'Small' }, { value: 'large', label: 'Large' }] });
+      const facilities = element('fieldset', undefined, wrap); element('legend', 'Known facilities (optional)', facilities);
+      creation.facilities.forEach(item => {
+        const label = element('label', undefined, facilities); const el = element('input', undefined, label); el.type = 'checkbox'; el.value = item.value;
+        el.checked = (draft?.facilities || []).map(String).includes(String(item.value)); label.append(document.createTextNode(item.label));
+      });
+      fields.facilities = { read: () => [...facilities.querySelectorAll('input:checked')].map(el => el.value) };
+      element('p', 'Choose the actual building and known capacity. The timetable faculty does not establish a room’s location or access.', wrap);
+    }
+    const error = element('p', undefined, wrap); error.className = 'review-note'; error.setAttribute('role', 'alert');
+    const button = element('button', draft ? 'Update proposed record' : 'Use new record for matching entries', wrap); button.type = 'button';
+    button.addEventListener('click', () => {
+      const record = { key: draft?.key || `draft-${kind}-${crypto.randomUUID()}` };
+      for (const [key, field] of Object.entries(fields)) {
+        record[key] = field.read ? field.read() : field.el.value.trim();
+        const control = field.control ? field.control() : field.el;
+        if (field.required && !record[key] || control && !control.checkValidity()) { error.textContent = `Check ${field.label.toLowerCase()}.`; control.focus(); return; }
+      }
+      if (kind === 'room' && record.building === 'new' && (!record.building_name || !record.campus_zone)) { error.textContent = 'Enter the new building name and campus area.'; return; }
+      if (kind === 'course') record.code = record.code.replace(/\s/g, '').toUpperCase();
+      const previous = pending[kind + 's'].findIndex(item => item.key === record.key);
+      if (previous >= 0) pending[kind + 's'][previous] = record; else pending[kind + 's'].push(record);
+      const list = refs[kind + 's']; const old = list.findIndex(item => item.value === record.key);
+      const choice = { value: record.key, label: `New: ${record.code || record.name}`, keys: [] };
+      if (old >= 0) list[old] = choice; else list.push(choice);
+      valid[kind].add(record.key);
+      affected.forEach(row => { row[kind] = record.key; row.reviewed = false; });
+      rows.filter(row => row[kind] === record.key).forEach(row => { row.reviewed = false; });
+      invalidate(); mappings(); render();
+    });
+  }
+  function proposedRecords() {
+    const root = document.getElementById('proposed-records'); clearEditors(root);
+    for (const kind of ['course', 'room']) for (const draft of pending[kind + 's']) {
+      const affected = rows.filter(row => !row.skip && row[kind] === draft.key);
+      const details = element('details', undefined, root);
+      element('summary', `Proposed ${kind}: ${draft.code || draft.name} · ${affected.length} entries`, details);
+      recordEditor(details, kind, '', affected, draft);
+      const remove = element('button', 'Remove proposed record', details); remove.type = 'button';
+      remove.addEventListener('click', () => {
+        pending[kind + 's'] = pending[kind + 's'].filter(item => item.key !== draft.key);
+        refs[kind + 's'] = refs[kind + 's'].filter(item => item.value !== draft.key); valid[kind].delete(draft.key);
+        rows.filter(row => row[kind] === draft.key).forEach(row => { row[kind] = ''; row.reviewed = false; });
+        invalidate(); mappings(); render();
+      });
+    }
   }
   function showPage(number, box) {
     const page = pages[number - 1];
@@ -237,6 +452,7 @@
       const source = element('td', undefined, tr);
       element('strong', `Row ${index + 1}`, source);
       if (row.page) element('small', `Page ${row.page}`, source);
+      if (row.class_group) element('small', `Part / group: ${row.class_group}`, source);
       const raw = element('details', undefined, source);
       element('summary', 'Original text', raw);
       element('small', row.source || 'Manually added entry', raw);
@@ -347,6 +563,16 @@
     form.querySelector('input[name="action"]').value = event.submitter?.value || 'review';
     if (event.submitter?.name === 'action') event.submitter.removeAttribute('name');
     document.getElementById('review-rows').value = JSON.stringify(rows);
+    document.getElementById('pending-records').value = JSON.stringify(pending);
+  });
+  document.getElementById('weekly-checked').addEventListener('change', event => { document.getElementById('weekly-approve').disabled = !event.target.checked; });
+  document.getElementById('weekly-approve').addEventListener('click', () => {
+    if (!document.getElementById('weekly-checked').checked) return;
+    rows.forEach(row => {
+      if (row.skip || problems(row).length || row.note || row.confidence != null && Number(row.confidence) < 90) return;
+      row.day_checked = true; row.time_checked = true; row.reviewed = true;
+    });
+    invalidate(); headings(); render();
   });
   updateMode(); mappings(); headings(); render();
 })();

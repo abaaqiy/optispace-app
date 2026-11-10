@@ -6,16 +6,19 @@ from datetime import date
 from pathlib import Path
 from unittest import skipUnless
 from unittest.mock import patch
+from tempfile import TemporaryDirectory
 
 from django.contrib.admin.models import LogEntry
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.cache.backends.filebased import FileBasedCache
+from django.core import signing
 from django.test import Client, SimpleTestCase, TestCase
 from django.urls import reverse
 
 from rooms.models import Building, Room
 
-from .document_admin import DOCUMENT_TTL
+from .document_admin import DOCUMENT_TTL, DOCUMENT_SALT
 from .models import Course, TimetableDay
 from .services.document_extract import (
     Cell,
@@ -166,6 +169,8 @@ class TableAlignmentTests(SimpleTestCase):
             ("12-1", ("12:00", "13:00")),
             ("1-2", ("13:00", "14:00")),
             ("11am-12pm", ("11:00", "12:00")),
+            ("11-12pm", ("11:00", "12:00")),
+            ("3-4pm_", ("15:00", "16:00")),
             ("11-1 PM", ("11:00", "13:00")),
             ("4-7 PM", ("16:00", "19:00")),
             ("14:15-16:30", ("14:15", "16:30")),
@@ -179,6 +184,28 @@ class TableAlignmentTests(SimpleTestCase):
         ]:
             with self.subTest(text=text):
                 self.assertEqual(clock_range(text), expected)
+
+    def test_pharmacy_parts_keep_b217_and_do_not_treat_group_letters_as_rooms(self):
+        table = grid(
+            ("DAY", "PART", "8-9am", "9-10am", "10-11am"),
+            ("Monday", "II", "PMB 201\n(B217)", "PHC 202\n(B217)", "PCL 202\n(B217)"),
+            ("Tuesday", "III", "PHA 303 (G) / PMB 302 (H)", "PCL 302 (I)", "BCH 304 (E, F, G, H, I)"),
+        )
+        rows, _, _ = parse_table(table)
+        self.assertEqual([(r['course_text'], r['room_text'], r['start_time']) for r in rows[:3]],
+                         [('PMB201', 'B217', '08:00'), ('PHC202', 'B217', '09:00'), ('PCL202', 'B217', '10:00')])
+        self.assertTrue(all(r['class_group'] == 'II' for r in rows[:3]))
+        self.assertTrue(all(not r['room_text'] and r['note'] for r in rows[3:]))
+
+    def test_practical_merged_cells_use_full_time_span_once(self):
+        table = grid(("DAY", "PART", "8-9am", "9-10am", "10-11am"),
+                     ("Monday", "II", "PCL 202 (B217)", "", ""))
+        cell = table[1][2]
+        cell.box = (200, 30, 500, 60)
+        table[1][3] = table[1][4] = cell
+        rows, _, _ = parse_table(table)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual((rows[0]['start_time'], rows[0]['end_time']), ('08:00', '11:00'))
 
     def test_continuation_keeps_same_weekday_columns_only_with_matching_width(self):
         _, _, context = parse_table(
@@ -355,6 +382,13 @@ class DocumentWorkflowTests(TestCase):
         )
 
     def setUp(self):
+        # Tests must never fill/evict real administrator drafts in the shared cache.
+        directory = TemporaryDirectory(prefix='optispace-draft-test-')
+        self.addCleanup(directory.cleanup)
+        self.draft_cache = FileBasedCache(directory.name, {'TIMEOUT': DOCUMENT_TTL})
+        patcher = patch('scheduling.document_admin.document_cache', return_value=self.draft_cache)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.client.force_login(self.admin)
         self.url = reverse("admin:scheduling_timetableday_document")
         self.options = {
@@ -453,6 +487,24 @@ class DocumentWorkflowTests(TestCase):
             "available",
         )
         self.assertContains(self.confirm(preview), "expired or is invalid")
+
+    def test_heading_prefill_and_proposed_records_save_resume_and_confirm(self):
+        self.document['metadata'] = {'faculty': 'Faculty of Science', 'department': 'Chemistry',
+                                     'semester': 'Rain', 'academic_session': '2029/2030', 'source_version': 'First Draft'}
+        upload = self.upload()
+        self.assertEqual(upload.context['options']['semester'], 'Rain')
+        pending = {'courses': [{'key': 'draft-course-12345678', 'code': 'ICH204',
+                                'title': 'Industrial Chemistry', 'department': 'Chemistry'}], 'rooms': []}
+        rows = [{**self.row, 'course': 'draft-course-12345678'}]
+        saved = self.client.post(self.url, {'action': 'save', 'document_token': upload.context['document_token'],
+                                'rows': json.dumps(rows), 'pending': json.dumps(pending), **self.options})
+        resumed = self.client.get(self.url, {'review': saved.context['document_token']})
+        self.assertEqual(resumed.context['pending'], pending)
+        preview = self.review(saved.context['document_token'], rows, pending=json.dumps(pending))
+        self.assertFalse(Course.objects.filter(code='ICH204').exists())
+        self.assertTrue(preview.context['preview_token'], preview.context['errors'])
+        self.assertEqual(self.confirm(preview).status_code, 302)
+        self.assertEqual(Course.objects.get(code='ICH204').timetables.count(), 2)
 
     def test_image_review_is_always_weekly_and_requires_coverage_confirmation(self):
         token = self.upload().context["document_token"]
@@ -699,7 +751,7 @@ class DocumentWorkflowTests(TestCase):
         token = saved.context["document_token"]
         resumed = self.client.get(self.url, {"review": token})
         self.assertEqual(resumed.context["rows"], rows)
-        self.assertEqual(resumed.context["options"], self.options)
+        self.assertEqual({key: resumed.context["options"][key] for key in self.options}, self.options)
         self.assertFalse(resumed.context["preview_token"])
         other = get_user_model().objects.create_superuser(
             username="resume-other",
@@ -711,6 +763,33 @@ class DocumentWorkflowTests(TestCase):
         self.assertContains(forbidden, "expired or is invalid")
         self.assertIsNone(forbidden.context["document"])
         self.assertFalse(TimetableDay.objects.exists())
+
+    def test_draft_list_resumes_latest_edits_and_is_private(self):
+        token = self.upload().context['document_token']
+        changed = [{**self.row, 'end_time': '10:00', 'reviewed': False}]
+        saved = self.client.post(self.url, {'action': 'save', 'document_token': token,
+            'rows': json.dumps(changed), **self.options})
+        listing = self.client.get(self.url)
+        self.assertEqual(len(listing.context['saved_drafts']), 1)
+        draft = listing.context['saved_drafts'][0]
+        self.assertEqual(draft['filename'], 'example.jpg')
+        resumed = self.client.get(self.url, {'review': draft['token']})
+        self.assertEqual(resumed.context['rows'], changed)
+        self.assertEqual(draft['token'], saved.context['document_token'])
+        other = get_user_model().objects.create_superuser(username='draft-list-other', email='draft-list@oauife.edu.ng', password='local-test')
+        self.client.force_login(other)
+        self.assertEqual(self.client.get(self.url).context['saved_drafts'], [])
+
+    def test_expired_missing_and_imported_drafts_leave_the_list(self):
+        token = self.upload().context['document_token']
+        payload = signing.loads(token, salt=DOCUMENT_SALT)
+        with patch('django.core.signing.time.time', return_value=time.time() + DOCUMENT_TTL + 10):
+            self.assertEqual(self.client.get(self.url).context['saved_drafts'], [])
+        self.draft_cache.delete(payload['key'])
+        self.assertEqual(self.client.get(self.url).context['saved_drafts'], [])
+        fresh = self.upload().context['document_token']
+        self.assertEqual(self.confirm(self.review(fresh)).status_code, 302)
+        self.assertEqual(self.client.get(self.url).context['saved_drafts'], [])
 
     def test_invalid_json_and_review_values_return_errors(self):
         token = self.upload().context["document_token"]
@@ -733,7 +812,7 @@ class DocumentWorkflowTests(TestCase):
         self.assertContains(
             self.review(token, last_date="2032-01-01"), "teaching period"
         )
-        rows = [{**self.row, "start_time": "08:00"} for _ in range(25)]
+        rows = [{**self.row, "start_time": "08:00"} for _ in range(301)]
         self.assertContains(
-            self.review(token, rows, last_date="2031-01-07"), "more than 1000 classes"
+            self.review(token, rows, last_date="2031-01-07"), "at most 300 rows"
         )

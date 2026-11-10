@@ -16,6 +16,25 @@ class Course(models.Model):
         return f"{self.code} — {self.title}"
 
 
+class TimetableImageImport(models.Model):
+    """Shared provenance for classes confirmed together, not a new admin category."""
+    filename = models.CharField(max_length=255)
+    department = models.CharField(max_length=150, blank=True)
+    faculty = models.CharField(max_length=150, blank=True)
+    academic_session = models.CharField(max_length=30)
+    semester = models.CharField(max_length=20, blank=True)
+    source_version = models.CharField(max_length=100, blank=True)
+    first_date = models.DateField()
+    last_date = models.DateField()
+    exclude_dates = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return " · ".join(filter(None, (
+            self.department, self.academic_session, self.semester, self.source_version,
+        )))
+
+
 class TimetableDay(models.Model):
     # Keep the existing model name/admin URL while each row now represents
     # one scheduled class, rather than a day containing separate lectures.
@@ -30,6 +49,10 @@ class TimetableDay(models.Model):
         Course, on_delete=models.PROTECT, related_name="timetables", null=True, blank=True,
     )
     academic_session = models.CharField(max_length=30, blank=True)
+    image_import = models.ForeignKey(
+        TimetableImageImport, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="classes", editable=False,
+    )
     is_cancelled = models.BooleanField(
         default=False,
         help_text="Cancel this class to release its time slot while keeping the timetable record.",
