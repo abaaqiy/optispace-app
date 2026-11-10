@@ -2,25 +2,24 @@ import json
 import os
 import shutil
 import time
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from unittest import skipUnless
 from unittest.mock import patch
-from tempfile import TemporaryDirectory
 
 from django.contrib.admin.models import LogEntry
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.core.cache.backends.filebased import FileBasedCache
 from django.core import signing
 from django.test import Client, SimpleTestCase, TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from rooms.models import Building, Room
 from rooms.catalog import BUILDING_NAMES
 
 from .document_admin import DOCUMENT_TTL, DOCUMENT_SALT
-from .models import Course, TimetableDay
+from .models import Course, TimetableDay, TimetableImageDraft
 from .services.document_extract import (
     Cell,
     clock_range,
@@ -383,13 +382,7 @@ class DocumentWorkflowTests(TestCase):
         )
 
     def setUp(self):
-        # Tests must never fill/evict real administrator drafts in the shared cache.
-        directory = TemporaryDirectory(prefix='optispace-draft-test-')
-        self.addCleanup(directory.cleanup)
-        self.draft_cache = FileBasedCache(directory.name, {'TIMEOUT': DOCUMENT_TTL})
-        patcher = patch('scheduling.document_admin.document_cache', return_value=self.draft_cache)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        # Drafts use the isolated test database, never real administrator storage.
         self.client.force_login(self.admin)
         self.url = reverse("admin:scheduling_timetableday_document")
         self.options = {
@@ -553,6 +546,7 @@ class DocumentWorkflowTests(TestCase):
         )
         self.assertContains(self.confirm(preview), "overlaps saved timetable")
         self.assertEqual(TimetableDay.objects.count(), 1)
+        self.assertTrue(TimetableImageDraft.objects.exists())
         with patch(
             "django.core.signing.time.time", return_value=time.time() + DOCUMENT_TTL + 1
         ):
@@ -678,13 +672,14 @@ class DocumentWorkflowTests(TestCase):
         )
 
     def test_saved_draft_renews_token_and_invalidates_old_preview(self):
+        started = timezone.now()
         token = self.upload().context["document_token"]
         previous = self.review(token)
         changed = [{**self.row, "course": "", "reviewed": False}]
         with patch(
             "django.core.signing.time.time",
-            return_value=time.time() + DOCUMENT_TTL - 10,
-        ):
+            return_value=started.timestamp() + DOCUMENT_TTL - 10,
+        ), patch('django.utils.timezone.now', return_value=started + timedelta(seconds=DOCUMENT_TTL - 10)):
             saved = self.client.post(
                 self.url,
                 {
@@ -699,22 +694,22 @@ class DocumentWorkflowTests(TestCase):
         self.assertContains(self.confirm(previous), "invalid or expired")
         with patch(
             "django.core.signing.time.time",
-            return_value=time.time() + DOCUMENT_TTL + 10,
-        ):
+            return_value=started.timestamp() + DOCUMENT_TTL + 10,
+        ), patch('django.utils.timezone.now', return_value=started + timedelta(seconds=DOCUMENT_TTL + 10)):
             response = self.review(saved.context["document_token"])
         self.assertTrue(response.context["preview_token"])
         self.assertFalse(TimetableDay.objects.exists())
 
     def test_draft_and_image_survive_six_hours_but_expire_after_seven(self):
         self.assertEqual(DOCUMENT_TTL, 7 * 60 * 60)
-        started = time.time()
+        started = timezone.now()
         token = self.upload().context['document_token']
-        with patch('time.time', return_value=started + 6 * 60 * 60):
+        with patch('time.time', return_value=started.timestamp() + 6 * 60 * 60), patch('django.utils.timezone.now', return_value=started + timedelta(hours=6)):
             response = self.client.get(self.url, {'review': token})
             self.assertEqual(response.context['document_token'], token)
             self.assertEqual(response.context['document']['pages'][0]['image'], b'jpeg')
             self.assertEqual(len(response.context['saved_drafts']), 1)
-        with patch('time.time', return_value=started + 7 * 60 * 60 + 10):
+        with patch('time.time', return_value=started.timestamp() + 7 * 60 * 60 + 10), patch('django.utils.timezone.now', return_value=started + timedelta(hours=7, seconds=10)):
             response = self.client.get(self.url, {'review': token})
             self.assertContains(response, 'expired or is invalid')
             self.assertEqual(response.context['saved_drafts'], [])
@@ -803,9 +798,9 @@ class DocumentWorkflowTests(TestCase):
     def test_expired_missing_and_imported_drafts_leave_the_list(self):
         token = self.upload().context['document_token']
         payload = signing.loads(token, salt=DOCUMENT_SALT)
-        with patch('django.core.signing.time.time', return_value=time.time() + DOCUMENT_TTL + 10):
+        with patch('django.utils.timezone.now', return_value=timezone.now() + timedelta(seconds=DOCUMENT_TTL + 10)):
             self.assertEqual(self.client.get(self.url).context['saved_drafts'], [])
-        self.draft_cache.delete(payload['key'])
+        TimetableImageDraft.objects.filter(pk=payload['key']).delete()
         self.assertEqual(self.client.get(self.url).context['saved_drafts'], [])
         fresh = self.upload().context['document_token']
         self.assertEqual(self.confirm(self.review(fresh)).status_code, 302)

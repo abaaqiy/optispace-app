@@ -1,4 +1,5 @@
 from django.core.exceptions import ValidationError
+from django.conf import settings
 from django.db import models
 
 from .services.locking import lock_rooms
@@ -47,6 +48,23 @@ class TimetableImageImport(models.Model):
         return " · ".join(filter(None, (
             self.department, self.academic_session, self.semester, self.source_version,
         )))
+
+
+class TimetableImageDraft(models.Model):
+    """Private, expiring review state; deliberately not an admin category."""
+    key = models.CharField(max_length=64, primary_key=True, editable=False)
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='timetable_image_drafts')
+    filename = models.CharField(max_length=255)
+    document = models.JSONField()
+    image = models.BinaryField(editable=False)
+    saved_at = models.DateTimeField()
+    expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        ordering = ['-saved_at']
+
+    def __str__(self):
+        return self.filename
 
 
 class TimetableDay(models.Model):

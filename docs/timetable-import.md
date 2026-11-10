@@ -158,8 +158,9 @@ remain available**, including dated lectures and bulk corrections.
    shown on its edit page; no extra scheduling category is added.
 
 The November restructure is local development work, not deployed. Migration
-`scheduling.0006` adds optional import provenance and `scheduling.0007` adds the
-explicit pending-title flag; apply them only to the explicitly configured local
+`scheduling.0006` adds optional import provenance, `scheduling.0007` adds the
+explicit pending-title flag and `scheduling.0008` adds durable private image drafts;
+apply them only to the explicitly configured local
 database while testing. The CSV columns remain unchanged; exported clock times
 now use AM/PM, and the importer accepts both formats.
 
@@ -190,9 +191,11 @@ there, so its title remains unverified. These observations are test findings, no
 department-specific automatic corrections.
 
 Drafts expire seven hours after upload or their latest save/validation. Saving
-renews both the signed link and cached image/review. Already expired or cleared
-drafts cannot be recovered; re-upload those images. Existing unsaved drafts keep
-their original cache expiry until saved under the new version.
+renews both the signed link and the database expiry. Reopening or refreshing a
+draft list does not extend this expiry. Time while the computer is off counts
+towards the seven hours. Save before closing the browser or rebooting; unsaved
+browser edits cannot be recovered. Legacy drafts cleared from the old temporary
+cache cannot be recovered from the original image without reviewing it again.
 
 ### OCR and hosting
 
@@ -225,15 +228,35 @@ for the OCR process. A separate Gunicorn test, including a 20-megapixel upload,
 peaked at approximately 345 MB of proportional memory across the web server and
 OCR processes. These are local measurements, not a guarantee for every upload.
 
-Sources and drafts are stored in a private temporary cache accessible only to the
-uploading administrator with a signed token. **Save draft** extends the seven-hour
-review period. Reopen **Timetables → Import Image → Your saved image drafts** and
-select the filename. The list shows save/expiry times and only your own reviews;
-expired, evicted and imported reviews disappear. You can also bookmark
-**Resume saved draft** after saving. Older drafts created before this list was
-introduced appear after saving them again with their original link. Temporary
-storage cleanup or replacement can remove drafts. Importing deletes the temporary
-review; saved classes and source metadata remain in PostgreSQL (migration 0006).
+Source images and draft metadata are stored together in the configured PostgreSQL
+database (`scheduling.0008`), with the uploading administrator and explicit
+save/expiry timestamps. Images use a binary column; corrections, proposals,
+headings and teaching dates use JSON. No cache, temporary file or in-memory index
+is needed to reopen a saved draft. PC/app/database restarts do not remove it when
+the same persistent database is used. Local development keeps these rows in the
+isolated local PostgreSQL database, not hosted production.
+
+For a one-time upgrade, stop the old app process, apply migration `0008`, then
+run `python backend/manage.py migrate_legacy_image_drafts` with the same database,
+signing key and operating-system user as the old app. This moves surviving,
+unexpired temporary drafts into PostgreSQL, preserving their owner, saved edits
+and original expiry. It retires the old cache copies only after committing the
+database save. Restart the app afterward. Already cleared or expired temporary
+drafts cannot be restored by this command.
+
+Reopen **Timetables → Import Image → Your saved image drafts** and select the
+filename. Only the owner's unexpired drafts are listed. The list generates fresh
+signed links, including after a signing-key change; database expiry is still
+enforced. Other admins cannot read the draft. Importing and removing its draft
+are one database transaction, so a failed import preserves the review. Deleting
+the owner also deletes their drafts. No new admin category is added.
+
+Expired drafts and images are removed when drafts are listed or saved. There is
+no size-based eviction of active drafts. For installations that need cleanup
+even when no admin visits, run `python backend/manage.py cleanup_image_drafts`
+periodically with the intended database configuration. Database backups should
+be treated as private because they now include unexpired source images. No paid
+storage service is needed.
 
 ### Local installation and testing
 

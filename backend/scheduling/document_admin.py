@@ -1,22 +1,18 @@
 """Permission-protected upload → edit → validate → apply document workflow."""
 
 import json
-import os
 from pathlib import Path
 import secrets
-import tempfile
-from datetime import timedelta
 
 from django import forms
 from django.contrib import messages
 from django.core import signing
-from django.core.cache.backends.filebased import FileBasedCache
+from django.db import transaction
 from django.core.exceptions import PermissionDenied
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils.decorators import method_decorator
-from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods
 from rooms.catalog import BUILDING_NAMES, ROOM_TYPES, ROOM_CATALOGUE, CAMPUS_ZONES
 from rooms.models import Building, Facility
@@ -32,8 +28,9 @@ from .services.timetable_import import ImportProblem
 from .services.document_plan import image_plan, apply_image
 from .services.course_catalog import catalogue_coverage, catalogue_payload, handbook_file
 
-DOCUMENT_SALT = "scheduling.image-review.v3"
-DOCUMENT_TTL = 7 * 60 * 60
+from .services.document_drafts import (
+    DOCUMENT_SALT, DOCUMENT_TTL, get_draft, load_document, save_document, saved_drafts, unpack_document,
+)
 
 
 class DocumentUploadForm(forms.Form):
@@ -63,59 +60,6 @@ class DocumentUploadForm(forms.Form):
                 "Upload a PNG or JPEG lecture timetable image. PDF is no longer supported; CSV has its own importer."
             )
         return upload
-
-
-def document_cache():
-    directory = Path(tempfile.gettempdir()) / f"optispace-document-review-{os.getuid()}"
-    directory.mkdir(mode=0o700, exist_ok=True)
-    return FileBasedCache(
-        str(directory), {"TIMEOUT": DOCUMENT_TTL, "OPTIONS": {"MAX_ENTRIES": 80}}
-    )
-
-
-def load_document(token, user):
-    try:
-        payload = signing.loads(token, salt=DOCUMENT_SALT, max_age=DOCUMENT_TTL)
-        if payload["user"] != user.pk:
-            raise signing.BadSignature
-        document = document_cache().get(payload["key"])
-        if document is None:
-            raise signing.BadSignature
-        return payload, document
-    except (signing.BadSignature, KeyError, TypeError) as error:
-        raise ImportProblem(
-            "This review expired or is invalid. Upload the document again. Reviews last seven hours; save your draft regularly."
-        ) from error
-
-
-def remember_draft(token, user, document):
-    """Index this owner's temporary reviews; the signed document remains authoritative."""
-    cache = document_cache()
-    key = f"image-drafts-user-{user.pk}"
-    payload = signing.loads(token, salt=DOCUMENT_SALT, max_age=DOCUMENT_TTL)
-    now = timezone.now()
-    drafts = {key: value for key, value in cache.get(key, {}).items()
-              if value['expires_at'] > now}
-    drafts[payload['key']] = {
-        'token': token, 'filename': document.get('filename', 'Timetable image'),
-        'saved_at': now, 'expires_at': now + timedelta(seconds=DOCUMENT_TTL),
-    }
-    cache.set(key, dict(sorted(drafts.items(), key=lambda item: item[1]['saved_at'], reverse=True)[:60]))
-
-
-def saved_drafts(user):
-    cache = document_cache()
-    drafts = cache.get(f"image-drafts-user-{user.pk}", {})
-    active = []
-    for draft in drafts.values():
-        try:
-            payload = signing.loads(draft['token'], salt=DOCUMENT_SALT, max_age=DOCUMENT_TTL)
-            if payload['user'] != user.pk or not cache.has_key(payload['key']):
-                continue
-        except (signing.BadSignature, KeyError, TypeError):
-            continue
-        active.append(draft)
-    return sorted(active, key=lambda draft: draft['saved_at'], reverse=True)
 
 
 class TimetableDocumentAdminMixin:
@@ -208,12 +152,7 @@ class TimetableDocumentAdminMixin:
                         for field in ("academic_session", "department", "faculty", "semester", "source_version"):
                             options[field] = metadata.get(field, "")
                         document["review_options"] = options.copy()
-                        key = secrets.token_urlsafe(32)
-                        document_cache().set(key, document)
-                        token = signing.dumps(
-                            {"key": key, "user": request.user.pk}, salt=DOCUMENT_SALT
-                        )
-                        remember_draft(token, request.user, document)
+                        token = save_document(document, request.user)
                         rows = document["rows"]
                 elif action in {"review", "confirm", "save", "refresh"}:
                     token = request.POST.get("document_token", "")
@@ -223,36 +162,41 @@ class TimetableDocumentAdminMixin:
                     coverage_checked = document.get("coverage_checked", False)
                     pending = document.get("pending", pending)
                     if action == "confirm":
-                        try:
-                            confirmed = signing.loads(
-                                request.POST.get("preview", ""),
-                                salt=DOCUMENT_SALT + ".apply",
-                                max_age=DOCUMENT_TTL,
-                            )
-                            if (
-                                confirmed["user"] != request.user.pk
-                                or confirmed["document"] != payload["key"]
-                                or confirmed.get("version")
-                                != document.get("preview_version")
-                            ):
-                                raise signing.BadSignature
-                        except (signing.BadSignature, KeyError, TypeError) as error:
-                            raise ImportProblem(
-                                "This preview is invalid or expired. Validate the reviewed rows again."
-                            ) from error
+                        with transaction.atomic():
+                            draft = get_draft(token, request.user, lock=True)
+                            document = unpack_document(draft)
+                            options = document.get('review_options', options).copy()
+                            pending = document.get('pending', pending)
+                            try:
+                                confirmed = signing.loads(
+                                    request.POST.get("preview", ""),
+                                    salt=DOCUMENT_SALT + ".apply",
+                                    max_age=DOCUMENT_TTL,
+                                )
+                                if (
+                                    confirmed["user"] != request.user.pk
+                                    or confirmed["document"] != payload["key"]
+                                    or confirmed.get("version")
+                                    != document.get("preview_version")
+                                ):
+                                    raise signing.BadSignature
+                            except (signing.BadSignature, KeyError, TypeError) as error:
+                                raise ImportProblem(
+                                    "This preview is invalid or expired. Validate the reviewed rows again."
+                                ) from error
 
-                        def log(entry, action):
-                            (self.log_addition if action == "Add" else self.log_change)(
-                                request,
-                                entry,
-                                "Imported from an administrator-reviewed lecture timetable image.",
-                            )
+                            def log(entry, action):
+                                (self.log_addition if action == "Add" else self.log_change)(
+                                    request,
+                                    entry,
+                                    "Imported from an administrator-reviewed lecture timetable image.",
+                                )
 
-                        counts = apply_image(
-                            document["review_rows"], options, pending,
-                            confirmed["fingerprint"], request.user, document.get("filename", "Timetable image"), log,
-                        )
-                        document_cache().delete(payload["key"])
+                            counts = apply_image(
+                                document["review_rows"], options, pending,
+                                confirmed["fingerprint"], request.user, document.get("filename", "Timetable image"), log,
+                            )
+                            draft.delete()
                         self.message_user(
                             request,
                             f"Timetable import complete: {counts['Add']} added, {counts['Unchanged']} unchanged; {counts['courses']} courses and {counts['rooms']} rooms created. Room availability will update automatically.",
@@ -316,12 +260,7 @@ class TimetableDocumentAdminMixin:
                         ]] for key, value in refs.items()}
                         rows = refresh_rows(rows, draft_refs)
                         document["review_rows"] = rows
-                    document_cache().set(payload["key"], document)
-                    token = signing.dumps(
-                        {"key": payload["key"], "user": request.user.pk},
-                        salt=DOCUMENT_SALT,
-                    )
-                    remember_draft(token, request.user, document)
+                    token = save_document(document, request.user, token=token)
                     if action in {"save", "refresh"}:
                         self.message_user(
                             request,
@@ -342,7 +281,7 @@ class TimetableDocumentAdminMixin:
                         document["preview_records"] = {
                             key: [str(obj) for _, obj, _ in values] for key, values in staged.items()
                         }
-                        document_cache().set(payload["key"], document)
+                        token = save_document(document, request.user, token=token)
                         preview = signing.dumps(
                             {
                                 "fingerprint": fingerprint,
