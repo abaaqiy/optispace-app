@@ -57,6 +57,8 @@ class TimetableImportAdminMixin:
         return super().changelist_view(request, {
             **(extra_context or {}), "can_import": self.has_import_permission(request),
             "timetable_export_url": export_url,
+            "can_manage_semesters": request.user.has_perm('scheduling.view_academicsemester')
+            or request.user.has_perm('scheduling.change_academicsemester'),
         })
 
     @method_decorator(require_http_methods(["GET", "POST"]))

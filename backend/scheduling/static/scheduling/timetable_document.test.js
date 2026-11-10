@@ -80,6 +80,25 @@ test('unknown title needs explicit confirmation and survives saving and resuming
   assert.equal(resumed.field(proposed, 'Course title').disabled, true);
 });
 
+test('selecting a saved semester shows its shared dates and invalidates the old preview', t => {
+  const e = editor(t);
+  assert.equal(e.document.querySelector('input[name="first_date"]'), null);
+  assert.equal(e.document.querySelector('input[name="last_date"]'), null);
+  const select = e.document.getElementById('teaching-semester');
+  const option = e.document.createElement('option');
+  option.value = '12'; option.textContent = '2029/2030 — Rain';
+  option.dataset.period = '7 Jan 2030 – 21 Jan 2030'; option.dataset.breaks = '2030-01-14';
+  select.append(option);
+  const preview = e.document.getElementById('document-final-preview');
+  preview.hidden = false;
+  e.change(select, '12');
+  assert.match(e.document.getElementById('semester-dates-summary').textContent, /7 Jan 2030 – 21 Jan 2030/);
+  assert.match(e.document.getElementById('semester-dates-summary').textContent, /2030-01-14/);
+  assert.equal(preview.hidden, true);
+  const form = new e.window.FormData(e.document.getElementById('document-review'));
+  assert.equal(form.get('teaching_semester'), '12');
+});
+
 test('one OCR correction preserves other entries, timing, venue and original reading', t => {
   const e = editor(t, [row('CSC107'), { ...row('CSC107'), day: 'Tuesday', start_time: '10:00', end_time: '11:00' }]);
   const group = e.mapping('CSC107');

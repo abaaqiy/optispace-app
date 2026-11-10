@@ -13,6 +13,7 @@ from scheduling.models import Course, TimetableDay, TimetableImageImport
 
 from .document_review import normalise, references, reviewed_csv
 from .locking import lock_rooms
+from .semesters import semester_options
 from .timetable_import import (
     ImportProblem, build_plan, parse_csv, resolve_rows,
 )
@@ -146,6 +147,7 @@ def stage_references(pending, rows, user):
 
 
 def image_plan(rows, options, pending, user):
+    options = semester_options(options)
     check_metadata(options)
     staged, refs = stage_references(pending, rows, user)
     replacements = {kind[:-1]: {key: obj.code for key, obj, _ in staged[kind]} for kind in ("courses", "rooms")}
@@ -173,6 +175,7 @@ def apply_image(rows, options, pending, expected, user, filename, log):
             # locks below also coordinate with reservations and CSV imports.
             with connection.cursor() as cursor:
                 cursor.execute("SELECT pg_advisory_xact_lock(%s)", [739184020])
+            options = semester_options(options, lock=True)
             plan, staged, text, fingerprint = image_plan(rows, options, pending, user)
             existing_rooms = {row.room.pk for row in plan.rows if row.room.pk > 0}
             with lock_rooms(existing_rooms):
@@ -182,7 +185,7 @@ def apply_image(rows, options, pending, expected, user, filename, log):
                 list(Course.objects.select_for_update().filter(pk__in=course_ids).order_by("pk"))
                 plan, staged, text, fingerprint = image_plan(rows, options, pending, user)
                 if fingerprint != expected:
-                    raise ImportProblem("The records, timetable or approved reservations changed after preview. Validate again.")
+                    raise ImportProblem("The semester settings, records, timetable or approved reservations changed after preview. Validate again.")
                 for entries in staged.values():
                     for _, obj, form in entries:
                         obj.pk = None
@@ -198,6 +201,7 @@ def apply_image(rows, options, pending, expected, user, filename, log):
                 if new_rows:
                     source = TimetableImageImport.objects.create(
                         filename=filename[:255],
+                        teaching_semester_id=options['teaching_semester'],
                         **{key: options.get(key, "").strip() for key in (
                             "department", "faculty", "academic_session", "semester", "source_version",
                             "first_date", "last_date", "exclude_dates",

@@ -19,7 +19,7 @@ from rooms.models import Building, Room
 from rooms.catalog import BUILDING_NAMES
 
 from .document_admin import DOCUMENT_TTL, DOCUMENT_SALT
-from .models import Course, TimetableDay, TimetableImageDraft
+from .models import AcademicSemester, Course, TimetableDay, TimetableImageDraft
 from .services.document_extract import (
     Cell,
     clock_range,
@@ -385,12 +385,13 @@ class DocumentWorkflowTests(TestCase):
         # Drafts use the isolated test database, never real administrator storage.
         self.client.force_login(self.admin)
         self.url = reverse("admin:scheduling_timetableday_document")
+        self.semester = AcademicSemester.objects.create(
+            academic_session='2029/2030', semester='Rain', first_date=date(2030, 1, 7),
+            last_date=date(2030, 1, 21), exclude_dates='2030-01-14',
+        )
         self.options = {
             "mode": "weekly",
-            "academic_session": "2029/2030",
-            "first_date": "2030-01-07",
-            "last_date": "2030-01-21",
-            "exclude_dates": "2030-01-14",
+            "teaching_semester": str(self.semester.pk),
         }
         self.row = {
             "course": "CHM102",
@@ -486,7 +487,7 @@ class DocumentWorkflowTests(TestCase):
         self.document['metadata'] = {'faculty': 'Faculty of Science', 'department': 'Chemistry',
                                      'semester': 'Rain', 'academic_session': '2029/2030', 'source_version': 'First Draft'}
         upload = self.upload()
-        self.assertEqual(upload.context['options']['semester'], 'Rain')
+        self.assertEqual(upload.context['options']['teaching_semester'], str(self.semester.pk))
         pending = {'courses': [{'key': 'draft-course-12345678', 'code': 'ICH204',
                                 'title': 'Industrial Chemistry', 'department': 'Chemistry'}], 'rooms': []}
         rows = [{**self.row, 'course': 'draft-course-12345678'}]
@@ -819,15 +820,43 @@ class DocumentWorkflowTests(TestCase):
             self.review(token, [{**self.row, "room": ["bad"]}]), "invalid field value"
         )
 
-    def test_teaching_period_and_expansion_limits(self):
+    def test_semester_required_and_old_date_inputs_cannot_override_its_dates(self):
         token = self.upload().context["document_token"]
-        self.assertContains(
-            self.review(token, last_date="2030-01-01"), "teaching period"
-        )
-        self.assertContains(
-            self.review(token, last_date="2032-01-01"), "teaching period"
-        )
+        self.assertContains(self.review(token, teaching_semester=''), 'Select a saved teaching semester')
+        self.assertContains(self.review(token, teaching_semester='999999'), 'no longer exists')
+        response = self.review(token, first_date='2025-01-01', last_date='2032-01-01',
+                               academic_session='tampered', semester='Harmattan', exclude_dates='')
+        self.assertEqual([row.values['date'] for row in response.context['plan'].rows],
+                         [date(2030, 1, 7), date(2030, 1, 21)])
+        self.assertTrue(all(row.values['academic_session'] == '2029/2030' for row in response.context['plan'].rows))
         rows = [{**self.row, "start_time": "08:00"} for _ in range(301)]
-        self.assertContains(
-            self.review(token, rows, last_date="2031-01-07"), "at most 300 rows"
-        )
+        self.assertContains(self.review(token, rows), 'at most 300 rows')
+
+    def test_date_fields_removed_and_draft_can_be_saved_before_semester_setup(self):
+        self.semester.delete()
+        uploaded = self.upload()
+        self.assertNotContains(uploaded, 'First teaching date:')
+        self.assertNotContains(uploaded, 'Last teaching date:')
+        self.assertContains(uploaded, 'No semesters are configured yet')
+        saved = self.client.post(self.url, {'action': 'save', 'document_token': uploaded.context['document_token'],
+                                         'rows': json.dumps([self.row]), 'teaching_semester': ''})
+        self.assertFalse(saved.context['errors'])
+        self.assertContains(saved, 'Draft saved for 24 hours')
+        resumed = self.client.get(self.url, {'review': saved.context['document_token']})
+        self.assertEqual(resumed.context['rows'], [self.row])
+
+    def test_legacy_draft_keeps_edits_and_suggests_matching_semester(self):
+        token = self.upload().context['document_token']
+        draft = TimetableImageDraft.objects.get()
+        draft.document['review_options'] = {'academic_session': '2029/2030', 'semester': 'Rain',
+                                          'first_date': '2020-01-01', 'last_date': '2020-12-01'}
+        draft.document['review_rows'] = [{**self.row, 'end_time': '10:00'}]
+        draft.save()
+        resumed = self.client.get(self.url, {'review': token})
+        self.assertEqual(resumed.context['rows'][0]['end_time'], '10:00')
+        self.assertEqual(resumed.context['options']['teaching_semester'], str(self.semester.pk))
+
+    def test_heading_without_exact_configured_match_does_not_guess_semester(self):
+        self.document['metadata'] = {'academic_session': '2024/2025', 'semester': 'Rain'}
+        uploaded = self.upload()
+        self.assertEqual(uploaded.context['options']['teaching_semester'], '')

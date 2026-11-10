@@ -7,7 +7,7 @@ from django.test import TestCase, SimpleTestCase
 from django.urls import reverse
 
 from rooms.models import Building, Room
-from scheduling.models import Course, TimetableDay, TimetableImageImport
+from scheduling.models import AcademicSemester, Course, TimetableDay, TimetableImageImport
 from scheduling.services.document_heading import parse_heading
 from scheduling.services.document_plan import image_plan, apply_image
 from scheduling.services.timetable_import import ImportProblem
@@ -33,9 +33,11 @@ class ImagePlanTests(TestCase):
     def setUp(self):
         self.admin = get_user_model().objects.create_superuser(username='imageplan', email='imageplan@oauife.edu.ng', password='Test-admin-728!')
         self.building = Building.objects.create(name='Chemistry test building', campus_zone='Faculty of Science')
-        self.options = {'mode': 'weekly', 'academic_session': '2029/2030', 'first_date': '2030-01-07',
-                        'last_date': '2030-01-14', 'exclude_dates': '', 'department': 'Chemistry',
-                        'faculty': 'Faculty of Science', 'semester': 'Rain', 'source_version': 'First Draft'}
+        self.semester = AcademicSemester.objects.create(
+            academic_session='2029/2030', semester='Rain', first_date=date(2030, 1, 7), last_date=date(2030, 1, 14),
+        )
+        self.options = {'mode': 'weekly', 'teaching_semester': str(self.semester.pk), 'department': 'Chemistry',
+                        'faculty': 'Faculty of Science', 'source_version': 'First Draft'}
         self.pending = {
             'courses': [{'key': 'draft-course-12345678', 'code': 'CHM 102', 'title': 'Introductory Chemistry', 'department': 'Chemistry'}],
             'rooms': [{'key': 'draft-room-12345678', 'name': 'CH 220', 'building': str(self.building.pk),
@@ -64,6 +66,9 @@ class ImagePlanTests(TestCase):
         source = TimetableImageImport.objects.get()
         self.assertEqual(source.faculty, 'Faculty of Science')
         self.assertEqual(source.semester, 'Rain')
+        self.assertEqual(source.teaching_semester, self.semester)
+        self.assertEqual(source.first_date, self.semester.first_date)
+        self.assertEqual(source.last_date, self.semester.last_date)
         self.assertEqual(source.classes.count(), 2)
 
     def test_new_building_is_shared_by_new_rooms_and_saved_only_at_confirmation(self):
@@ -191,10 +196,39 @@ class ImagePlanTests(TestCase):
         self.assertFalse(Course.objects.exists())
 
     def test_full_teaching_period_can_exceed_csv_thousand_class_limit(self):
-        self.options['last_date'] = '2031-01-07'
+        self.semester.last_date = date(2031, 1, 7)
+        self.semester.save()
         self.rows = [{**self.rows[0], 'start_time': f'{hour:02d}:{minute:02d}',
                       'end_time': f'{hour:02d}:{minute + 10:02d}'}
                      for hour in range(8, 13) for minute in (0, 10, 20, 30)]
         plan, _, _, _ = self.preview()
         self.assertGreater(len(plan.rows), 1000)
         self.assertFalse(TimetableDay.objects.exists())
+
+    def test_semester_changes_invalidate_preview_and_preserve_all_records(self):
+        *_, fingerprint = self.preview()
+        self.semester.last_date = date(2030, 1, 21)
+        self.semester.save()
+        with self.assertRaisesMessage(ImportProblem, 'changed after preview'):
+            self.confirm(fingerprint)
+        self.assertFalse(TimetableDay.objects.exists())
+        self.assertFalse(Room.objects.exists())
+        self.assertFalse(Course.objects.exists())
+        *_, updated = self.preview()
+        self.assertEqual(self.confirm(updated)['Add'], 3)
+        # No dated class is created after the configured final teaching day.
+        self.assertFalse(TimetableDay.objects.filter(date__gt=self.semester.last_date).exists())
+
+    def test_two_departments_share_semester_dates_without_reentering_dates(self):
+        *_, first = self.preview()
+        self.confirm(first)
+        self.options.update(department='Computing', faculty='Faculty of Computing Science and Engineering')
+        self.pending['courses'][0].update(code='CSC102', title='Computing', department='Computing')
+        self.pending['rooms'][0].update(name='Computing room', key='draft-room-87654321')
+        self.rows[0]['room'] = 'draft-room-87654321'
+        *_, second = self.preview()
+        self.confirm(second)
+        self.assertEqual(TimetableImageImport.objects.filter(teaching_semester=self.semester).count(), 2)
+        for source in TimetableImageImport.objects.all():
+            self.assertEqual(list(source.classes.order_by('date').values_list('date', flat=True)),
+                             [date(2030, 1, 7), date(2030, 1, 14)])

@@ -567,12 +567,16 @@
     });
     status();
   }
-  function updateMode() {
-    const weekly = mode.value === 'weekly';
-    document.getElementById('teaching-dates').hidden = !weekly;
-    for (const id of ['first-date', 'last-date']) document.getElementById(id).required = weekly;
+  const teachingSemester = document.getElementById('teaching-semester');
+  function semesterSummary() {
+    const option = teachingSemester.selectedOptions[0];
+    document.getElementById('semester-dates-summary').textContent = option?.value
+      ? `Weekly lectures: ${option.dataset.period}. ${option.dataset.breaks ? `Break / holiday dates: ${option.dataset.breaks}.` : 'No break dates configured.'}`
+      : 'Select a saved session and semester. Set its teaching dates once in Semester settings.';
   }
-  mode.addEventListener('change', () => { rows.forEach(row => { row.reviewed = false; }); updateMode(); render(); invalidate(); });
+  const semesterChanged = () => { semesterSummary(); invalidate(); };
+  teachingSemester.addEventListener('change', semesterChanged);
+  window.django?.jQuery(teachingSemester).on('change.semester', semesterChanged);
   form.querySelector('.document-options').addEventListener('input', invalidate);
   document.getElementById('add-review-row').addEventListener('click', () => {
     if (rows.length >= 300) { window.alert('Review at most 300 rows per document.'); return; }
@@ -605,5 +609,5 @@
     });
     invalidate(); headings(); render();
   });
-  updateMode(); mappings(); headings(); render();
+  semesterSummary(); mappings(); headings(); render();
 })();

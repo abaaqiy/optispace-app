@@ -8,9 +8,23 @@ from django.views.decorators.http import require_GET
 from .forms import TimetableAdminForm
 from .import_admin import TimetableImportAdminMixin
 from .document_admin import TimetableDocumentAdminMixin
-from .models import Course, TimetableDay
+from .models import AcademicSemester, Course, TimetableDay
 from .services.locking import lock_rooms
 from .services.course_catalog import catalogue_payload, handbook_file
+
+
+@admin.register(AcademicSemester)
+class AcademicSemesterAdmin(admin.ModelAdmin):
+    change_list_template = 'scheduling/admin/semester_change_list.html'
+    change_form_template = 'scheduling/admin/semester_change_form.html'
+    fields = ('academic_session', 'semester', 'first_date', 'last_date', 'exclude_dates')
+    list_display = ('academic_session', 'semester', 'first_date', 'last_date')
+    list_filter = ('semester',)
+    search_fields = ('academic_session',)
+
+    def get_model_perms(self, request):
+        # Shared settings live under Timetables, not a third scheduling category.
+        return {}
 
 
 @admin.register(Course)

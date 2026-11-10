@@ -1,0 +1,12 @@
+{% extends "admin/change_list.html" %}
+
+{% block breadcrumbs %}
+<ol class="breadcrumbs"><li><a href="{% url 'admin:index' %}">Home</a></li><li><a href="{% url 'admin:scheduling_timetableday_changelist' %}">Timetables</a></li><li aria-current="page">Semester settings</li></ol>
+{% endblock %}
+
+{% block content %}
+<p>Set teaching dates and optional breaks once for each academic session and semester. Every image import that selects that semester uses these dates.</p>
+<p>Changes apply when an image is validated and imported. Already imported classes keep their saved dates; edit those classes in Timetables if they need changing.</p>
+<p><a href="{% url 'admin:scheduling_timetableday_document' %}">Return to image import</a> · <a href="{% url 'admin:scheduling_timetableday_changelist' %}">Return to Timetables</a></p>
+{{ block.super }}
+{% endblock %}

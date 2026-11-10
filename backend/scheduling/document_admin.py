@@ -18,6 +18,7 @@ from rooms.catalog import BUILDING_NAMES, ROOM_TYPES, ROOM_CATALOGUE, CAMPUS_ZON
 from rooms.models import Building, Facility
 from rooms.forms import SearchableSelect
 
+from .models import AcademicSemester
 from .services.document_extract import MAX_DRAFT_ROWS, MAX_UPLOAD, extract_document
 from .services.document_review import (
     prepare_rows,
@@ -27,6 +28,7 @@ from .services.document_review import (
 from .services.timetable_import import ImportProblem
 from .services.document_plan import image_plan, apply_image
 from .services.course_catalog import catalogue_coverage, catalogue_payload, handbook_file
+from .services.semesters import suggested_semester
 
 from .services.document_drafts import (
     DOCUMENT_SALT, DOCUMENT_TTL, get_draft, load_document, save_document, saved_drafts, unpack_document,
@@ -120,11 +122,8 @@ class TimetableDocumentAdminMixin:
         refs = references()
         options = {
             "mode": "weekly",
-            "academic_session": "",
-            "first_date": "",
-            "last_date": "",
-            "exclude_dates": "",
-            "department": "", "faculty": "", "semester": "", "source_version": "",
+            "teaching_semester": "",
+            "department": "", "faculty": "", "source_version": "",
         }
         if request.method == "GET" and request.GET.get("review"):
             token = request.GET["review"]
@@ -149,8 +148,9 @@ class TimetableDocumentAdminMixin:
                         document["rows"] = prepare_rows(document["rows"], refs)
                         document["filename"] = form.cleaned_data["document"].name
                         metadata = document.get("metadata", {})
-                        for field in ("academic_session", "department", "faculty", "semester", "source_version"):
+                        for field in ("department", "faculty", "source_version"):
                             options[field] = metadata.get(field, "")
+                        options['teaching_semester'] = str(suggested_semester(metadata) or '')
                         document["review_options"] = options.copy()
                         token = save_document(document, request.user)
                         rows = document["rows"]
@@ -207,8 +207,9 @@ class TimetableDocumentAdminMixin:
                                 f"{self.admin_site.name}:scheduling_timetableday_changelist"
                             )
                         )
-                    for key in options:
-                        options[key] = request.POST.get(key, "")[:2000]
+                    options = {key: request.POST.get(key, '')[:2000] for key in (
+                        'teaching_semester', 'department', 'faculty', 'source_version',
+                    )}
                     options["mode"] = "weekly"
                     raw = request.POST.get("rows", "[]")
                     if len(raw) > 700_000:
@@ -300,6 +301,9 @@ class TimetableDocumentAdminMixin:
                 errors = error.errors
                 if document and not rows:
                     rows = document["rows"]
+        if 'teaching_semester' not in options:
+            # Preserve old drafts and suggest a matching centrally saved semester.
+            options['teaching_semester'] = str(suggested_semester(options) or '')
         context = {
             **self.admin_site.each_context(request),
             "opts": self.model._meta,
@@ -327,6 +331,9 @@ class TimetableDocumentAdminMixin:
                 "can_add_building": request.user.has_perm("rooms.add_building"),
             },
             "options": options,
+            "teaching_semesters": AcademicSemester.objects.all(),
+            "can_manage_semesters": request.user.has_perm('scheduling.view_academicsemester')
+            or request.user.has_perm('scheduling.change_academicsemester'),
             "coverage_checked": coverage_checked,
             "plan": plan,
             "preview_token": preview,

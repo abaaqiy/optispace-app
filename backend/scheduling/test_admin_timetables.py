@@ -1,6 +1,5 @@
 from datetime import date, time
 
-from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
@@ -26,7 +25,9 @@ class TimetableAdminTests(TestCase):
         return self.client.post(url, data)
 
     def test_only_two_categories_and_timetable_cancellation_field(self):
-        self.assertEqual({m.__name__ for m in admin.site._registry if m._meta.app_label == "scheduling"}, {"Course", "TimetableDay"})
+        index = self.client.get(reverse('admin:index'))
+        app = next(app for app in index.context['app_list'] if app['app_label'] == 'scheduling')
+        self.assertEqual({model['object_name'] for model in app['models']}, {'Course', 'TimetableDay'})
         response = self.client.get(reverse("admin:scheduling_timetableday_add"))
         self.assertEqual(set(response.context["adminform"].form.fields), {"room", "date", "start_time", "end_time", "course", "academic_session", "is_cancelled"})
         self.assertEqual(response.context["inline_admin_formsets"], [])

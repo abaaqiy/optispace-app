@@ -107,9 +107,11 @@ remain available**, including dated lectures and bulk corrections.
 1. Upload one clear image with its weekday/time headings. Detection supports
    Law-style stacked cells, Administration course/room cells, Chemistry Course/Venue
    columns, and Pharmacy Part II–V grids with times across the top.
-2. **Confirm shared details**: faculty, department, session, semester and source
-   version are suggested from the heading where readable. Enter the first/last
-   teaching dates and optional excluded dates once. A faculty-wide timetable may
+2. **Confirm shared details**: faculty, department and source version are suggested
+   from the heading where readable. Select the saved **Teaching semester**; the
+   session, teaching dates and breaks come from its shared settings. An exact
+   session/semester heading match suggests a saved semester, but never invents
+   dates. A faculty-wide timetable may
    have no department. Do not infer every course's department or a venue's building
    from the heading; shared university spaces can belong to other faculties.
 3. Resolve unique course/venue labels once. Match existing records (including
@@ -157,10 +159,37 @@ remain available**, including dated lectures and bulk corrections.
    image provenance (faculty, department, semester, version, dates and filename)
    shown on its edit page; no extra scheduling category is added.
 
+### Shared semester settings
+
+Open **Timetables → Semester settings → Add semester setting**. Save the academic
+session, Harmattan/Rain semester, teaching start/end dates and optional holiday or
+break dates once. All departments can then select the same semester during image
+review. Settings use Django's normal administrator add/change/view/delete
+permissions and remain inside Timetables rather than adding a scheduling category.
+
+Weekly classes are generated only on their weekdays within those inclusive dates,
+excluding configured holidays. No classes are generated after the teaching end
+date. The image form has no first/last teaching-date inputs or per-image date
+overrides. CSV and manual timetable entries remain date-specific.
+
+Save a draft even when its semester has not yet been configured. After adding
+settings in another tab, reopen the draft and choose the semester. Existing drafts
+retain their edits; older drafts' dates do not override shared settings. Only an
+exact session/semester match is suggested for older drafts.
+
+Validation and confirmation read the current semester settings on the server.
+Changing them invalidates a pending preview, which must be validated again.
+Confirmed image imports retain a snapshot of the dates used and a link to the
+selected semester. Editing settings affects subsequent imports; it does not
+reschedule already imported classes. Adjust existing entries in Timetables when
+needed. A semester linked to an import cannot be deleted. No university calendar
+dates are seeded or inferred from an academic-session label.
+
 The November restructure is local development work, not deployed. Migration
 `scheduling.0006` adds optional import provenance, `scheduling.0007` adds the
-explicit pending-title flag and `scheduling.0008` adds durable private image drafts;
-apply them only to the explicitly configured local
+explicit pending-title flag, `scheduling.0008` adds durable private image drafts,
+`scheduling.0009` extends active drafts to 24 hours, and `scheduling.0010` adds
+shared semester settings. Apply them only to the explicitly configured local
 database while testing. The CSV columns remain unchanged; exported clock times
 now use AM/PM, and the importer accepts both formats.
 
@@ -233,7 +262,7 @@ OCR processes. These are local measurements, not a guarantee for every upload.
 Source images and draft metadata are stored together in the configured PostgreSQL
 database (`scheduling.0008`), with the uploading administrator and explicit
 save/expiry timestamps. Images use a binary column; corrections, proposals,
-headings and teaching dates use JSON. No cache, temporary file or in-memory index
+headings and the selected semester use JSON. No cache, temporary file or in-memory index
 is needed to reopen a saved draft. PC/app/database restarts do not remove it when
 the same persistent database is used. Local development keeps these rows in the
 isolated local PostgreSQL database, not hosted production.

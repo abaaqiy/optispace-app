@@ -15,6 +15,7 @@
 <div id="content-main" class="timetable-import document-import">
   <p>Upload an image → confirm shared details → resolve missing records once → check the weekly preview → import. Courses, buildings, rooms and classes are saved together only when you choose <strong>Confirm and import</strong>.</p>
   <p>Use clear, upright pages with their headings. <a href="{% url 'admin:scheduling_timetableday_import' %}">Import a CSV instead</a>.</p>
+  {% if can_manage_semesters %}<p><a href="{% url 'admin:scheduling_academicsemester_changelist' %}" target="_blank" rel="noopener">Semester settings</a> — set teaching dates and breaks once, then reuse them for every image import.</p>{% endif %}
   <details class="module document-mappings">
     <summary>Course-title suggestions: {{ course_coverage.codes }} course codes across {{ course_coverage.handbooks }} supplied handbooks and earlier web sources</summary>
     <p>When preparing a new course, suggestions appear for its exact code. Check the programme, handbook edition and linked PDF page, then choose <strong>Use this title</strong>. This fills the title for every matching entry when you use the new record. It does not change existing courses.</p>
@@ -44,13 +45,15 @@
         <p>Read from the heading where possible. Correct these once for the whole upload. Faculty identifies this timetable; it does not assign locations to its rooms.</p>
         <div class="form-row"><label for="document-faculty">Faculty:</label><input id="document-faculty" name="faculty" value="{{ options.faculty }}" maxlength="150"></div>
         <div class="form-row"><label for="document-department">Department:</label><input id="document-department" name="department" value="{{ options.department }}" maxlength="150"></div>
-        <div class="form-row"><label for="document-semester">Semester:</label><select id="document-semester" name="semester"><option value="">Not identified</option><option {% if options.semester == 'Rain' %}selected{% endif %}>Rain</option><option {% if options.semester == 'Harmattan' %}selected{% endif %}>Harmattan</option></select></div>
+        <div class="form-row"><label for="teaching-semester">Teaching semester:</label><select id="teaching-semester" name="teaching_semester" class="room-catalog-select" required>
+          <option value="">Select a saved session and semester…</option>
+          {% for semester in teaching_semesters %}<option value="{{ semester.pk }}" data-period="{{ semester.first_date|date:'j M Y' }} – {{ semester.last_date|date:'j M Y' }}" data-breaks="{{ semester.exclude_dates }}" {% if semester.pk|stringformat:'s' == options.teaching_semester %}selected{% endif %}>{{ semester }} · {{ semester.first_date|date:'j M Y' }} – {{ semester.last_date|date:'j M Y' }}</option>{% endfor %}
+        </select><p id="semester-dates-summary" class="help" role="status">Weekly lectures use the saved semester's teaching dates and breaks. Select the semester that applies to this image.</p>
+        {% if not teaching_semesters %}<p>No semesters are configured yet. {% if can_manage_semesters %}Open <a href="{% url 'admin:scheduling_academicsemester_add' %}" target="_blank" rel="noopener">Semester settings</a> to add one, then save and reopen this draft.{% else %}Ask an administrator to add the teaching dates. You can save this draft meanwhile.{% endif %}</p>{% endif %}
+        {% if document.metadata.academic_session or document.metadata.semester %}<p class="help">Read from the image: {{ document.metadata.academic_session }} {{ document.metadata.semester }}. Check this against your selection.</p>{% endif %}</div>
         <div class="form-row"><label for="source-version">Source version:</label><input id="source-version" name="source_version" value="{{ options.source_version }}" maxlength="100"><p class="help">For example, First Draft or Revised. Only import a version you intend to use.</p></div>
         {% if document.metadata.heading_text %}<details><summary>Text read from the heading</summary><pre class="heading-text">{{ document.metadata.heading_text }}</pre></details>{% endif %}
-        <input id="document-mode" name="mode" type="hidden" value="weekly"><p>Weekly lectures repeat only within the teaching dates you choose. CSV remains available for specific dates.</p>
-        <div class="form-row"><label for="academic-session">Academic session:</label><input id="academic-session" name="academic_session" value="{{ options.academic_session }}" maxlength="30" required placeholder="2026/2027"></div>
-        <div class="form-row" id="teaching-dates"><label for="first-date">First teaching date:</label><input id="first-date" name="first_date" type="date" value="{{ options.first_date }}"> <label for="last-date">Last teaching date:</label><input id="last-date" name="last_date" type="date" value="{{ options.last_date }}"></div>
-        <div class="form-row"><label for="exclude-dates">Exclude dates:</label><input id="exclude-dates" name="exclude_dates" value="{{ options.exclude_dates }}" placeholder="2026-12-25, 2027-01-01"><p class="help">Optional holiday/break dates, separated by commas. Times use Africa/Lagos. Up to 300 weekly slots and 16,000 dated classes per image import.</p></div>
+        <input id="document-mode" name="mode" type="hidden" value="weekly"><p>Weekly lectures repeat only within the selected semester's teaching dates, excluding its saved breaks. CSV remains available for specific dates. Times use Africa/Lagos.</p>
       </fieldset>
       <div class="document-workspace">
         <section class="document-source" aria-label="Original timetable">

@@ -1,3 +1,6 @@
+from datetime import date
+import re
+
 from django.core.exceptions import ValidationError
 from django.conf import settings
 from django.db import models
@@ -31,6 +34,50 @@ class Course(models.Model):
             raise ValidationError({"title": "Enter a title or explicitly mark it as awaiting confirmation."})
 
 
+class AcademicSemester(models.Model):
+    class Semester(models.TextChoices):
+        HARMATTAN = 'Harmattan', 'Harmattan'
+        RAIN = 'Rain', 'Rain'
+
+    academic_session = models.CharField(max_length=30, help_text='For example: 2026/2027.')
+    semester = models.CharField(max_length=20, choices=Semester.choices)
+    first_date = models.DateField('Teaching starts', help_text='First teaching day, included in the timetable.')
+    last_date = models.DateField('Teaching ends', help_text='Last teaching day, included in the timetable.')
+    exclude_dates = models.TextField(
+        'Break / holiday dates', blank=True,
+        help_text='Optional dates with no classes, separated by commas. For example: 2026-12-25, 2027-01-01.',
+    )
+
+    class Meta:
+        verbose_name = 'Semester setting'
+        verbose_name_plural = 'Semester settings'
+        ordering = ['-first_date', 'academic_session', 'semester']
+        constraints = [
+            models.UniqueConstraint(fields=['academic_session', 'semester'], name='unique_academic_semester'),
+            models.CheckConstraint(condition=models.Q(first_date__lte=models.F('last_date')), name='semester_dates_ordered'),
+        ]
+
+    def __str__(self):
+        return f'{self.academic_session} — {self.semester}'
+
+    def clean(self):
+        super().clean()
+        self.academic_session = self.academic_session.strip()
+        if self.first_date and self.last_date and not 0 <= (self.last_date - self.first_date).days <= 370:
+            raise ValidationError({'last_date': 'Teaching must end on or after it starts and span at most 370 days.'})
+        try:
+            dates = sorted({date.fromisoformat(value) for value in re.split(r'[\s,]+', self.exclude_dates.strip()) if value})
+        except ValueError as error:
+            raise ValidationError({'exclude_dates': 'Use valid dates in YYYY-MM-DD format, separated by commas.'}) from error
+        if self.first_date and self.last_date and any(not self.first_date <= value <= self.last_date for value in dates):
+            raise ValidationError({'exclude_dates': 'Break / holiday dates must fall within the teaching dates.'})
+        self.exclude_dates = ', '.join(value.isoformat() for value in dates)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+
 class TimetableImageImport(models.Model):
     """Shared provenance for classes confirmed together, not a new admin category."""
     filename = models.CharField(max_length=255)
@@ -39,6 +86,9 @@ class TimetableImageImport(models.Model):
     academic_session = models.CharField(max_length=30)
     semester = models.CharField(max_length=20, blank=True)
     source_version = models.CharField(max_length=100, blank=True)
+    teaching_semester = models.ForeignKey(
+        AcademicSemester, on_delete=models.PROTECT, null=True, blank=True, related_name='image_imports',
+    )
     first_date = models.DateField()
     last_date = models.DateField()
     exclude_dates = models.TextField(blank=True)
