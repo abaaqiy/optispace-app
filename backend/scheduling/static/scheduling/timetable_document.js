@@ -14,6 +14,39 @@
   const pages = JSON.parse(document.getElementById('document-pages').textContent);
   const pending = JSON.parse(document.getElementById('document-pending').textContent);
   const creation = JSON.parse(document.getElementById('document-creation-choices').textContent);
+  const editorState = JSON.parse(document.getElementById('document-editor-state')?.textContent || '{}');
+  rows.forEach(row => { row.editor_id ||= crypto.randomUUID(); });
+  let autosave;
+  const editorControls = new Map();
+  function bindEditor(el, key) {
+    const read = () => el.type === 'checkbox' ? el.checked : el.value;
+    if (Object.hasOwn(editorState, key)) {
+      if (el.type === 'checkbox') el.checked = !!editorState[key];
+      else if (typeof editorState[key] === 'string') el.value = editorState[key];
+    }
+    let previous = read();
+    const remember = () => {
+      const value = read();
+      if (value !== previous) { editorState[key] = value; previous = value; invalidate(); return true; }
+      return false;
+    };
+    remember.key = key;
+    editorControls.set(el, remember);
+    el.addEventListener('input', remember); el.addEventListener('change', remember);
+    if (el.tagName === 'SELECT') window.django?.jQuery(el).on('change.editorDraft', remember);
+    return el;
+  }
+  function forgetEditor(prefix) {
+    for (const key of Object.keys(editorState)) if (key.startsWith(prefix + ':')) delete editorState[key];
+    for (const [el, remember] of editorControls) if (remember.key.startsWith(prefix + ':')) editorControls.delete(el);
+  }
+  function captureEditors() {
+    let changed = false;
+    for (const [el, capture] of editorControls) {
+      if (el.isConnected) changed = capture() || changed; else editorControls.delete(el);
+    }
+    return changed;
+  }
   const proposedLabel = draft => `${draft.code || draft.name}${draft.title_pending ? ' — Title awaiting confirmation' : ''}`;
   for (const kind of ['courses', 'rooms']) {
     pending[kind] ||= [];
@@ -74,6 +107,8 @@
     document.getElementById('document-final-preview')?.setAttribute('hidden', ''); resetBatch();
     document.getElementById('weekly-checked').checked = false;
     document.getElementById('weekly-approve').disabled = true;
+    autosave?.changed();
+    queueMicrotask(() => { captureEditors(); autosave?.changed(); });
   }
   function status() {
     const kept = rows.filter(r => !r.skip);
@@ -118,6 +153,7 @@
     document.getElementById('weekly-status').textContent = `${kept.length} weekly entries; ${flagged} need attention. Saved timetable/reservation conflicts are checked during validation.`;
   }
   function headings() {
+    captureEditors();
     const root = document.getElementById('heading-mappings');
     root.replaceChildren();
     for (const kind of ['day', 'time']) {
@@ -130,6 +166,7 @@
       });
       for (const affected of groups.values()) {
         const first = affected[0];
+        const editKey = `heading:${kind}:${first[kind + '_group']}`;
         const section = element('div', undefined, root); section.className = 'heading-mapping';
         const label = kind === 'day' ? 'Weekday' : 'Time';
         element('strong', `${label}: “${first[kind + '_text'] || 'not readable'}” · ${affected.length} entries`, section);
@@ -139,10 +176,10 @@
         if (kind === 'day') {
           const select = element('select', undefined, section); select.setAttribute('aria-label', `Weekday heading ${first.day_group}`);
           days.forEach(day => { const option = element('option', day || 'Choose weekday', select); option.value = day; });
-          select.value = first.day || ''; inputs.push(select);
+          select.value = first.day || ''; bindEditor(select, editKey + ':day'); inputs.push(select);
         } else {
           for (const [key, label] of [['start_time', 'Start'], ['end_time', 'End']]) {
-            const input = clock.input(element('input', undefined, section), first[key] || '', `${label} heading ${first.time_group}`); inputs.push(input);
+            const input = clock.input(element('input', undefined, section), first[key] || '', `${label} heading ${first.time_group}`); bindEditor(input, editKey + ':' + key); inputs.push(input);
           }
         }
         if (first[kind + '_note']) element('small', first[kind + '_note'], section);
@@ -158,10 +195,11 @@
             if (row.skip) return;
             const changed = kind === 'day' ? row.day !== inputs[0].value : row.start_time !== start || row.end_time !== end;
             if (kind === 'day') row.day = inputs[0].value;
-            else { row.start_time = start; row.end_time = end; }
+            else { row.start_time = start; row.end_time = end; delete row.start_time_input; delete row.end_time_input; }
             row[kind + '_checked'] = true;
             if (changed) row.reviewed = false;
           });
+          forgetEditor(editKey);
           invalidate(); headings(); render();
         });
       }
@@ -196,6 +234,7 @@
     if (!root.children.length) element('p', 'No clear unreviewed groups yet. Resolve names and shared headings, or correct the flagged entries below.', root);
   }
   function mappings() {
+    captureEditors();
     const root = document.getElementById('reference-mappings');
     clearEditors(root);
     let groupCount = 0;
@@ -216,11 +255,14 @@
         const query = element('input', undefined, section); query.type = 'search'; query.placeholder = `Search saved or proposed ${key}s`; query.setAttribute('aria-label', `Search choices for ${text}`);
         const choice = element('select', undefined, section); choice.setAttribute('aria-label', `Map ${key} ${text}`);
         [{ value: '', label: `Select correct ${key}…` }, ...refs[key + 's']].forEach(item => { const opt = element('option', item.label, choice); opt.value = item.value; });
+        const editKey = `mapping:${key}:${normalise(text) || affected[0].editor_id}`;
+        bindEditor(choice, editKey + ':choice');
         query.addEventListener('input', () => { for (const opt of choice.options) opt.hidden = !!opt.value && !opt.text.toLowerCase().includes(query.value.toLowerCase()); });
-        const apply = element('button', 'Use for all matching unresolved rows', section); apply.type = 'button'; apply.disabled = true;
+        const apply = element('button', 'Use for all matching unresolved rows', section); apply.type = 'button'; apply.disabled = !choice.value;
         choice.addEventListener('change', () => { apply.disabled = !choice.value; });
         apply.addEventListener('click', () => {
           affected.filter(row => !row.skip && !valid[key].has(row[key])).forEach(row => { row[key] = choice.value; row.reviewed = false; });
+          forgetEditor(editKey);
           invalidate(); offset = 0; mappings(); render();
         });
         if (creation['can_add_' + key]) {
@@ -249,6 +291,8 @@
     function correction(parent, entries, initial, labelText) {
       const label = element('label', labelText, parent);
       const corrected = element('input', undefined, label); corrected.type = 'text'; corrected.value = initial; corrected.maxLength = key === 'course' ? 30 : 200;
+      const editKey = `correction:${key}:${entries[0].editor_id}:${entries.length}`;
+      bindEditor(corrected, editKey + ':text');
       const apply = element('button', 'Apply corrected reading', parent); apply.type = 'button';
       const error = element('p', undefined, parent); error.className = 'review-note'; error.setAttribute('role', 'alert');
       apply.addEventListener('click', () => {
@@ -258,6 +302,7 @@
           row['original_' + key + '_text'] ??= row[key + '_text'];
           row[key + '_text'] = value; row[key] = ''; row.reviewed = false;
         });
+        forgetEditor(editKey);
         invalidate(); mappings(); render();
       });
     }
@@ -269,6 +314,8 @@
   function recordEditor(parent, kind, detected, affected, draft = null) {
     const fields = {};
     const prefix = draft?.key || `edit-${crypto.randomUUID()}`;
+    const editKey = `record:${kind}:${draft?.key || normalise(detected) || affected[0]?.editor_id}`;
+    const initial = key => Object.hasOwn(editorState, editKey + ':' + key) ? editorState[editKey + ':' + key] : draft?.[key];
     const wrap = element('div', undefined, parent); wrap.className = 'record-editor';
     function input(key, label, value = '', { type = 'text', options = null, required = true, max = 200 } = {}) {
       const row = element('div', undefined, wrap);
@@ -277,7 +324,7 @@
       if (options) {
         [{ value: '', label: 'Choose…' }, ...options].forEach(item => { const option = element('option', item.label, el); option.value = item.value; });
       } else { el.type = type; el.maxLength = max; if (type === 'number') el.min = '1'; }
-      el.value = draft?.[key] ?? value; fields[key] = { el, required, label };
+      el.value = initial(key) ?? value; fields[key] = { el, required, label };
       el.addEventListener('input', invalidate);
       return el;
     }
@@ -291,15 +338,17 @@
       const custom = element('div', undefined, holder); custom.className = 'room-custom-name';
       const customLabel = element('label', `Custom ${label.toLowerCase()}`, custom); customLabel.htmlFor = `${prefix}-${key}-custom`;
       const text = element('input', undefined, custom); text.id = customLabel.htmlFor; text.maxLength = max;
-      const initial = String(draft?.[key] ?? value);
-      const listed = choices.some(item => item.value === initial);
-      select.value = initial ? (listed ? initial : '__other__') : '';
-      text.value = listed ? '' : initial;
+      const valueBeforeEdit = String(draft?.[key] ?? value);
+      const listed = choices.some(item => item.value === valueBeforeEdit);
+      select.value = valueBeforeEdit ? (listed ? valueBeforeEdit : '__other__') : '';
+      text.value = listed ? '' : valueBeforeEdit;
       fields[key] = { label, required, el: select,
         container: select.closest('.room-name-widget').parentElement,
         read: () => select.value === '__other__' ? text.value.trim() : select.value,
         control: () => select.value === '__other__' ? text : select };
       text.addEventListener('input', invalidate);
+      bindEditor(text, editKey + ':' + key + '-custom');
+      bindEditor(select, editKey + ':' + key);
       window.django.jQuery(select).on('change', invalidate);
       holder.dispatchEvent(new CustomEvent('room-catalog:added', { bubbles: true }));
       return select;
@@ -308,7 +357,8 @@
       const code = input('code', 'Course code', detected.replace(/\s/g, '').toUpperCase(), { max: 30 });
       const title = input('title', 'Course title');
       const pendingLabel = element('label', undefined, wrap);
-      const pendingTitle = element('input', undefined, pendingLabel); pendingTitle.type = 'checkbox'; pendingTitle.checked = !!draft?.title_pending;
+      const pendingTitle = element('input', undefined, pendingLabel); pendingTitle.type = 'checkbox'; pendingTitle.checked = !!initial('title_pending');
+      bindEditor(pendingTitle, editKey + ':title_pending');
       pendingLabel.append(document.createTextNode(' I confirmed this course code in the image; its title is awaiting confirmation.'));
       fields.title_pending = { read: () => pendingTitle.checked };
       fields.title.read = () => pendingTitle.checked ? '' : title.value.trim();
@@ -374,9 +424,13 @@
       creation.facilities.forEach(item => {
         const label = element('label', undefined, facilities); const el = element('input', undefined, label); el.type = 'checkbox'; el.value = item.value;
         el.checked = (draft?.facilities || []).map(String).includes(String(item.value)); label.append(document.createTextNode(item.label));
+        bindEditor(el, editKey + ':facility-' + item.value);
       });
       fields.facilities = { read: () => [...facilities.querySelectorAll('input:checked')].map(el => el.value) };
       element('p', 'Choose the actual building and known capacity. The timetable faculty does not establish a room’s location or access.', wrap);
+    }
+    for (const [key, field] of Object.entries(fields)) {
+      if (field.el && !editorControls.has(field.el)) bindEditor(field.el, editKey + ':' + key);
     }
     const error = element('p', undefined, wrap); error.className = 'review-note'; error.setAttribute('role', 'alert');
     const button = element('button', draft ? 'Update proposed record' : 'Use new record for matching entries', wrap); button.type = 'button';
@@ -397,6 +451,7 @@
       valid[kind].add(record.key);
       affected.forEach(row => { row[kind] = record.key; row.reviewed = false; });
       rows.filter(row => row[kind] === record.key).forEach(row => { row.reviewed = false; });
+      forgetEditor(editKey);
       invalidate(); mappings(); render();
     });
   }
@@ -414,6 +469,7 @@
         pending[kind + 's'] = pending[kind + 's'].filter(item => item.key !== draft.key);
         refs[kind + 's'] = refs[kind + 's'].filter(item => item.value !== draft.key); valid[kind].delete(draft.key);
         rows.filter(row => row[kind] === draft.key).forEach(row => { row[kind] = ''; row.reviewed = false; });
+        forgetEditor(`record:${kind}:${draft.key}`);
         invalidate(); mappings(); render();
       });
     }
@@ -498,7 +554,7 @@
       const duplicate = element('button', 'Duplicate', actions); duplicate.type = 'button';
       duplicate.addEventListener('click', () => {
         if (rows.length >= 300) { window.alert('Review at most 300 rows per document.'); return; }
-        rows.splice(index + 1, 0, { ...row, room: '', reviewed: false, skip: false }); invalidate(); mappings(); headings(); render();
+        rows.splice(index + 1, 0, { ...row, editor_id: crypto.randomUUID(), room: '', reviewed: false, skip: false }); invalidate(); mappings(); headings(); render();
       });
       let checked;
       function updateRow() {
@@ -547,8 +603,9 @@
       for (const [key, label] of [['start_time', 'Start'], ['end_time', 'End']]) {
         const wrap = element('label', `${label} `, time); const input = element('input', undefined, wrap);
         clock.input(input, row[key] || '', `${label} time, row ${index + 1}`);
-        input.addEventListener('input', () => { row[key] = clock.parse(input.value); edited(); });
-        input.addEventListener('change', () => { row.time_checked = !problems(row).includes('Correct the start/end times'); updateRow(); headings(); status(); });
+        input.value = row[key + '_input'] ?? input.value;
+        input.addEventListener('input', () => { row[key + '_input'] = input.value; row[key] = clock.parse(input.value); edited(); });
+        input.addEventListener('change', () => { row.time_checked = !problems(row).includes('Correct the start/end times'); updateRow(); headings(); status(); autosave?.changed(); });
       }
       const check = element('td', undefined, tr);
       for (const [key, label] of [['reviewed', 'Reviewed'], ['skip', 'Skip row']]) {
@@ -580,7 +637,7 @@
   form.querySelector('.document-options').addEventListener('input', invalidate);
   document.getElementById('add-review-row').addEventListener('click', () => {
     if (rows.length >= 300) { window.alert('Review at most 300 rows per document.'); return; }
-    rows.push({ course: '', room: '', day: '', date: '', start_time: '', end_time: '', reviewed: false, skip: false }); invalidate(); render();
+    rows.push({ editor_id: crypto.randomUUID(), course: '', room: '', day: '', date: '', start_time: '', end_time: '', reviewed: false, skip: false }); invalidate(); render();
     filter.value = 'all'; search.value = ''; dayFilter.value = ''; sourceFilter.value = ''; offset = Math.floor((rows.length - 1) / pageSize) * pageSize; render();
     tbody.lastElementChild?.scrollIntoView({ block: 'nearest' });
   });
@@ -593,13 +650,14 @@
     visible.forEach(({ row }) => { if (ready(row)) row.reviewed = true; });
     invalidate(); render();
   });
-  form.addEventListener('submit', event => {
+  function serialiseForm(event) {
     // Keep exactly one action value; a hidden default and clicked button otherwise duplicate it.
     form.querySelector('input[name="action"]').value = event.submitter?.value || 'review';
     if (event.submitter?.name === 'action') event.submitter.removeAttribute('name');
     document.getElementById('review-rows').value = JSON.stringify(rows);
     document.getElementById('pending-records').value = JSON.stringify(pending);
-  });
+    document.getElementById('editor-state').value = JSON.stringify(editorState);
+  }
   document.getElementById('weekly-checked').addEventListener('change', event => { document.getElementById('weekly-approve').disabled = !event.target.checked; });
   document.getElementById('weekly-approve').addEventListener('click', () => {
     if (!document.getElementById('weekly-checked').checked) return;
@@ -610,4 +668,66 @@
     invalidate(); headings(); render();
   });
   semesterSummary(); mappings(); headings(); render();
+  function snapshot() {
+    return { rows: JSON.stringify(rows), pending: JSON.stringify(pending), editor_state: JSON.stringify(editorState),
+      teaching_semester: teachingSemester.value, department: document.getElementById('document-department').value,
+      faculty: document.getElementById('document-faculty').value, source_version: document.getElementById('source-version').value,
+      coverage_checked: document.getElementById('coverage-checked').checked ? 'yes' : '' };
+  }
+  function acceptSave(result) {
+    document.querySelectorAll('input[name="document_token"]').forEach(el => { el.value = result.token; });
+    const link = document.getElementById('resume-draft');
+    const resume = new URL(link.href, location.href); resume.searchParams.set('review', result.token); link.href = resume;
+    for (const page of pages) { const url = new URL(page.url, location.href); url.searchParams.set('token', result.token); page.url = url.href; }
+    const open = document.getElementById('source-open');
+    if (open.href) { const url = new URL(open.href, location.href); url.searchParams.set('token', result.token); open.href = url; }
+  }
+  function warnSave(message) {
+    const warning = document.getElementById('draft-save-error'); warning.textContent = message; warning.hidden = !message;
+  }
+  if (window.fetch && window.OptispaceDraftAutosave && form.dataset.autosaveUrl) {
+    autosave = window.OptispaceDraftAutosave({ snapshot, accept: acceptSave, warn: warnSave, async send(state) {
+      const body = new URLSearchParams({ ...state, document_token: form.querySelector('[name="document_token"]').value,
+        csrfmiddlewaretoken: form.querySelector('[name="csrfmiddlewaretoken"]').value });
+      const response = await fetch(form.dataset.autosaveUrl, { method: 'POST', body, credentials: 'same-origin', redirect: 'follow',
+        signal: AbortSignal.timeout(15000) });
+      if (response.redirected || response.status === 403) {
+        throw Object.assign(new Error('Your sign-in expired or saving is not permitted. Keep this page open, sign in again in another tab, then reload after copying unsaved edits.'), { permanent: true });
+      }
+      const result = await response.json();
+      if (!response.ok) {
+        const error = new Error(result.error || 'Autosave failed. Keep this page open and use Save draft.');
+        error.permanent = response.status >= 400 && response.status < 500 && response.status !== 429;
+        throw error;
+      }
+      if (!result.token) throw new Error('Autosave could not be confirmed. Keep this page open; it will retry.');
+      return result;
+    } });
+  }
+  document.getElementById('coverage-checked').addEventListener('change', invalidate);
+  let submitting = false;
+  async function submitReview(event) {
+    captureEditors();
+    if (!autosave) { serialiseForm(event); return; }
+    event.preventDefault();
+    if (submitting) return;
+    submitting = true;
+    if (!await autosave.beforeSubmit()) { submitting = false; autosave.resume(); return; }
+    serialiseForm(event);
+    HTMLFormElement.prototype.submit.call(form);
+  }
+  form.addEventListener('submit', submitReview);
+  document.querySelector('#document-final-preview form')?.addEventListener('submit', async event => {
+    if (!autosave) return;
+    event.preventDefault();
+    if (autosave.dirty()) { warnSave('Edits have changed. Validate reviewed entries again before importing.'); return; }
+    if (await autosave.beforeSubmit()) { submitting = true; HTMLFormElement.prototype.submit.call(event.target); }
+  });
+  window.addEventListener('online', () => autosave?.flush());
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { captureEditors(); autosave?.flush(); } });
+  window.addEventListener('beforeunload', event => {
+    if (!submitting && autosave?.dirty()) { autosave.flush(); event.preventDefault(); event.returnValue = ''; }
+  });
+  window.addEventListener('pagehide', () => autosave?.stop());
+  window.addEventListener('pageshow', () => { submitting = false; autosave?.resume(); });
 })();

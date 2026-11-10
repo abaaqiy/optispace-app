@@ -219,11 +219,31 @@ The supplied Chemistry handbook lists ICH406 among requirements without a title
 there, so its title remains unverified. These observations are test findings, not
 department-specific automatic corrections.
 
-Drafts expire 24 hours after upload or their latest save/validation. Saving
+Drafts save quietly about one second after editing pauses, with a save at least
+every five seconds during continuous editing when the connection is responsive.
+Background saves send only review data, not the source image or handbook catalogue.
+They preserve rows, shared details, selected semester, review/skip flags, proposed
+records and unfinished course/room, heading and correction fields. Unfinished
+forms still need their explicit Apply/Use/Update action before validation; autosave
+never creates courses, rooms, buildings or timetable records.
+
+The **Save draft** button remains. Successful autosaves show no pop-up or success
+message. Failed saves show an inline warning and retry with a bounded delay; a
+lost response is retried safely before later edits. Requests run one at a time.
+Saving/validating manually waits for an in-flight autosave, then submits the
+latest edits. A signed save version rejects stale tabs rather than overwriting
+newer work. Reopen the saved draft to resolve a conflicting tab. Autosave does
+not apply an import, and new edits invalidate any prior import preview.
+
+Unsaved changes prompt before navigating away; a browser/PC crash before a save
+completes can still lose the latest edits. There is no background keepalive while
+idle. Searching, paging and viewing the image do not extend draft expiry.
+
+Drafts expire 24 hours after upload or their latest changed autosave/manual save/validation. Saving
 renews both the signed link and the database expiry. Reopening or refreshing a
 draft list does not extend this expiry. Time while the computer is off counts
-towards the 24 hours. Save before closing the browser or rebooting; unsaved
-browser edits cannot be recovered. Legacy drafts cleared from the old temporary
+towards the 24 hours. Unsaved browser edits cannot be recovered after closing.
+Legacy drafts cleared from the old temporary
 cache cannot be recovered from the original image without reviewing it again.
 Migration `scheduling.0009` extends existing unexpired drafts to 24 hours from
 their last save. It preserves saved edits and does not restore expired drafts.

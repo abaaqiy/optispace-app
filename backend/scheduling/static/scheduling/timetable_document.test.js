@@ -11,7 +11,7 @@ const row = (code = 'PUL301') => ({ course_text: code, room_text: 'STEP A', cour
 
 // Exercise the production controller against its real template. Select2 itself
 // is Django's vendored widget; this harness supplies only its change-event hook.
-function editor(t, rows = [row()], pending = { courses: [], rooms: [] }) {
+function editor(t, rows = [row()], pending = { courses: [], rooms: [] }, options = {}) {
   const dom = new JSDOM(template, { url: 'http://localhost/', runScripts: 'outside-only' });
   t.after(() => dom.window.close());
   const { window } = dom;
@@ -27,7 +27,7 @@ function editor(t, rows = [row()], pending = { courses: [], rooms: [] }) {
     'document-rows': rows,
     'document-references': { courses: [], rooms: [{ value: 'step-a', label: 'STEP A', keys: [] }] },
     'document-pages': [{ url: '/source', width: 200, height: 300 }],
-    'document-pending': pending, 'document-creation-choices': creation,
+    'document-pending': pending, 'document-creation-choices': creation, 'document-editor-state': options.editorState || {},
   })) {
     const script = document.createElement('script'); script.id = id; script.type = 'application/json';
     script.textContent = JSON.stringify(data); document.body.append(script);
@@ -35,6 +35,17 @@ function editor(t, rows = [row()], pending = { courses: [], rooms: [] }) {
   document.getElementById('document-department').value = 'Public Law';
   window.eval(read('./clock.js'));
   window.eval(read('./course_suggestions.js'));
+  let saver;
+  if (options.fetch) {
+    window.fetch = options.fetch;
+    window.AbortSignal = AbortSignal;
+    document.getElementById('document-review').dataset.autosaveUrl = '/autosave/';
+    const csrf = document.createElement('input'); csrf.name = 'csrfmiddlewaretoken'; csrf.value = 'test-csrf';
+    document.getElementById('document-review').append(csrf);
+    window.eval(read('./draft_autosave.js'));
+    const factory = window.OptispaceDraftAutosave;
+    window.OptispaceDraftAutosave = options => { saver = factory(options); return saver; };
+  }
   window.eval(read('./timetable_document.js'));
   function button(root, text) {
     const found = [...root.querySelectorAll('button')].find(el => el.textContent === text);
@@ -53,12 +64,80 @@ function editor(t, rows = [row()], pending = { courses: [], rooms: [] }) {
     const form = document.getElementById('document-review');
     form.dispatchEvent(new window.Event('submit', { cancelable: true }));
     return { rows: JSON.parse(document.getElementById('review-rows').value),
-      pending: JSON.parse(document.getElementById('pending-records').value) };
+      pending: JSON.parse(document.getElementById('pending-records').value),
+      editorState: JSON.parse(document.getElementById('editor-state').value) };
   }
   const mapping = code => [...document.querySelectorAll('.reference-mapping')]
     .find(el => el.querySelector('strong')?.textContent.includes(`“${code}”`));
-  return { document, window, button, field, change, payload, mapping };
+  return { document, window, button, field, change, payload, mapping, saver };
 }
+
+test('background save captures partially typed forms, selections and rows without importing records', async t => {
+  const requests = [];
+  const e = editor(t, [row()], undefined, { fetch: async (url, init) => {
+    requests.push({ url, data: new URLSearchParams(init.body.toString()) });
+    return { ok: true, json: async () => ({ token: 'fresh-token' }) };
+  } });
+  const course = e.mapping('PUL301').querySelector('.record-editor');
+  const title = e.field(course, 'Course title'); title.value = 'Partially entered law title';
+  title.dispatchEvent(new e.window.Event('input', { bubbles: true }));
+  e.document.getElementById('source-version').value = 'Revised';
+  e.document.getElementById('source-version').dispatchEvent(new e.window.Event('input', { bubbles: true }));
+  e.change(e.document.getElementById('coverage-checked'), true);
+  await Promise.resolve(); await e.saver.flush();
+  assert.equal(requests.length, 1);
+  const sent = requests[0].data;
+  assert.equal(sent.get('source_version'), 'Revised');
+  assert.equal(sent.get('coverage_checked'), 'yes');
+  assert.deepEqual(JSON.parse(sent.get('pending')), { courses: [], rooms: [] });
+  assert.match(sent.get('editor_state'), /Partially entered law title/);
+  assert.equal(sent.has('image'), false);
+  assert.equal(e.document.getElementById('draft-save-error').hidden, true);
+  assert.equal(e.document.querySelector('#document-review [name="document_token"]').value, 'fresh-token');
+  const resumed = editor(t, JSON.parse(sent.get('rows')), JSON.parse(sent.get('pending')), { editorState: JSON.parse(sent.get('editor_state')) });
+  assert.equal(resumed.field(resumed.mapping('PUL301').querySelector('.record-editor'), 'Course title').value, title.value);
+  const filter = e.document.getElementById('review-search'); filter.value = 'PUL301';
+  filter.dispatchEvent(new e.window.Event('input', { bubbles: true }));
+  await Promise.resolve(); await e.saver.flush();
+  assert.equal(requests.length, 1, 'Search-only actions do not trigger writes');
+});
+
+test('unfinished room selectors and custom names are restored without applying the proposal', t => {
+  const e = editor(t, [{ ...row(), room: '' }]);
+  const room = e.mapping('STEP A').querySelector('.record-editor');
+  e.change(e.field(room, 'Building'), 'new');
+  e.change(e.field(room, 'New building name'), '__other__');
+  const custom = e.field(room, 'Custom new building name'); custom.value = 'New teaching block';
+  custom.dispatchEvent(new e.window.Event('input', { bubbles: true }));
+  const saved = e.payload();
+  assert.equal(saved.pending.rooms.length, 0);
+  const resumed = editor(t, saved.rows, saved.pending, { editorState: saved.editorState });
+  const restored = resumed.mapping('STEP A').querySelector('.record-editor');
+  assert.equal(resumed.field(restored, 'Building').value, 'new');
+  assert.equal(resumed.field(restored, 'New building name').value, '__other__');
+  assert.equal(resumed.field(restored, 'Custom new building name').value, 'New teaching block');
+});
+
+test('partially typed times survive a save and heading confirmation replaces their raw input', t => {
+  const e = editor(t, [{ ...row(), time_group: 'time-1', time_text: '8–9', time_checked: false }]);
+  const time = e.document.querySelector('input[aria-label="Start time, row 1 (AM/PM)"]');
+  time.value = '2:'; time.dispatchEvent(new e.window.Event('input', { bubbles: true }));
+  const saved = e.payload();
+  assert.equal(saved.rows[0].start_time, '');
+  assert.equal(saved.rows[0].start_time_input, '2:');
+  const resumed = editor(t, saved.rows, saved.pending, { editorState: saved.editorState });
+  assert.equal(resumed.document.querySelector('input[aria-label="Start time, row 1 (AM/PM)"]').value, '2:');
+  const heading = resumed.document.querySelector('#heading-mappings .heading-mapping');
+  const start = heading.querySelector('input'); start.value = '2:00 PM';
+  start.dispatchEvent(new resumed.window.Event('input', { bubbles: true }));
+  const end = heading.querySelectorAll('input')[1]; end.value = '3:00 PM';
+  end.dispatchEvent(new resumed.window.Event('input', { bubbles: true }));
+  resumed.button(heading, 'Confirm corrected heading');
+  const corrected = resumed.payload();
+  assert.equal(corrected.rows[0].start_time, '14:00');
+  assert.equal(corrected.rows[0].start_time_input, undefined);
+  assert.equal(resumed.document.querySelector('input[aria-label="Start time, row 1 (AM/PM)"]').value, '2:00 PM');
+});
 
 test('unknown title needs explicit confirmation and survives saving and resuming', t => {
   const e = editor(t);

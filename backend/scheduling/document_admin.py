@@ -1,6 +1,5 @@
 """Permission-protected upload → edit → validate → apply document workflow."""
 
-import json
 from pathlib import Path
 import secrets
 
@@ -9,7 +8,7 @@ from django.contrib import messages
 from django.core import signing
 from django.db import transaction
 from django.core.exceptions import PermissionDenied
-from django.http import FileResponse, Http404, HttpResponse, HttpResponseRedirect
+from django.http import FileResponse, Http404, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils.decorators import method_decorator
@@ -19,7 +18,7 @@ from rooms.models import Building, Facility
 from rooms.forms import SearchableSelect
 
 from .models import AcademicSemester
-from .services.document_extract import MAX_DRAFT_ROWS, MAX_UPLOAD, extract_document
+from .services.document_extract import MAX_UPLOAD, extract_document
 from .services.document_review import (
     prepare_rows,
     references,
@@ -29,9 +28,11 @@ from .services.timetable_import import ImportProblem
 from .services.document_plan import image_plan, apply_image
 from .services.course_catalog import catalogue_coverage, catalogue_payload, handbook_file
 from .services.semesters import suggested_semester
+from .services.document_state import read_review_state
 
 from .services.document_drafts import (
     DOCUMENT_SALT, DOCUMENT_TTL, get_draft, load_document, save_document, saved_drafts, unpack_document,
+    autosave_document, DraftConflict,
 )
 
 
@@ -68,6 +69,7 @@ class TimetableDocumentAdminMixin:
     def get_urls(self):
         wrap = self.admin_site.admin_view
         return [
+            path('autosave-document/', wrap(self.autosave_view), name='scheduling_timetableday_autosave'),
             path(
                 "course-handbook/<slug:source_id>/",
                 wrap(self.course_handbook),
@@ -84,6 +86,18 @@ class TimetableDocumentAdminMixin:
                 name="scheduling_timetableday_document_page",
             ),
         ] + super().get_urls()
+
+    @method_decorator(require_http_methods(['POST']))
+    def autosave_view(self, request):
+        if not self.has_import_permission(request):
+            raise PermissionDenied
+        try:
+            result = autosave_document(request.POST.get('document_token', ''), request.user, read_review_state(request.POST))
+            return JsonResponse(result)
+        except DraftConflict as error:
+            return JsonResponse({'error': str(error)}, status=409)
+        except ImportProblem as error:
+            return JsonResponse({'error': str(error)}, status=400)
 
     @method_decorator(require_GET)
     def course_handbook(self, request, source_id):
@@ -128,7 +142,8 @@ class TimetableDocumentAdminMixin:
         if request.method == "GET" and request.GET.get("review"):
             token = request.GET["review"]
             try:
-                _, document = load_document(token, request.user)
+                payload, document = load_document(token, request.user)
+                token = payload['token']
                 rows = document.get("review_rows", document["rows"])
                 coverage_checked = document.get("coverage_checked", False)
                 options = document.get("review_options", options).copy()
@@ -207,51 +222,10 @@ class TimetableDocumentAdminMixin:
                                 f"{self.admin_site.name}:scheduling_timetableday_changelist"
                             )
                         )
-                    options = {key: request.POST.get(key, '')[:2000] for key in (
-                        'teaching_semester', 'department', 'faculty', 'source_version',
-                    )}
-                    options["mode"] = "weekly"
-                    raw = request.POST.get("rows", "[]")
-                    if len(raw) > 700_000:
-                        raise ImportProblem(
-                            "The review is too large. Split the document into smaller files."
-                        )
-                    try:
-                        rows = json.loads(raw)
-                    except (ValueError, TypeError) as error:
-                        raise ImportProblem(
-                            "Review data could not be read. Reload the document."
-                        ) from error
-                    if not isinstance(rows, list) or any(
-                        not isinstance(row, dict) for row in rows
-                    ):
-                        rows = document["rows"]
-                        raise ImportProblem(
-                            "Review data is invalid. Reload the document."
-                        )
-                    if len(rows) > MAX_DRAFT_ROWS:
-                        rows = document.get("review_rows", document["rows"])
-                        raise ImportProblem(
-                            f"Review at most {MAX_DRAFT_ROWS} rows per image."
-                        )
-                    document["review_rows"] = rows
-                    pending_raw = request.POST.get("pending", "{\"courses\": [], \"rooms\": []}")
-                    if len(pending_raw) > 300_000:
-                        raise ImportProblem("Too many proposed records. Split the image into smaller sections.")
-                    try:
-                        pending = json.loads(pending_raw)
-                    except (ValueError, TypeError) as error:
-                        raise ImportProblem("Proposed courses and rooms could not be read.") from error
-                    if not isinstance(pending, dict) or any(
-                        not isinstance(pending.get(key, []), list) or len(pending.get(key, [])) > 300
-                        or any(not isinstance(item, dict) for item in pending.get(key, []))
-                        for key in ("courses", "rooms")
-                    ):
-                        raise ImportProblem("Invalid proposed course/room records.")
-                    document["pending"] = pending
-                    document["review_options"] = options
-                    coverage_checked = request.POST.get("coverage_checked") == "yes"
-                    document["coverage_checked"] = coverage_checked
+                    state = read_review_state(request.POST)
+                    document.update(state)
+                    rows, pending, options = state['review_rows'], state['pending'], state['review_options']
+                    coverage_checked = state['coverage_checked']
                     document["preview_version"] = secrets.token_urlsafe(16)
                     if action == "refresh":
                         # Draft references are intentionally not saved yet.
@@ -314,6 +288,7 @@ class TimetableDocumentAdminMixin:
             "errors": errors,
             "document": document,
             "document_token": token,
+            "editor_state": document.get('editor_state', {}) if document else {},
             "rows": rows,
             "references": refs,
             "pending": pending,

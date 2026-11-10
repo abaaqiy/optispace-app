@@ -431,6 +431,8 @@ class DocumentWorkflowTests(TestCase):
             )
 
     def review(self, token, rows=None, **options):
+        # A browser submits the latest token rendered when it opens the draft.
+        token = self.client.get(self.url, {'review': token}).context['document_token']
         return self.client.post(
             self.url,
             {
@@ -635,7 +637,7 @@ class DocumentWorkflowTests(TestCase):
                 "reviewed": True,
             }
         ]
-        self.review(token, rows)
+        token = self.review(token, rows).context['document_token']
         course = Course.objects.create(code="LAW301", title="Law", department="Law")
         room = Room.objects.create(
             code="moot",
@@ -676,6 +678,7 @@ class DocumentWorkflowTests(TestCase):
         started = timezone.now()
         token = self.upload().context["document_token"]
         previous = self.review(token)
+        token = previous.context['document_token']
         changed = [{**self.row, "course": "", "reviewed": False}]
         with patch(
             "django.core.signing.time.time",
@@ -707,7 +710,8 @@ class DocumentWorkflowTests(TestCase):
         token = self.upload().context['document_token']
         with patch('time.time', return_value=started.timestamp() + 23 * 60 * 60), patch('django.utils.timezone.now', return_value=started + timedelta(hours=23)):
             response = self.client.get(self.url, {'review': token})
-            self.assertEqual(response.context['document_token'], token)
+            self.assertEqual(signing.loads(response.context['document_token'], salt=DOCUMENT_SALT)['key'],
+                             signing.loads(token, salt=DOCUMENT_SALT)['key'])
             self.assertEqual(response.context['document']['pages'][0]['image'], b'jpeg')
             self.assertEqual(len(response.context['saved_drafts']), 1)
         with patch('time.time', return_value=started.timestamp() + 24 * 60 * 60 + 10), patch('django.utils.timezone.now', return_value=started + timedelta(hours=24, seconds=10)):

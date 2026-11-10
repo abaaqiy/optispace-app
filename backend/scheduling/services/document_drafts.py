@@ -19,7 +19,17 @@ UNAVAILABLE = (
 
 
 def draft_token(draft):
-    return signing.dumps({'key': draft.key, 'user': draft.owner_id}, salt=DOCUMENT_SALT)
+    return signing.dumps({'key': draft.key, 'user': draft.owner_id, 'version': draft.saved_at.isoformat()}, salt=DOCUMENT_SALT)
+
+
+class DraftConflict(ImportProblem):
+    pass
+
+
+def check_version(token, draft):
+    expected = signing.loads(token, salt=DOCUMENT_SALT, max_age=DOCUMENT_TTL).get('version')
+    if expected != draft.saved_at.isoformat():
+        raise DraftConflict('This draft changed in another tab. Keep this page open, copy any unsaved edits, then reopen the saved draft before continuing.')
 
 
 def cleanup_expired_drafts():
@@ -32,12 +42,14 @@ def unpack_document(draft):
     return document
 
 
-def get_draft(token, user, *, lock=False):
+def get_draft(token, user, *, lock=False, metadata_only=False):
     try:
         payload = signing.loads(token, salt=DOCUMENT_SALT, max_age=DOCUMENT_TTL)
         if payload['user'] != user.pk or not isinstance(payload['key'], str):
             raise signing.BadSignature
         query = TimetableImageDraft.objects.select_for_update() if lock else TimetableImageDraft.objects
+        if metadata_only:
+            query = query.defer('image')
         draft = query.get(key=payload['key'], owner=user)
         if draft.expires_at <= timezone.now():
             raise TimetableImageDraft.DoesNotExist
@@ -48,7 +60,7 @@ def get_draft(token, user, *, lock=False):
 
 def load_document(token, user):
     draft = get_draft(token, user)
-    return {'key': draft.key, 'user': draft.owner_id}, unpack_document(draft)
+    return {'key': draft.key, 'user': draft.owner_id, 'token': draft_token(draft)}, unpack_document(draft)
 
 
 def document_fields(document):
@@ -64,6 +76,8 @@ def save_document(document, user, *, token=None):
     fields = document_fields(document)
     with transaction.atomic():
         draft = get_draft(token, user, lock=True) if token else TimetableImageDraft(key=secrets.token_urlsafe(32), owner=user)
+        if token:
+            check_version(token, draft)
         now = timezone.now()
         for key, value in fields.items():
             setattr(draft, key, value)
@@ -73,6 +87,26 @@ def save_document(document, user, *, token=None):
     # Expiry, rather than a cache-size limit, is the only automatic removal rule.
     cleanup_expired_drafts()
     return draft_token(draft)
+
+
+def autosave_document(token, user, state):
+    """Update only review metadata, without loading or rewriting the source image."""
+    with transaction.atomic():
+        draft = get_draft(token, user, lock=True, metadata_only=True)
+        unchanged = all(draft.document.get(key, {} if key == 'editor_state' else None) == value
+                        for key, value in state.items())
+        # A successful response can be lost in transit. Retrying identical state
+        # returns the current token without extending expiry or invalidating preview.
+        if not unchanged:
+            check_version(token, draft)
+            draft.document.update(state)
+            draft.document['preview_version'] = secrets.token_urlsafe(16)
+            draft.document.pop('preview_records', None)
+            draft.saved_at = timezone.now()
+            draft.expires_at = draft.saved_at + timedelta(seconds=DOCUMENT_TTL)
+            draft.save(update_fields=['document', 'saved_at', 'expires_at'])
+        return {'token': draft_token(draft), 'saved_at': draft.saved_at.isoformat(),
+                'expires_at': draft.expires_at.isoformat()}
 
 
 def saved_drafts(user):
