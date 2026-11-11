@@ -45,6 +45,15 @@
 .reference-mapping .select2-container { flex: 1 1 250px; max-width: 100%; min-width: 180px; }
 .reference-mapping > label { margin: 0; }
 .reference-mapping input { max-width: 100%; box-sizing: border-box; }
+.reference-mapping .ocr-group { flex: 1 0 100%; min-width: 0; background: var(--darkened-bg); padding: 10px; box-sizing: border-box; }
+.ocr-group p { margin: 0 0 8px; overflow-wrap: anywhere; }
+.ocr-reading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0; }
+.ocr-reading span { overflow-wrap: anywhere; }
+.document-import .ocr-reading button { padding: 6px 8px; }
+.missing-readings { border: 1px solid var(--hairline-color); padding: 10px; }
+.missing-readings summary { font-weight: bold; cursor: pointer; }
+.mapping-location { margin: 10px 0; }
+.mapping-location small { display: block; overflow-wrap: anywhere; }
 .review-toolbar, .review-batch, .review-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 14px 0; }
 .review-toolbar label { display: flex; align-items: center; gap: 6px; }
 .review-batch { padding: 12px; background: var(--darkened-bg); }

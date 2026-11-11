@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="{% static 'scheduling/timetable_import.css' %}">
 <link rel="stylesheet" href="{% static 'scheduling/timetable_document.css' %}">
 {% endblock %}
-{% block extrahead %}{{ block.super }}{{ catalog_media.js }}<script src="{% static 'scheduling/clock.js' %}" defer></script><script src="{% static 'scheduling/course_suggestions.js' %}" defer></script><script src="{% static 'scheduling/draft_autosave.js' %}" defer></script><script src="{% static 'scheduling/timetable_document.js' %}" defer></script>{% endblock %}
+{% block extrahead %}{{ block.super }}{{ catalog_media.js }}<script src="{% static 'scheduling/clock.js' %}" defer></script><script src="{% static 'scheduling/course_suggestions.js' %}" defer></script><script src="{% static 'scheduling/draft_autosave.js' %}" defer></script><script src="{% static 'scheduling/ocr_reference_groups.js' %}" defer></script><script src="{% static 'scheduling/timetable_document.js' %}" defer></script>{% endblock %}
 {% block breadcrumbs %}
 <ol class="breadcrumbs"><li><a href="{% url 'admin:index' %}">Home</a></li><li><a href="{% url 'admin:scheduling_timetableday_changelist' %}">Timetables</a></li><li aria-current="page">Import Image</li></ol>
 {% endblock %}
@@ -69,7 +69,7 @@
           <section class="module document-mappings" aria-label="Resolve missing course and room choices">
             <h2>2. Resolve missing courses and venues once</h2>
             <p id="mapping-status" role="status"></p>
-            <p>Choose the correct saved course or room for each name below. The choice fills all unresolved rows with that same detected name. Check their days and times before marking them reviewed.</p>
+            <p>Similar OCR spellings are grouped where one likely course or room explains them. Compare the original readings and their image locations, then choose the correct record once for the group. Use <strong>Review this spelling separately</strong> if readings belong to different records. Check their days and times before marking them reviewed.</p>
             <p>If a record is missing, prepare it here. Detected codes and names are filled in; provide only the remaining details. Preparing a record applies it to every matching unresolved entry, but saves nothing yet.</p>
             <p>Prepare a building once and reuse it from the Building dropdown in every other room. Its campus area is shared. Buildings are saved with the rooms when you confirm the import.</p>
             <div id="prepared-buildings"></div>
@@ -80,6 +80,7 @@
           <section class="module document-mappings" aria-label="Weekly timetable preview">
             <h2>3. Compare the weekly preview with the image</h2>
             <p>Each card keeps its course, room and time together. Select a card to see its source or correct that entry. Check for missing cells as well as highlighted issues.</p>
+            <p class="help"><strong>Needs attention</strong>: a field is missing/invalid, a shared heading needs checking, or an unreviewed reading is uncertain. <strong>Overlap — check</strong>: entries in this draft use the same room and weekday at overlapping times. Compare their readings first; saved timetable and approved-reservation conflicts are checked during validation.</p>
             <div id="weekly-preview" class="weekly-scroll" tabindex="0"></div>
             <p id="weekly-status" role="status"></p>
             <label><input type="checkbox" id="weekly-checked"> I compared this weekly preview and its headings with the source image.</label>

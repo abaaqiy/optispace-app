@@ -44,6 +44,7 @@ function editor(t, rows = [row()], pending = { courses: [], rooms: [] }, options
   document.getElementById('document-department').value = 'Public Law';
   window.eval(read('./clock.js'));
   window.eval(read('./course_suggestions.js'));
+  window.eval(read('./ocr_reference_groups.js'));
   let saver;
   if (options.fetch) {
     window.fetch = options.fetch;
@@ -506,4 +507,168 @@ test('shared image time headings convert noon correctly for every affected entry
   assert.equal(e.payload().rows[0].start_time, '12:30');
   assert.equal(e.payload().rows[0].end_time, '13:30');
   assert.equal(e.payload().rows[0].time_checked, true);
+});
+
+const sltChoices = { room_names: [{ name: '1,000-Seater Lecture Theatre (1000 SLT)', aliases: ['1000SLT', '1000 SLT'] }] };
+const sltReferences = { courses: [], rooms: [{ value: '1000-slt', name: sltChoices.room_names[0].name,
+  label: '1000 SLT — Central Campus', keys: ['1000slt'], identity: sltChoices.room_names[0].name }] };
+
+test('a suggested room group maps all spellings together only on confirmation and preserves every source row', t => {
+  const rows = ['1000IST', '1000Sit', '1000Sit', '1000Sit'].map((text, index) => ({ ...row(), room: '', room_text: text,
+    day: index % 2 ? 'Tuesday' : 'Monday', box: [20, index * 30, 100, index * 30 + 25], source: `Original ${text}` }));
+  const e = editor(t, rows, undefined, { creation: sltChoices, references: sltReferences, realWidgets: true });
+  const group = e.mapping('1000IST');
+  assert.equal(e.document.querySelectorAll('#reference-mappings > .reference-mapping[data-kind="room"]').length, 1);
+  assert.match(group.querySelector('.ocr-group').textContent, /1000IST.*1 row\(s\).*1000Sit.*3 row\(s\)/s);
+  assert.ok(e.payload().rows.every(row => row.room === ''), 'The suggestion has not mapped anything');
+  const examples = group.querySelectorAll('.ocr-reading button');
+  examples[2].click();
+  assert.equal(e.document.getElementById('source-highlight').style.top, '10%');
+  const choice = group.querySelector('select[aria-label="Map room 1000IST"]');
+  assert.equal(choice.value, '1000-slt');
+  e.button(group, 'Use for all matching unresolved rows');
+  const saved = e.payload();
+  assert.ok(saved.rows.every(row => row.room === '1000-slt' && !row.reviewed));
+  assert.deepEqual(saved.rows.map(row => row.room_text), rows.map(row => row.room_text));
+  assert.deepEqual(saved.rows.map(row => [row.day, row.start_time, row.end_time, row.box, row.source]),
+    rows.map(row => [row.day, row.start_time, row.end_time, row.box, row.source]));
+});
+
+test('correcting one probable group preserves original spellings and prepares a single shared record', t => {
+  const e = editor(t, ['1000IST', '1000SIT', '1000SIT'].map(text => ({ ...row(), room: '', room_text: text })), undefined,
+    { creation: sltChoices, references: { courses: [], rooms: [] } });
+  const group = e.mapping('1000IST');
+  const correction = e.field(group, 'Correct room reading for all 3 entries');
+  assert.equal(correction.value.replace(/\s/g, ''), '1000SLT');
+  correction.value = '1000SLT';
+  correction.parentElement.nextElementSibling.click();
+  const corrected = e.payload();
+  assert.deepEqual(corrected.rows.map(row => row.original_room_text), ['1000IST', '1000SIT', '1000SIT']);
+  assert.ok(corrected.rows.every(row => row.room_text === '1000SLT' && row.room_reading_checked));
+  const form = e.mapping('1000SLT').querySelector('.record-editor');
+  e.change(e.field(form, 'Building'), 'new');
+  e.change(e.field(form, 'New building name'), 'Computer Building Complex');
+  e.change(e.field(form, 'New building campus area'), 'Faculty of Computing Science and Engineering');
+  e.change(e.field(form, 'Room type'), 'Classroom');
+  e.change(e.field(form, 'Capacity'), '1000');
+  e.change(e.field(form, 'Size category'), 'large');
+  e.button(form, 'Use new record for matching entries');
+  const saved = e.payload();
+  assert.equal(saved.pending.rooms.length, 1);
+  assert.ok(saved.rows.every(row => row.room === saved.pending.rooms[0].key));
+});
+
+test('separating a spelling is durable and can be reversed without changing readings or unfinished group fields', async t => {
+  const requests = [];
+  const e = editor(t, ['1000IST', '1000SIT', '1000SIT'].map(text => ({ ...row(), room: '', room_text: text })), undefined, {
+    creation: sltChoices, references: sltReferences,
+    fetch: async (url, init) => { requests.push(new URLSearchParams(init.body.toString())); return { ok: true, json: async () => ({ token: 'saved-group' }) }; },
+  });
+  const lines = e.mapping('1000IST').querySelectorAll('.ocr-reading');
+  e.button(lines[1], 'Review this spelling separately');
+  assert.equal(e.document.querySelectorAll('#reference-mappings > .reference-mapping[data-kind="room"]').length, 2);
+  assert.equal(e.mapping('1000SIT').querySelector('select[aria-label="Map room 1000SIT"]').value, '');
+  await Promise.resolve(); await e.saver.flush();
+  const state = requests.at(-1);
+  const resumed = editor(t, JSON.parse(state.get('rows')), JSON.parse(state.get('pending')), {
+    creation: sltChoices, references: sltReferences, editorState: JSON.parse(state.get('editor_state')),
+  });
+  assert.ok(resumed.mapping('1000SIT'));
+  resumed.button(resumed.mapping('1000SIT'), 'Allow suggested grouping again');
+  assert.equal(resumed.document.querySelectorAll('#reference-mappings > .reference-mapping[data-kind="room"]').length, 1);
+  assert.ok(resumed.payload().rows.every(row => !row.room_group_separate && row.room === ''));
+});
+
+test('a partially edited probable group reopens as one group without losing entered values', t => {
+  const rows = ['1000IST', '1000SIT', '1000SIT'].map(text => ({ ...row(), room: '', room_text: text }));
+  const options = { creation: sltChoices, references: sltReferences };
+  const e = editor(t, rows, undefined, options);
+  const form = e.mapping('1000IST').querySelector('.record-editor');
+  e.change(e.field(form, 'Capacity'), '750');
+  const saved = e.payload();
+  const resumed = editor(t, saved.rows, saved.pending, { ...options, editorState: saved.editorState });
+  assert.equal(resumed.document.querySelectorAll('#reference-mappings > .reference-mapping[data-kind="room"]').length, 1);
+  assert.equal(resumed.field(resumed.mapping('1000IST').querySelector('.record-editor'), 'Capacity').value, '750');
+});
+
+test('earlier individually edited probable readings keep both forms and their values on opening', t => {
+  const e = editor(t, ['1000IST', '1000SIT'].map(text => ({ ...row(), room: '', room_text: text })), undefined, {
+    creation: sltChoices, references: sltReferences,
+    editorState: { 'record:room:1000ist:capacity': '1000', 'record:room:1000sit:capacity': '800' },
+  });
+  assert.equal(e.document.querySelectorAll('#reference-mappings > .reference-mapping[data-kind="room"]').length, 2);
+  assert.equal(e.field(e.mapping('1000IST').querySelector('.record-editor'), 'Capacity').value, '1000');
+  assert.equal(e.field(e.mapping('1000SIT').querySelector('.record-editor'), 'Capacity').value, '800');
+});
+
+test('missing readings have individual correction controls in one collapsed list', t => {
+  const e = editor(t, [{ ...row(), course_text: '', room_text: '', room: '' }, { ...row(), course_text: '', room_text: '', room: '' }]);
+  const containers = e.document.querySelectorAll('.missing-readings');
+  assert.equal(containers.length, 2);
+  assert.ok([...containers].every(container => !container.open && container.querySelectorAll('.reference-mapping').length === 2));
+  const field = e.field(containers[0], 'Correct course reading in row 1');
+  field.value = 'CSC102'; field.parentElement.nextElementSibling.click();
+  assert.equal(e.payload().rows[0].course_text, 'CSC102');
+  assert.equal(e.payload().rows[1].course_text, '');
+});
+
+test('confirming a suggested course code updates its variants, enables title suggestions and prepares one course', t => {
+  const e = editor(t, [row('CM202'), row('CHM202'), row('CM202'), row('CHM302')], undefined, {
+    creation: { course_catalogue: [{ code: 'CHM202', title: 'Verified test title', department: 'Chemistry',
+      source_id: 'test-handbook', page: 15 }, { code: 'CHM302', title: 'Another title', department: 'Chemistry',
+      source_id: 'test-handbook', page: 25 }], course_sources: { 'test-handbook': {
+        source_title: 'Test course handbook', source_url: '/test-handbook/', edition: 'Test edition',
+      } } },
+  });
+  assert.equal(e.document.querySelectorAll('#reference-mappings > .reference-mapping[data-kind="course"]').length, 2);
+  e.button(e.mapping('CM202'), 'Confirm reading “CHM202” for this group');
+  const corrected = e.payload().rows;
+  assert.ok(corrected.slice(0, 3).every(row => row.course_text === 'CHM202' && row.course === '' && !row.reviewed));
+  assert.equal(corrected[0].original_course_text, 'CM202');
+  assert.equal(corrected[3].course_text, 'CHM302');
+  const form = e.mapping('CHM202').querySelector('.record-editor');
+  assert.equal(e.field(form, 'Course code').value, 'CHM202');
+  assert.match(form.querySelector('.course-suggestions').textContent, /Verified test title/);
+  const applicable = form.querySelector('.course-suggestions input[type="checkbox"]');
+  e.change(applicable, true); e.button(form.querySelector('.course-suggestions'), 'Use this title');
+  e.button(form, 'Use new record for matching entries');
+  const saved = e.payload();
+  assert.equal(saved.pending.courses.length, 1);
+  assert.equal(saved.pending.courses[0].code, 'CHM202');
+  assert.equal(saved.pending.courses[0].title, 'Verified test title');
+  assert.ok(saved.rows.slice(0, 3).every(row => row.course === saved.pending.courses[0].key));
+  assert.equal(saved.rows[3].course, '');
+});
+
+test('weekly preview states missing fields, confidence and unchecked heading reasons', t => {
+  const references = { courses: [{ value: 'CSC102', label: 'CSC102', keys: ['csc102'] }], rooms: sltReferences.rooms };
+  const rows = [
+    { ...row('CSC102'), course: '', room: '1000-slt' },
+    { ...row('CSC102'), course: 'CSC102', room: '1000-slt', confidence: 70, day: 'Tuesday' },
+    { ...row('CSC102'), course: 'CSC102', room: '1000-slt', day_group: 'heading', day_checked: false, day: 'Wednesday' },
+  ];
+  const e = editor(t, rows, undefined, { references });
+  const cards = e.document.querySelectorAll('.weekly-card');
+  assert.ok([...cards].every(card => /Needs attention/.test(card.textContent)));
+  assert.match(cards[0].textContent, /Match or prepare a course/);
+  assert.match(cards[1].textContent, /Uncertain reading/);
+  assert.match(cards[2].textContent, /Check the shared weekday heading/);
+});
+
+test('weekly overlap reports conflicting row numbers, ignores adjacent/skipped rows and excludes bulk approval', t => {
+  const references = { courses: [{ value: 'CSC102', label: 'CSC102', keys: ['csc102'] }], rooms: sltReferences.rooms };
+  const lecture = { ...row('CSC102'), course: 'CSC102', room: '1000-slt' };
+  const e = editor(t, [lecture, { ...lecture, start_time: '08:30', end_time: '09:30' },
+    { ...lecture, start_time: '09:30', end_time: '10:30' }, { ...lecture, skip: true }], undefined, { references });
+  const cards = e.document.querySelectorAll('.weekly-card');
+  assert.match(cards[0].textContent, /Overlap — check.*Overlaps row\(s\) 2/s);
+  assert.match(cards[1].textContent, /Overlap — check.*Overlaps row\(s\) 1/s);
+  assert.doesNotMatch(cards[2].textContent, /Overlap/);
+  e.change(e.document.getElementById('weekly-checked'), true);
+  e.button(e.document, 'Confirm clear entries together');
+  const saved = e.payload();
+  assert.equal(saved.rows[0].reviewed, false);
+  assert.equal(saved.rows[1].reviewed, false);
+  assert.equal(saved.rows[2].reviewed, true);
+  assert.equal(saved.rows[3].reviewed, false);
 });

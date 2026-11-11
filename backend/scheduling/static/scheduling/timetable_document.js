@@ -45,7 +45,8 @@
           redirects.set(record.key, target);
         } else {
           if (record.duplicate_of) { delete record.duplicate_of; repairedReferences = true; }
-          const item = { value: record.key, label: `New: ${proposedLabel(record)}`, identity: key, keys: [] };
+          const item = { value: record.key, label: `New: ${proposedLabel(record)}`, name: record.name,
+            identity: key, keys: [kind === 'course' ? record.code : record.name] };
           refs[kind + 's'].push(item);
           if (key) byIdentity.set(key, item);
         }
@@ -207,6 +208,15 @@
     readyGroups();
     weeklyPreview();
   }
+  function validTimes(row) {
+    return [row.start_time, row.end_time].every(value => /^([01]\d|2[0-3]):[0-5]\d$/.test(value || ''))
+      && row.start_time < row.end_time;
+  }
+  function overlappingRows(row, index, kept) {
+    if (!valid.room.has(row.room) || !days.slice(1).includes(row.day) || !validTimes(row)) return [];
+    return kept.filter(({ row: other, index: i }) => i !== index && row.room === other.room
+      && row.day === other.day && validTimes(other) && row.start_time < other.end_time && row.end_time > other.start_time);
+  }
   function weeklyPreview() {
     const root = document.getElementById('weekly-preview'); root.replaceChildren();
     const kept = rows.map((row, index) => ({ row, index })).filter(({ row }) => !row.skip);
@@ -223,13 +233,16 @@
       for (const day of shownDays) {
         const td = element('td', undefined, tr);
         kept.filter(({ row }) => `${row.start_time || '?'}–${row.end_time || '?'}` === time && (row.day === day || day === 'Needs weekday' && (!row.day || !days.includes(row.day)))).forEach(({ row, index }) => {
-          const issue = problems(row).length || (!row.reviewed && (row.note || row.confidence != null && Number(row.confidence) < 90));
-          const overlap = kept.some(({ row: other, index: i }) => i !== index && row.room && row.room === other.room && row.day === other.day && row.start_time < other.end_time && row.end_time > other.start_time);
+          const issues = [...problems(row), ...(!row.reviewed ? warnings(row) : [])];
+          const issue = issues.length;
+          const conflicts = overlappingRows(row, index, kept), overlap = conflicts.length;
           const button = element('button', undefined, td); button.type = 'button'; button.className = `weekly-card${issue || overlap ? ' weekly-issue' : ''}`;
           if (issue || overlap) flagged++;
           element('strong', refs.courses.find(item => item.value === row.course)?.label || row.course_text || 'Course missing', button);
           element('span', refs.rooms.find(item => item.value === row.room)?.label || row.room_text || 'Venue missing', button);
           element('small', `Row ${index + 1}${overlap ? ' · Overlap — check' : issue ? ' · Needs attention' : row.reviewed ? ' · Reviewed' : ''}`, button);
+          if (issue) element('small', issues.join('; '), button).className = 'weekly-reasons';
+          if (overlap) element('small', `Overlaps row(s) ${conflicts.map(({ index }) => index + 1).join(', ')} in this room`, button).className = 'weekly-reasons';
           if (row.class_group) element('small', `Part / group: ${row.class_group}`, button);
           button.addEventListener('click', () => {
             filter.value = 'all'; search.value = ''; dayFilter.value = ''; sourceFilter.value = '';
@@ -327,21 +340,58 @@
     captureEditors();
     const root = document.getElementById('reference-mappings');
     clearEditors(root);
-    let groupCount = 0;
+    let groupCount = 0, readingCount = 0, groupedCount = 0, missingCount = 0;
     for (const key of ['course', 'room']) {
-      const groups = new Map();
-      rows.forEach((row, index) => {
-        if (row.skip || valid[key].has(row[key])) return;
-        const text = row[key + '_text'] || '';
-        const group = normalise(text) || `missing-${index}`;
-        if (!groups.has(group)) groups.set(group, { text, rows: [] });
-        groups.get(group).rows.push(row);
-      });
-      for (const { text, rows: affected } of groups.values()) {
+      const result = window.OptispaceOcrGroups.build({ kind: key, rows, references: refs[key + 's'],
+        catalogue: key === 'course' ? creation.course_catalogue : creation.room_names,
+        isEditing: reading => !editorState[`ocr-grouped:${key}:${normalise(reading)}`] && Object.entries(editorState).some(([field, value]) => value && (
+          field === `mapping:${key}:${normalise(reading)}:choice` || field.startsWith(`record:${key}:${normalise(reading)}:`))) });
+      readingCount += result.readingCount; missingCount += result.missing.length;
+      for (const group of result.groups) {
+        const { text, rows: affected, target, readings } = group;
         groupCount++;
+        if (group.suggested || readings.length > 1) groupedCount++;
         const section = element('div', undefined, root); section.className = 'reference-mapping';
+        section.dataset.kind = key;
         element('strong', `${key === 'course' ? 'Course' : 'Room'} “${text}” — ${affected.length} row(s)`, section);
-        referenceActions(section, key, text, affected);
+        if (group.suggested || readings.length > 1) {
+          // New grouped editors reopen together. Older unfinished individual
+          // editors stay separate so their entered details cannot disappear.
+          editorState[`ocr-grouped:${key}:${normalise(text)}`] = true;
+          const info = element('div', undefined, section); info.className = 'ocr-group';
+          element('p', target ? `Suggested match: ${target.label}. Compare the readings below with the image before applying it.`
+            : 'These readings differ only in case, spacing or punctuation. Compare their source locations before applying one choice.', info);
+          if (target && !target.value) {
+            element('p', target.source === 'reading' ? 'Suggested from repeated readings in this image; confirm the actual name.'
+              : `Suggested from the ${key === 'course' ? 'course-code' : 'room'} catalogue; confirm it applies to this image.`, info).className = 'help';
+            const confirm = element('button', `Confirm reading “${target.text}” for this group`, info); confirm.type = 'button';
+            confirm.addEventListener('click', () => { correctReadings(key, affected, target.text); invalidate(); mappings(); render(); });
+          }
+          for (const reading of readings) {
+            const line = element('div', undefined, info); line.className = 'ocr-reading';
+            element('span', `“${reading.text}” — ${reading.rows.length} row(s)`, line);
+            const show = element('button', 'Show example', line); show.type = 'button';
+            show.addEventListener('click', () => showPage(reading.rows[0].page, reading.rows[0].box));
+            if (readings.some(other => normalise(other.text) !== normalise(reading.text))) {
+              const separate = element('button', 'Review this spelling separately', line); separate.type = 'button';
+              separate.addEventListener('click', () => {
+                affected.filter(row => normalise(row[key + '_text']) === normalise(reading.text))
+                  .forEach(row => { row[key + '_group_separate'] = true; });
+                invalidate(); mappings(); render();
+              });
+            }
+          }
+        }
+        if (group.separated) {
+          element('p', 'You chose to review this reading separately.', section).className = 'help';
+          const regroup = element('button', 'Allow suggested grouping again', section); regroup.type = 'button';
+          regroup.addEventListener('click', () => {
+            affected.forEach(row => { delete row[key + '_group_separate']; });
+            invalidate(); mappings(); render();
+          });
+        }
+        if (group.editing) element('p', 'Your unfinished edits are kept with this reading.', section).className = 'help';
+        referenceActions(section, key, text, affected, target?.text);
         const choice = element('select', undefined, section); choice.id = `map-${key}-${crypto.randomUUID()}`;
         const label = element('label', `Select correct ${key}`, section); label.htmlFor = choice.id; choice.before(label);
         choice.className = 'room-catalog-select'; choice.setAttribute('aria-label', `Map ${key} ${text}`);
@@ -350,6 +400,7 @@
           opt.dataset.searchAliases = (item.keys || []).join(' ');
         });
         const editKey = `mapping:${key}:${normalise(text) || affected[0].editor_id}`;
+        if (!Object.hasOwn(editorState, editKey + ':choice') && target?.value) choice.value = target.value;
         bindEditor(choice, editKey + ':choice');
         const apply = element('button', 'Use for all matching unresolved rows', section); apply.type = 'button'; apply.disabled = !choice.value;
         const selected = () => { apply.disabled = !choice.value; };
@@ -363,20 +414,43 @@
         if (creation['can_add_' + key]) {
           const details = element('details', undefined, section);
           element('summary', `Prepare a new ${key} here`, details);
+          // A probable reading is never silently used as a new database identity.
           recordEditor(details, key, text, affected);
         }
       }
+      if (result.missing.length) {
+        const details = element('details', undefined, root); details.className = 'missing-readings';
+        element('summary', `${key === 'course' ? 'Course' : 'Venue'} not readable — ${result.missing.length} entry/entries to check`, details);
+        element('p', 'These entries are collected here to keep the list short. Each needs its own reading or choice; an empty cell does not establish a shared course or room.', details);
+        for (const row of result.missing) {
+          const section = element('div', undefined, details); section.className = 'reference-mapping';
+          const index = rows.indexOf(row);
+          element('strong', `${key === 'course' ? 'Course' : 'Venue'} missing in row ${index + 1}`, section);
+          referenceActions(section, key, '', [row]);
+        }
+      }
     }
-    document.getElementById('mapping-status').textContent = groupCount ? `${groupCount} distinct OCR readings need matching. These are readings from the image, not courses generated from handbooks. Inspect uncertain codes before preparing records.` : 'All retained names are matched. Skipped entries are excluded; use the Skipped filter to restore them.';
+    document.getElementById('mapping-status').textContent = groupCount || missingCount
+      ? `${readingCount} different readings arranged into ${groupCount} matching group(s)${groupedCount ? `; ${groupedCount} group(s) combine similar spellings or suggest a likely match` : ''}.${missingCount ? ` ${missingCount} unreadable course/venue fields are listed separately below.` : ''} Confirm each group against the image. These readings come from the timetable, not courses generated from handbooks.`
+      : 'All retained names are matched. Skipped entries are excluded; use the Skipped filter to restore them.';
     preparedBuildings(); proposedRecords();
   }
-  function referenceActions(section, key, text, affected) {
+  function correctReadings(key, entries, value) {
+    value = key === 'course' ? codeKey(value) : value.trim();
+    entries.forEach(row => {
+      row['original_' + key + '_text'] ??= row[key + '_text'];
+      row[key + '_text'] = value; row[key] = ''; row.reviewed = false;
+      row[key + '_reading_checked'] = true;
+    });
+  }
+  function referenceActions(section, key, text, affected, suggested = '') {
     const locations = element('details', undefined, section);
     element('summary', 'Inspect locations / correct reading / skip', locations);
     element('p', 'Compare each reading with its highlighted image area. A course missing from a handbook may still be valid. Correct an OCR error; skip only an entry you do not want to import.', locations);
     affected.forEach(row => {
       const line = element('div', undefined, locations); line.className = 'mapping-location';
       const index = rows.indexOf(row);
+      element('small', `Read ${key}: ${row[key + '_text'] || '(not detected)'}`, line);
       const show = element('button', `Show row ${index + 1}: ${row.day || '?'} ${clockRange(row)} · ${row.room_text || 'venue unreadable'}`, line); show.type = 'button';
       show.addEventListener('click', () => showPage(row.page, row.box));
       const skip = element('button', 'Skip this entry', line); skip.type = 'button';
@@ -393,15 +467,12 @@
       apply.addEventListener('click', () => {
         const value = key === 'course' ? window.OptispaceCourseSuggestions.codeKey(corrected.value) : corrected.value.trim();
         if (!value || key === 'course' && !/^[A-Z]{2,5}\d{3}$/.test(value)) { error.textContent = 'Enter the complete reading you confirmed in the image.'; return; }
-        entries.forEach(row => {
-          row['original_' + key + '_text'] ??= row[key + '_text'];
-          row[key + '_text'] = value; row[key] = ''; row.reviewed = false;
-        });
+        correctReadings(key, entries, value);
         forgetEditor(editKey);
         invalidate(); mappings(); render();
       });
     }
-    if (affected.length > 1) correction(locations, affected, text, `Correct ${key} reading for all ${affected.length} entries`);
+    if (affected.length > 1) correction(locations, affected, suggested || text, `Correct ${key} reading for all ${affected.length} entries`);
     const skipAll = element('button', 'Skip all these entries', locations); skipAll.type = 'button';
     skipAll.addEventListener('click', () => { affected.forEach(row => { row.skip = true; row.reviewed = false; }); invalidate(); mappings(); headings(); render(); });
     element('p', 'Skipped entries need no course title or venue. Restore them using the Skipped filter below.', locations);
@@ -594,7 +665,8 @@
       const previous = pending[kind + 's'].findIndex(item => item.key === record.key);
       if (previous >= 0) pending[kind + 's'][previous] = record; else pending[kind + 's'].push(record);
       const list = refs[kind + 's']; const old = list.findIndex(item => item.value === record.key);
-      const choice = { value: record.key, label: `New: ${proposedLabel(record)}`, identity: identity(kind, record), keys: [] };
+      const choice = { value: record.key, label: `New: ${proposedLabel(record)}`, name: record.name,
+        identity: identity(kind, record), keys: [kind === 'course' ? record.code : record.name] };
       if (old >= 0) list[old] = choice; else list.push(choice);
       valid[kind].add(record.key);
       affected.forEach(row => { row[kind] = record.key; row.reviewed = false; });
@@ -841,8 +913,10 @@
   document.getElementById('weekly-checked').addEventListener('change', event => { document.getElementById('weekly-approve').disabled = !event.target.checked; });
   document.getElementById('weekly-approve').addEventListener('click', () => {
     if (!document.getElementById('weekly-checked').checked) return;
-    rows.forEach(row => {
+    const kept = rows.map((row, index) => ({ row, index })).filter(({ row }) => !row.skip);
+    rows.forEach((row, index) => {
       if (row.skip || problems(row).length || row.note || row.confidence != null && Number(row.confidence) < 90) return;
+      if (overlappingRows(row, index, kept).length) return;
       row.day_checked = true; row.time_checked = true; row.reviewed = true;
     });
     invalidate(); headings(); render();
