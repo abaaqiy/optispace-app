@@ -52,6 +52,14 @@ class ImagePlanTests(TestCase):
     def confirm(self, fingerprint, log=lambda *args: None):
         return apply_image(self.rows, self.options, self.pending, fingerprint, self.admin, 'test.jpg', log)
 
+    def shared_building(self):
+        key = 'draft-building-12345678'
+        self.pending['buildings'] = [{'key': key, 'name': 'New teaching block', 'campus_zone': 'Faculty of Science'}]
+        self.pending['rooms'][0]['building'] = key
+        self.pending['rooms'].append({**self.pending['rooms'][0], 'key': 'draft-room-87654321', 'name': 'Teaching 221'})
+        self.rows.append({**self.rows[0], 'room': 'draft-room-87654321'})
+        return key
+
     def test_preview_writes_nothing_and_confirm_saves_references_dates_and_metadata(self):
         plan, staged, _, fingerprint = self.preview()
         self.assertEqual(len(plan.rows), 2)
@@ -82,6 +90,105 @@ class ImagePlanTests(TestCase):
         self.assertEqual(Building.objects.count(), 2)
         self.assertEqual(len(set(Room.objects.values_list('building_id', flat=True))), 1)
         self.assertEqual(Room.objects.first().building.campus_zone, 'Central Campus')
+
+    def test_explicit_shared_building_creates_once_regardless_of_room_order(self):
+        key = self.shared_building()
+        self.pending['rooms'].reverse()
+        self.pending['buildings'][0].update(name='Verified shared block', campus_zone='Faculty of Technology')
+        _, staged, _, fingerprint = self.preview()
+        self.assertEqual(len(staged['buildings']), 1)
+        self.assertEqual(len(staged['rooms']), 2)
+        self.assertIs(staged['rooms'][0][1].building, staged['rooms'][1][1].building)
+        self.assertEqual(Building.objects.count(), 1)
+        self.assertFalse(Room.objects.exists())
+        self.assertTrue(all(room['building'] == key for room in self.pending['rooms']))
+        counts = self.confirm(fingerprint)
+        self.assertEqual(counts['buildings'], 1)
+        building = Building.objects.get(name='Verified shared block')
+        self.assertEqual(building.campus_zone, 'Faculty of Technology')
+        self.assertEqual(building.rooms.count(), 2)
+        self.assertEqual(TimetableDay.objects.count(), 4)
+
+    def test_shared_building_survives_skipping_or_removing_original_room(self):
+        self.shared_building()
+        self.rows[0]['skip'] = True
+        # The second room owns an independent reference, not a link through the first room.
+        self.pending['rooms'].pop(0)
+        self.pending['buildings'].append({'key': 'draft-building-87654321', 'name': '', 'campus_zone': ''})
+        *_, fingerprint = self.preview()
+        counts = self.confirm(fingerprint)
+        self.assertEqual(counts['buildings'], 1)
+        self.assertEqual(list(Room.objects.values_list('name', flat=True)), ['Teaching 221'])
+        self.assertEqual(Building.objects.get(name='New teaching block').rooms.count(), 1)
+        self.assertEqual(TimetableDay.objects.count(), 2)
+
+    def test_unreferenced_shared_buildings_are_not_created(self):
+        self.pending['buildings'] = [{'key': 'draft-building-12345678', 'name': '', 'campus_zone': ''}]
+        *_, fingerprint = self.preview()
+        self.assertEqual(self.confirm(fingerprint)['buildings'], 0)
+        self.assertEqual(Building.objects.count(), 1)
+
+    def test_missing_shared_building_is_reported_without_saving(self):
+        self.pending['rooms'][0]['building'] = 'draft-building-12345678'
+        with self.assertRaisesMessage(ImportProblem, 'prepared building is missing'):
+            self.preview()
+        self.assertFalse(Room.objects.exists())
+        self.assertFalse(Course.objects.exists())
+
+    def test_shared_building_permissions_and_field_validation_are_enforced(self):
+        self.shared_building()
+        with patch.object(self.admin, 'has_perm', side_effect=lambda permission: permission != 'rooms.add_building'):
+            with self.assertRaisesMessage(ImportProblem, 'permission to create buildings'):
+                self.preview()
+        self.pending['buildings'][0]['campus_zone'] = ''
+        with self.assertRaisesMessage(ImportProblem, 'campus_zone'):
+            self.preview()
+        self.pending['buildings'][0]['campus_zone'] = ['Invalid']
+        with self.assertRaisesMessage(ImportProblem, 'invalid field values'):
+            self.preview()
+        self.assertEqual(Building.objects.count(), 1)
+        self.assertFalse(Room.objects.exists())
+
+    def test_duplicate_shared_names_deduplicate_but_conflicting_campus_areas_are_rejected(self):
+        self.shared_building()
+        self.pending['buildings'].append({**self.pending['buildings'][0], 'key': 'draft-building-87654321', 'name': 'NEW TEACHING BLOCK'})
+        self.pending['rooms'][1]['building'] = 'draft-building-87654321'
+        _, staged, _, _ = self.preview()
+        self.assertEqual(len(staged['buildings']), 1)
+        self.pending['buildings'][1]['campus_zone'] = 'Faculty of Technology'
+        with self.assertRaisesMessage(ImportProblem, 'conflicting campus areas'):
+            self.preview()
+        self.assertFalse(Room.objects.exists())
+
+    def test_invalid_shared_identifiers_are_rejected(self):
+        self.shared_building()
+        for key in ('saved-building-1', 'draft-building-?', self.pending['buildings'][0]['key']):
+            with self.subTest(key=key):
+                self.pending['buildings'].append({'key': key})
+                with self.assertRaisesMessage(ImportProblem, 'invalid or repeated identifier'):
+                    self.preview()
+                self.pending['buildings'].pop()
+
+    def test_shared_building_added_after_preview_requires_refresh_without_duplicate_writes(self):
+        self.shared_building()
+        *_, fingerprint = self.preview()
+        Building.objects.create(name='New teaching block', campus_zone='Faculty of Science')
+        with self.assertRaisesMessage(ImportProblem, 'already exists'):
+            self.confirm(fingerprint)
+        self.assertEqual(Building.objects.count(), 2)
+        self.assertFalse(Room.objects.exists())
+        self.assertFalse(Course.objects.exists())
+
+    def test_shared_building_import_failure_rolls_back_all_rooms_and_classes(self):
+        self.shared_building()
+        *_, fingerprint = self.preview()
+        with patch.object(TimetableDay, 'save', side_effect=IntegrityError('test failure')):
+            with self.assertRaises(ImportProblem):
+                self.confirm(fingerprint)
+        self.assertEqual(Building.objects.count(), 1)
+        self.assertFalse(Room.objects.exists())
+        self.assertFalse(Course.objects.exists())
+        self.assertFalse(TimetableImageImport.objects.exists())
 
     def test_failure_rolls_back_new_building_room_course_and_timetables(self):
         self.pending['rooms'][0].update(building='new', building_name='New block', campus_zone='Central Campus')

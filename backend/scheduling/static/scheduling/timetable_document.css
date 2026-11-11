@@ -62,7 +62,7 @@
 .record-editor .select2-container { max-width: 100%; }
 .record-editor [hidden] { display: none; }
 .reference-mapping > details { flex-basis: 100%; min-width: 0; }
-#proposed-records > details { border: 1px solid var(--hairline-color); padding: 12px; }
+#prepared-buildings > details, #proposed-records > details { border: 1px solid var(--hairline-color); padding: 12px; }
 .weekly-scroll { overflow-x: auto; max-width: 100%; margin: 12px 0; }
 .weekly-grid { min-width: 760px; width: 100%; table-layout: fixed; }
 .weekly-grid th, .weekly-grid td { vertical-align: top; border: 1px solid var(--hairline-color); padding: 5px; }

@@ -59,7 +59,7 @@ def check_metadata(options):
 
 
 def stage_references(pending, rows, user):
-    if not isinstance(pending, dict) or set(pending) - {"courses", "rooms"}:
+    if not isinstance(pending, dict) or set(pending) - {"buildings", "courses", "rooms"}:
         raise ImportProblem("The proposed course/room records could not be read.")
     staged, refs = {"buildings": [], "courses": [], "rooms": []}, references()
     new_buildings = {}
@@ -70,6 +70,46 @@ def stage_references(pending, rows, user):
         "courses": {normalise(code) for code in Course.objects.values_list("code", flat=True)},
         "rooms": {normalise(room_catalogue_name(name) or name) for name in Room.objects.values_list("name", flat=True)},
     }
+    building_proposals = {}
+    buildings = pending.get('buildings', [])
+    if not isinstance(buildings, list) or len(buildings) > 300:
+        raise ImportProblem('Prepare at most 300 buildings per image.')
+    for data in buildings:
+        if not isinstance(data, dict):
+            raise ImportProblem('A proposed building is invalid.')
+        key = data.get('key', '')
+        if not isinstance(key, str) or not re.fullmatch(r'draft-building-[a-f0-9-]{8,40}', key) or key in keys:
+            raise ImportProblem('A proposed building has an invalid or repeated identifier.')
+        keys.add(key)
+        building_proposals[key] = data
+
+    def prepare_building(data):
+        if not user.has_perm('rooms.add_building'):
+            raise ImportProblem('You do not have permission to create buildings.')
+        if any(not isinstance(data.get(name, ''), str) for name in ('name', 'campus_zone')):
+            raise ImportProblem('A proposed building contains invalid field values.')
+        building_form = NewBuildingForm(data=data)
+        if not building_form.is_valid():
+            errors.extend(f"New building: {name}: {'; '.join(messages)}"
+                          for name, messages in building_form.errors.items())
+            return None
+        candidate = building_form.save(commit=False)
+        if Building.objects.filter(name__iexact=candidate.name).exists():
+            errors.append(f'Building {candidate.name} already exists. Select the saved building.')
+            return None
+        bkey = normalise(candidate.name)
+        building = new_buildings.get(bkey)
+        if building and building.campus_zone != candidate.campus_zone:
+            errors.append(f'Building {candidate.name} has conflicting campus areas in the proposed rooms.')
+            return None
+        if not building:
+            building = candidate
+            building.pk = -(len(new_buildings) + 1)
+            new_buildings[bkey] = building
+            staged['buildings'].append((bkey, building, building_form))
+        return building
+
+    resolved_buildings = {}
     for kind, model, form_type, field in (
         ("courses", Course, NewCourseForm, "code"), ("rooms", Room, NewRoomForm, "name"),
     ):
@@ -98,29 +138,22 @@ def stage_references(pending, rows, user):
                 raise ImportProblem(f"You do not have permission to create {kind}. Match a saved record instead.")
             building = None
             if kind == "rooms" and data.get("building") == "new":
-                if not user.has_perm("rooms.add_building"):
-                    raise ImportProblem("You do not have permission to create buildings.")
-                building_form = NewBuildingForm(data={
+                # Backward compatibility for drafts with per-room building details.
+                building = prepare_building({
                     "name": data.get("building_name", ""), "campus_zone": data.get("campus_zone", ""),
                 })
-                if not building_form.is_valid():
-                    errors.extend(f"New building: {name}: {'; '.join(messages)}"
-                                  for name, messages in building_form.errors.items())
+                if building is None:
                     continue
-                candidate = building_form.save(commit=False)
-                if Building.objects.filter(name__iexact=candidate.name).exists():
-                    errors.append(f"Building {candidate.name} already exists. Select the saved building.")
+            elif kind == 'rooms' and str(data.get('building', '')).startswith('draft-building-'):
+                building_key = data['building']
+                if building_key not in building_proposals:
+                    errors.append(f"New room {data.get('name', '')}: select a building; its prepared building is missing.")
                     continue
-                bkey = normalise(candidate.name)
-                building = new_buildings.get(bkey)
-                if building and building.campus_zone != candidate.campus_zone:
-                    errors.append(f"Building {candidate.name} has conflicting campus areas in the proposed rooms.")
+                if building_key not in resolved_buildings:
+                    resolved_buildings[building_key] = prepare_building(building_proposals[building_key])
+                building = resolved_buildings[building_key]
+                if building is None:
                     continue
-                if not building:
-                    building = candidate
-                    building.pk = -(len(new_buildings) + 1)
-                    new_buildings[bkey] = building
-                    staged["buildings"].append((bkey, building, building_form))
             form = form_type(data=data, **({"instance": Room(building=building)} if building else {}))
             if building:
                 del form.fields["building"]

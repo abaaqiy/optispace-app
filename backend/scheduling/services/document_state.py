@@ -24,9 +24,9 @@ def read_review_state(data):
     if len(rows) > MAX_DRAFT_ROWS:
         raise ImportProblem(f'Review at most {MAX_DRAFT_ROWS} rows per image.')
     pending = decode('pending', '{"courses": [], "rooms": []}', 300_000, 'Proposed courses and rooms could not be read.')
-    if not isinstance(pending, dict) or set(pending) - {'courses', 'rooms'} or any(
+    if not isinstance(pending, dict) or set(pending) - {'buildings', 'courses', 'rooms'} or any(
         not isinstance(pending.get(key, []), list) or len(pending.get(key, [])) > 300
-        or any(not isinstance(item, dict) for item in pending.get(key, [])) for key in ('courses', 'rooms')
+        or any(not isinstance(item, dict) for item in pending.get(key, [])) for key in ('buildings', 'courses', 'rooms')
     ):
         raise ImportProblem('Invalid proposed course/room records.')
     editor = decode('editor_state', '{}', 300_000, 'Unfinished editor fields could not be read.')

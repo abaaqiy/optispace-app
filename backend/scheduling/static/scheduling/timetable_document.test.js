@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -9,20 +9,29 @@ const template = read('../../templates/scheduling/admin/timetable_document.html'
 const row = (code = 'PUL301') => ({ course_text: code, room_text: 'STEP A', course: '', room: 'step-a',
   day: 'Monday', start_time: '08:00', end_time: '09:00', page: 1, box: [20, 30, 100, 80], reviewed: false });
 
-// Exercise the production controller against its real template. Select2 itself
-// is Django's vendored widget; this harness supplies only its change-event hook.
+// Most cases use a minimal change-event hook; the dropdown integration test
+// loads the actual jQuery/Select2 and catalogue controller bundled with Django.
 function editor(t, rows = [row()], pending = { courses: [], rooms: [] }, options = {}) {
   const dom = new JSDOM(template, { url: 'http://localhost/', runScripts: 'outside-only' });
   t.after(() => dom.window.close());
   const { window } = dom;
   const document = window.document;
   window.django = { jQuery: el => ({ on: (name, callback) => el.addEventListener(name, callback) }) };
+  if (options.realWidgets) {
+    const library = readdirSync(new URL('../../../../venv/lib/', import.meta.url)).find(name => name.startsWith('python'));
+    const admin = new URL(`../../../../venv/lib/${library}/site-packages/django/contrib/admin/static/admin/js/`, import.meta.url);
+    for (const path of ['vendor/jquery/jquery.js', 'vendor/select2/select2.full.js', 'jquery.init.js']) {
+      window.eval(readFileSync(new URL(path, admin), 'utf8'));
+    }
+    window.eval(read('../../../rooms/static/rooms/catalog.js'));
+  }
   window.HTMLElement.prototype.scrollIntoView = () => {};
   const creation = { can_add_course: true, can_add_room: true, can_add_building: true,
     course_catalogue: [], course_sources: {}, buildings: [], facilities: [],
     faculties: ['Faculty of Computing Science and Engineering'],
     room_names: [{ name: 'STEP A', aliases: [] }], room_types: ['Classroom'],
     building_names: ['Computer Building Complex', 'Hezekiah Oluwasanmi Library (HOL)'] };
+  Object.assign(creation, options.creation || {});
   for (const [id, data] of Object.entries({
     'document-rows': rows,
     'document-references': { courses: [], rooms: [{ value: 'step-a', label: 'STEP A', keys: [] }] },
@@ -89,7 +98,7 @@ test('background save captures partially typed forms, selections and rows withou
   const sent = requests[0].data;
   assert.equal(sent.get('source_version'), 'Revised');
   assert.equal(sent.get('coverage_checked'), 'yes');
-  assert.deepEqual(JSON.parse(sent.get('pending')), { courses: [], rooms: [] });
+  assert.deepEqual(JSON.parse(sent.get('pending')), { courses: [], rooms: [], buildings: [] });
   assert.match(sent.get('editor_state'), /Partially entered law title/);
   assert.equal(sent.has('image'), false);
   assert.equal(e.document.getElementById('draft-save-error').hidden, true);
@@ -225,13 +234,158 @@ test('new building uses searchable catalogue and supports Others without free-ty
   e.change(e.field(form, 'Size category'), 'large');
   e.button(form, 'Use new record for matching entries');
   const saved = e.payload();
-  assert.equal(saved.pending.rooms[0].building_name, 'Computer Building Complex');
+  assert.equal(saved.pending.buildings[0].name, 'Computer Building Complex');
+  assert.equal(saved.pending.rooms[0].building, saved.pending.buildings[0].key);
+  assert.equal(saved.pending.rooms[0].building_name, undefined);
   assert.equal(saved.pending.rooms[0].name, 'STEP A');
-  const proposed = e.document.querySelector('#proposed-records .record-editor');
-  e.change(e.field(proposed, 'New building name'), '__other__');
-  e.field(proposed, 'Custom new building name').value = 'Verified teaching block';
-  e.button(proposed, 'Update proposed record');
-  assert.equal(e.payload().pending.rooms[0].building_name, 'Verified teaching block');
+  const proposed = e.document.querySelector('#prepared-buildings .record-editor');
+  e.change(e.field(proposed, 'Building name'), '__other__');
+  e.field(proposed, 'Custom building name').value = 'Verified teaching block';
+  e.button(proposed, 'Update prepared building');
+  const updated = e.payload();
+  assert.equal(updated.pending.buildings[0].name, 'Verified teaching block');
+  assert.equal(updated.pending.rooms[0].building, saved.pending.buildings[0].key);
+  assert.match(e.field(e.document.querySelector('#proposed-records .record-editor'), 'Building').selectedOptions[0].textContent, /Verified teaching block/);
+});
+
+test('a building prepared in one unfinished room is immediately reusable and autosaved with other unfinished rooms', async t => {
+  const requests = [];
+  const e = editor(t, [{ ...row(), room: '' }, { ...row(), room_text: 'STEP B', room: '', day: 'Tuesday' }], undefined, {
+    fetch: async (url, init) => {
+      requests.push(new URLSearchParams(init.body.toString()));
+      return { ok: true, json: async () => ({ token: 'building-draft-token' }) };
+    },
+    creation: { room_names: [{ name: 'STEP A', aliases: [] }, { name: 'STEP B', aliases: [] }] },
+  });
+  const a = e.mapping('STEP A').querySelector('.record-editor');
+  const b = e.mapping('STEP B').querySelector('.record-editor');
+  e.change(e.field(b, 'Room type'), 'Classroom');
+  e.change(e.field(b, 'Capacity'), '45');
+  e.change(e.field(b, 'Size category'), 'small');
+  e.change(e.field(a, 'Building'), 'new');
+  e.change(e.field(a, 'New building name'), 'Computer Building Complex');
+  e.change(e.field(a, 'New building campus area'), 'Faculty of Computing Science and Engineering');
+  e.button(a, 'Prepare building and reuse it');
+  const building = { key: e.field(a, 'Building').value };
+  assert.match(building.key, /^draft-building-/);
+  const bBuilding = e.field(b, 'Building');
+  assert.ok(bBuilding.classList.contains('room-catalog-select'));
+  assert.ok([...bBuilding.options].some(option => option.value === building.key));
+  assert.equal(e.field(a, 'Building').value, building.key);
+  e.change(bBuilding, building.key);
+  assert.match(b.textContent, /Campus area: Faculty of Computing Science and Engineering/);
+  assert.equal(e.field(b, 'New building campus area').parentElement.hidden, true);
+  assert.equal(e.field(b, 'Capacity').value, '45', 'Refreshing choices preserves other unfinished fields');
+  await Promise.resolve(); await e.saver.flush();
+  assert.equal(requests.length, 1);
+  const sent = requests[0];
+  const persisted = JSON.parse(sent.get('pending'));
+  assert.equal(persisted.buildings.length, 1);
+  assert.equal(persisted.rooms.length, 0);
+  const resumed = editor(t, JSON.parse(sent.get('rows')), persisted, {
+    editorState: JSON.parse(sent.get('editor_state')),
+    creation: { room_names: [{ name: 'STEP A', aliases: [] }, { name: 'STEP B', aliases: [] }] },
+  });
+  const restoredA = resumed.mapping('STEP A').querySelector('.record-editor');
+  assert.equal(resumed.field(restoredA, 'Building').value, building.key);
+  resumed.change(resumed.field(restoredA, 'Room type'), 'Classroom');
+  resumed.change(resumed.field(restoredA, 'Capacity'), '80');
+  resumed.change(resumed.field(restoredA, 'Size category'), 'large');
+  resumed.button(restoredA, 'Use new record for matching entries');
+  const restoredB = resumed.mapping('STEP B').querySelector('.record-editor');
+  assert.equal(resumed.field(restoredB, 'Building').value, building.key);
+  assert.equal(resumed.field(restoredB, 'Capacity').value, '45');
+  resumed.button(restoredB, 'Use new record for matching entries');
+  const saved = resumed.payload();
+  assert.equal(saved.pending.buildings.length, 1);
+  assert.equal(saved.pending.rooms.length, 2);
+  assert.ok(saved.pending.rooms.every(room => room.building === building.key));
+});
+
+test('shared building edits update both rooms and removing the first room keeps the second room linked', t => {
+  const key = 'draft-building-12345678';
+  const rooms = ['STEP A', 'STEP B'].map((name, index) => ({ key: `draft-room-${index ? '87654321' : '12345678'}`,
+    name, building: key, room_type: 'Classroom', capacity: '70', size_category: 'large', facilities: [] }));
+  const pending = { courses: [], rooms, buildings: [{ key, name: 'Computer Building Complex', campus_zone: 'Faculty of Computing Science and Engineering' }] };
+  const e = editor(t, rooms.map(room => ({ ...row(), room: room.key, room_text: room.name, reviewed: true })), pending, {
+    creation: { faculties: ['Faculty of Computing Science and Engineering', 'Faculty of Science'] },
+  });
+  const building = e.document.querySelector('#prepared-buildings .record-editor');
+  e.change(e.field(building, 'Building name'), '__other__');
+  e.change(e.field(building, 'Custom building name'), 'Verified teaching block');
+  e.change(e.field(building, 'Campus area'), 'Faculty of Science');
+  e.button(building, 'Update prepared building');
+  assert.ok(e.payload().rows.every(row => !row.reviewed), 'Location edits require a fresh review');
+  for (const room of e.document.querySelectorAll('#proposed-records .record-editor')) {
+    assert.equal(e.field(room, 'Building').value, key);
+    assert.match(e.field(room, 'Building').selectedOptions[0].textContent, /Verified teaching block — Faculty of Science/);
+    assert.match(room.textContent, /Campus area: Faculty of Science/);
+  }
+  e.button(e.document.querySelector('#proposed-records > details'), 'Remove proposed record');
+  const saved = e.payload();
+  assert.equal(saved.pending.rooms.length, 1);
+  assert.equal(saved.pending.rooms[0].name, 'STEP B');
+  assert.equal(saved.pending.rooms[0].building, key);
+  assert.equal(saved.pending.buildings.length, 1);
+  const resumed = editor(t, saved.rows, saved.pending, { editorState: saved.editorState });
+  assert.equal(resumed.field(resumed.document.querySelector('#proposed-records .record-editor'), 'Building').value, key);
+});
+
+test('repeated legacy building details become one reusable choice while conflicting campus areas need correction', t => {
+  const rooms = ['STEP A', 'STEP B'].map((name, index) => ({ key: `draft-room-${index ? '87654321' : '12345678'}`,
+    name, building: 'new', building_name: 'Computer Building Complex', campus_zone: 'Faculty of Computing Science and Engineering',
+    room_type: 'Classroom', capacity: '70', size_category: 'large', facilities: [] }));
+  const e = editor(t, rooms.map(room => ({ ...row(), room: room.key, room_text: room.name })), { courses: [], rooms }, {
+    creation: { faculties: ['Faculty of Computing Science and Engineering', 'Faculty of Science'] },
+  });
+  const upgraded = e.payload();
+  assert.equal(upgraded.pending.buildings.length, 1);
+  assert.ok(upgraded.pending.rooms.every(room => room.building === upgraded.pending.buildings[0].key));
+  const b = e.document.querySelectorAll('#proposed-records .record-editor')[1];
+  e.change(e.field(b, 'Building'), 'new');
+  e.change(e.field(b, 'New building name'), 'Computer Building Complex');
+  e.change(e.field(b, 'New building campus area'), 'Faculty of Science');
+  e.button(b, 'Prepare building and reuse it');
+  assert.match(b.querySelector('[role=alert]').textContent, /already prepared/);
+  assert.equal(e.payload().pending.buildings.length, 1);
+  assert.equal(e.payload().pending.buildings[0].campus_zone, 'Faculty of Computing Science and Engineering');
+  e.change(e.field(b, 'New building campus area'), 'Faculty of Computing Science and Engineering');
+  e.button(b, 'Prepare building and reuse it');
+  assert.equal(e.field(b, 'Building').value, upgraded.pending.buildings[0].key);
+  assert.equal(e.payload().pending.buildings.length, 1);
+});
+
+test('real searchable widgets show shared buildings immediately and preserve other room fields', t => {
+  const e = editor(t, [{ ...row(), room: '' }, { ...row(), room_text: 'STEP B', room: '' }], undefined, { realWidgets: true });
+  const $ = e.window.django.jQuery;
+  const a = e.mapping('STEP A').querySelector('.record-editor');
+  const b = e.mapping('STEP B').querySelector('.record-editor');
+  const aBuilding = e.field(a, 'Building');
+  const bBuilding = e.field(b, 'Building');
+  assert.ok($(bBuilding).data('select2'));
+  $(aBuilding).val('new').trigger('change');
+  $(e.field(a, 'New building name')).val('Computer Building Complex').trigger('change');
+  e.change(e.field(a, 'New building campus area'), 'Faculty of Computing Science and Engineering');
+  e.change(e.field(b, 'Capacity'), '45');
+  e.button(a, 'Prepare building and reuse it');
+  const key = aBuilding.value;
+  $(bBuilding).select2('open');
+  const search = e.document.querySelector('.select2-container--open .select2-search__field');
+  $(search).val('computer').trigger('input');
+  const result = [...e.document.querySelectorAll('.select2-results__option')].find(option => option.textContent.includes('Prepared: Computer Building Complex'));
+  assert.ok(result, 'The open searchable dropdown includes the prepared building');
+  $(result).trigger('mouseup');
+  assert.equal(bBuilding.value, key);
+  assert.equal(e.field(b, 'Capacity').value, '45');
+  assert.equal(e.field(b, 'New building campus area').parentElement.hidden, true);
+  assert.match($(bBuilding).next('.select2').text(), /Computer Building Complex/);
+  const prepared = e.document.querySelector('#prepared-buildings .record-editor');
+  $(e.field(prepared, 'Building name')).val('__other__').trigger('change');
+  e.change(e.field(prepared, 'Custom building name'), 'Verified academic block');
+  e.button(prepared, 'Update prepared building');
+  assert.equal(bBuilding.value, key);
+  assert.match($(bBuilding).next('.select2').text(), /Verified academic block/);
+  assert.equal(e.payload().pending.buildings.length, 1);
 });
 
 test('image times show AM/PM while corrections retain canonical values and order', t => {

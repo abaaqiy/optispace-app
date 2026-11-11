@@ -64,6 +64,28 @@ class DocumentAutosaveTests(TestCase):
         self.assertEqual(self.save(first.json()['token'], department='Late autosave').status_code, 409)
         self.assertEqual(TimetableImageDraft.objects.get().document['review_options']['department'], 'Computing')
 
+    def test_shared_building_choices_and_links_survive_autosave_manual_save_and_resume(self):
+        building_key = 'draft-building-12345678'
+        pending = {'buildings': [{'key': building_key, 'name': 'Computing teaching block',
+                                 'campus_zone': 'Faculty of Computing Science and Engineering'}],
+                   'courses': [], 'rooms': [{'key': 'draft-room-12345678', 'name': 'STEP A', 'building': building_key}]}
+        editor_state = {'record:room:stepb:building': building_key, 'record:room:stepb:capacity': '45'}
+        state = {**self.state, 'pending': json.dumps(pending), 'editor_state': json.dumps(editor_state)}
+        response = self.save(**state)
+        self.assertEqual(response.status_code, 200)
+        reopened = self.client.get(self.review_url, {'review': response.json()['token']})
+        self.assertEqual(reopened.context['pending'], pending)
+        self.assertEqual(reopened.context['editor_state'], editor_state)
+        self.assertContains(reopened, 'id="prepared-buildings"')
+        saved = self.client.post(self.review_url, {**state, 'action': 'save', 'document_token': response.json()['token']})
+        self.assertEqual(saved.context['errors'], [])
+        self.assertEqual(saved.context['pending'], pending)
+        resumed = self.client.get(self.review_url, {'review': saved.context['document_token']})
+        self.assertEqual(resumed.context['pending'], pending)
+        self.assertFalse(Building.objects.exists())
+        self.assertFalse(Room.objects.exists())
+        self.assertFalse(TimetableDay.objects.exists())
+
     def test_repeated_request_is_safe_and_does_not_extend_idle_expiry(self):
         first = self.save()
         draft = TimetableImageDraft.objects.get()
@@ -89,7 +111,9 @@ class DocumentAutosaveTests(TestCase):
 
     def test_invalid_or_oversized_state_is_rejected_without_changing_saved_draft(self):
         for changes in ({'rows': '{broken'}, {'rows': '{}'}, {'rows': '[{"confidence":NaN}]'}, {'rows': json.dumps([{}] * 301)},
-                        {'pending': '[]'}, {'editor_state': '[]'}, {'editor_state': 'x' * 300001}):
+                        {'pending': '[]'}, {'pending': '{"buildings": {}}'}, {'pending': '{"buildings": [null]}'},
+                        {'pending': json.dumps({'buildings': [{}] * 301})},
+                        {'editor_state': '[]'}, {'editor_state': 'x' * 300001}):
             with self.subTest(fields=list(changes)):
                 self.assertEqual(self.save(**changes).status_code, 400)
                 self.assertNotIn('review_rows', TimetableImageDraft.objects.get().document)

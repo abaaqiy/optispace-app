@@ -138,7 +138,18 @@ remain available**, including dated lectures and bulk corrections.
    manual Room admin. The actual building and capacity still need confirmation.
    An authorised admin can prepare a new building inline using the same searchable
    teaching/study building catalogue and Others as manual Building admin, with its
-   actual campus area. Facilities and room numbers are optional.
+   actual campus area. Choose **Prepare building and reuse it** after filling its
+   name and campus area, even if the first room is unfinished. The building then
+   appears immediately in the searchable **Building** dropdown for every other
+   room in this image review. Select it there instead of entering the same details
+   again. Completing a room with inline new-building details also prepares that
+   shared choice automatically. Open **Prepared building** to edit its name or
+   campus area once for all linked rooms. Save/autosave and resume retain both the
+   choices and unfinished room selections. Older per-room building drafts become
+   shared choices on opening. Removing/skipping the first room does not remove a
+   building used by another room. Confirmation creates each referenced building
+   once and ignores unused prepared buildings; conflicting campus areas must be
+   corrected first. Facilities and room numbers are optional.
    Prepared records are editable drafts and are reused for repeated labels. Map
    different OCR spellings to the same saved or proposed record. No database rows
    are created at this stage. Save/resume retains the proposals.

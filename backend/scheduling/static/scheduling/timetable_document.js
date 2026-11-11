@@ -70,6 +70,58 @@
   let activeBox = null;
   const pageSize = 25;
   const normalise = value => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  pending.buildings ||= [];
+  const buildingControls = new Map();
+  function buildingChoices() {
+    return [
+      ...creation.buildings.map(building => ({ value: String(building.id), label: `${building.name} — ${building.campus_zone}` })),
+      ...pending.buildings.map(building => ({ value: building.key, label: `Prepared: ${building.name} — ${building.campus_zone}` })),
+      ...(creation.can_add_building ? [{ value: 'new', label: 'Prepare a new building' }] : []),
+    ];
+  }
+  function refreshBuildingChoices() {
+    const choices = buildingChoices();
+    for (const [select, update] of buildingControls) {
+      if (!select.isConnected) { buildingControls.delete(select); continue; }
+      const value = select.value;
+      select.replaceChildren();
+      [{ value: '', label: 'Choose…' }, ...choices].forEach(item => {
+        const option = element('option', item.label, select); option.value = item.value;
+      });
+      if (value && !choices.some(item => item.value === value)) {
+        const missing = element('option', 'Missing prepared building — choose another', select); missing.value = value;
+      }
+      select.value = value;
+      window.django?.jQuery(select).trigger?.('change.select2');
+      update();
+    }
+  }
+  function prepareBuilding(name, zone, key = null) {
+    name = String(name || '').trim(); zone = String(zone || '').trim();
+    if (!name || name.length > 200 || !zone || zone.length > 150) throw new Error('Enter the building name and campus area once before preparing it.');
+    const saved = creation.buildings.find(building => building.name.trim().toLowerCase() === name.toLowerCase());
+    if (saved) {
+      if (key || saved.campus_zone !== zone) throw new Error(`Building ${saved.name} already exists in ${saved.campus_zone}. Select its saved record or edit it in Buildings.`);
+      return String(saved.id);
+    }
+    const existing = pending.buildings.find(building => building.key !== key && normalise(building.name) === normalise(name));
+    if (existing) {
+      if (key || existing.campus_zone !== zone) throw new Error(`Building ${existing.name} is already prepared in ${existing.campus_zone}. Select that building to reuse it.`);
+      return existing.key;
+    }
+    const record = { key: key || `draft-building-${crypto.randomUUID()}`, name, campus_zone: zone };
+    const index = pending.buildings.findIndex(building => building.key === record.key);
+    if (index >= 0) pending.buildings[index] = record; else pending.buildings.push(record);
+    return record.key;
+  }
+  // Upgrade old per-room proposals in memory; the next save preserves the shared choice.
+  for (const room of pending.rooms) {
+    if (room.building !== 'new' || !room.building_name || !room.campus_zone) continue;
+    try {
+      room.building = prepareBuilding(room.building_name, room.campus_zone);
+      delete room.building_name; delete room.campus_zone;
+    } catch { /* Keep conflicting legacy values for explicit correction. */ }
+  }
   function clearEditors(root) {
     root.dispatchEvent(new CustomEvent('room-catalog:remove', { bubbles: true }));
     root.replaceChildren();
@@ -273,7 +325,7 @@
       }
     }
     document.getElementById('mapping-status').textContent = groupCount ? `${groupCount} distinct OCR readings need matching. These are readings from the image, not courses generated from handbooks. Inspect uncertain codes before preparing records.` : 'All retained names are matched. Skipped entries are excluded; use the Skipped filter to restore them.';
-    proposedRecords();
+    preparedBuildings(); proposedRecords();
   }
   function referenceActions(section, key, text, affected) {
     const locations = element('details', undefined, section);
@@ -404,18 +456,41 @@
       code.addEventListener('input', () => { pendingTitle.checked = false; titleMode(); showSuggestions(); });
       title.addEventListener('input', () => { source = null; showSuggestions(); });
       showSuggestions();
+    } else if (kind === 'building') {
+      catalogueInput('name', 'Building name', '', creation.building_names.map(value => ({ value, label: value })), 200);
+      input('campus_zone', 'Campus area', '', { options: creation.faculties.map(value => ({ value, label: value })), max: 150 });
+      element('p', 'Changing this building updates its name and campus area for every room using it in this draft.', wrap);
     } else {
       const matches = creation.room_names.filter(entry => [entry.name, ...entry.aliases].some(value => normalise(value) === normalise(detected)));
       catalogueInput('name', 'Room name', matches.length === 1 ? matches[0].name : normalise(detected) ? detected : '',
         creation.room_names.map(item => ({ value: item.name, label: item.name, aliases: item.aliases })), 200);
-      const building = input('building', 'Building', '', { options: [
-        ...creation.buildings.map(b => ({ value: b.id, label: `${b.name} — ${b.campus_zone}` })),
-        ...(creation.can_add_building ? [{ value: 'new', label: 'Prepare a new building' }] : []),
-      ] });
+      const building = input('building', 'Building', '', { options: buildingChoices() });
+      building.className = 'room-catalog-select';
       catalogueInput('building_name', 'New building name', '', creation.building_names.map(value => ({ value, label: value })), 200, false);
       const zone = input('campus_zone', 'New building campus area', '', { required: false, options: creation.faculties.map(value => ({ value, label: value })) });
-      function buildingMode() { fields.building_name.container.hidden = zone.parentElement.hidden = building.value !== 'new'; }
-      building.addEventListener('change', buildingMode); buildingMode();
+      const prepare = element('button', 'Prepare building and reuse it', wrap); prepare.type = 'button';
+      const buildingSummary = element('p', undefined, wrap); buildingSummary.className = 'help';
+      const buildingError = element('p', undefined, wrap); buildingError.className = 'review-note'; buildingError.setAttribute('role', 'alert');
+      function buildingMode() {
+        fields.building_name.container.hidden = zone.parentElement.hidden = prepare.hidden = building.value !== 'new';
+        const selected = pending.buildings.find(record => record.key === building.value) || creation.buildings.find(record => String(record.id) === building.value);
+        buildingSummary.textContent = selected ? `Campus area: ${selected.campus_zone}. This building can be selected for other rooms.` : '';
+      }
+      buildingControls.set(building, buildingMode);
+      building.addEventListener('change', buildingMode);
+      window.django.jQuery(building).on('change.buildingMode', buildingMode);
+      bindEditor(building, editKey + ':building'); buildingMode();
+      building.dispatchEvent(new CustomEvent('room-catalog:added', { bubbles: true }));
+      prepare.addEventListener('click', () => {
+        captureEditors();
+        try {
+          const value = prepareBuilding(fields.building_name.read(), zone.value);
+          refreshBuildingChoices(); building.value = value;
+          building.dispatchEvent(new Event('change', { bubbles: true }));
+          window.django.jQuery(building).trigger?.('change.select2');
+          buildingError.textContent = ''; preparedBuildings(); invalidate();
+        } catch (error) { buildingError.textContent = error.message; }
+      });
       catalogueInput('room_type', 'Room type', '', creation.room_types.map(value => ({ value, label: value })), 100);
       input('room_number', 'Room number (optional)', '', { required: false, max: 50 });
       input('capacity', 'Capacity', '', { type: 'number' });
@@ -433,15 +508,29 @@
       if (field.el && !editorControls.has(field.el)) bindEditor(field.el, editKey + ':' + key);
     }
     const error = element('p', undefined, wrap); error.className = 'review-note'; error.setAttribute('role', 'alert');
-    const button = element('button', draft ? 'Update proposed record' : 'Use new record for matching entries', wrap); button.type = 'button';
+    const button = element('button', kind === 'building' ? 'Update prepared building' : draft ? 'Update proposed record' : 'Use new record for matching entries', wrap); button.type = 'button';
     button.addEventListener('click', () => {
+      captureEditors();
       const record = { key: draft?.key || `draft-${kind}-${crypto.randomUUID()}` };
       for (const [key, field] of Object.entries(fields)) {
+        if (kind === 'room' && ['building_name', 'campus_zone'].includes(key) && fields.building.el.value !== 'new') continue;
         record[key] = field.read ? field.read() : field.el.value.trim();
         const control = field.control ? field.control() : field.el;
         if (field.required && !record[key] || control && !control.checkValidity()) { error.textContent = `Check ${field.label.toLowerCase()}.`; control.focus(); return; }
       }
       if (kind === 'room' && record.building === 'new' && (!record.building_name || !record.campus_zone)) { error.textContent = 'Enter the new building name and campus area.'; return; }
+      try {
+        if (kind === 'building') {
+          prepareBuilding(record.name, record.campus_zone, record.key);
+          const affectedRooms = new Set(pending.rooms.filter(room => room.building === record.key).map(room => room.key));
+          rows.filter(row => affectedRooms.has(row.room)).forEach(row => { row.reviewed = false; });
+          forgetEditor(editKey); refreshBuildingChoices(); preparedBuildings(); invalidate(); render(); return;
+        }
+        if (kind === 'room' && record.building === 'new') {
+          record.building = prepareBuilding(record.building_name, record.campus_zone);
+          delete record.building_name; delete record.campus_zone;
+        }
+      } catch (problem) { error.textContent = problem.message; return; }
       if (kind === 'course') record.code = record.code.replace(/\s/g, '').toUpperCase();
       const previous = pending[kind + 's'].findIndex(item => item.key === record.key);
       if (previous >= 0) pending[kind + 's'][previous] = record; else pending[kind + 's'].push(record);
@@ -452,8 +541,19 @@
       affected.forEach(row => { row[kind] = record.key; row.reviewed = false; });
       rows.filter(row => row[kind] === record.key).forEach(row => { row.reviewed = false; });
       forgetEditor(editKey);
-      invalidate(); mappings(); render();
+      refreshBuildingChoices(); invalidate(); mappings(); render();
     });
+  }
+  function preparedBuildings() {
+    captureEditors();
+    const root = document.getElementById('prepared-buildings');
+    clearEditors(root);
+    for (const building of pending.buildings) {
+      const used = pending.rooms.filter(room => room.building === building.key).length;
+      const details = element('details', undefined, root);
+      element('summary', `Prepared building: ${building.name} — ${building.campus_zone} · ${used} prepared room(s)`, details);
+      recordEditor(details, 'building', '', [], building);
+    }
   }
   function proposedRecords() {
     const root = document.getElementById('proposed-records'); clearEditors(root);
