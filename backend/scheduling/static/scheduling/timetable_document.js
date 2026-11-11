@@ -15,6 +15,50 @@
   const pending = JSON.parse(document.getElementById('document-pending').textContent);
   const creation = JSON.parse(document.getElementById('document-creation-choices').textContent);
   const editorState = JSON.parse(document.getElementById('document-editor-state')?.textContent || '{}');
+  const normalise = value => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const codeKey = window.OptispaceCourseSuggestions.codeKey;
+  function roomKey(value) {
+    const key = normalise(value);
+    const matches = creation.room_names.filter(item => [item.name, ...item.aliases].some(name => normalise(name) === key));
+    return matches.length === 1 ? normalise(matches[0].name) : key;
+  }
+  const identity = (kind, record) => kind === 'course' ? codeKey(record.code) : roomKey(record.name);
+  const proposedLabel = draft => `${draft.code || draft.name}${draft.title_pending ? ' — Title awaiting confirmation' : ''}`;
+  for (const kind of ['courses', 'rooms']) pending[kind] ||= [];
+  // Capture the stored payload before upgrading duplicate choices, so autosave
+  // persists the repairs even when the administrator only reopens this draft.
+  const storedSnapshot = snapshot();
+  let repairedReferences = false;
+  function consolidateReferences() {
+    for (const kind of ['course', 'room']) {
+      const byIdentity = new Map(refs[kind + 's'].map(item => {
+        item.identity ||= kind === 'course' ? codeKey(item.value) : roomKey(item.name || item.label.split(' — ')[0]);
+        return [item.identity, item];
+      }));
+      const redirects = new Map();
+      for (const record of pending[kind + 's']) {
+        const key = identity(kind, record);
+        const existing = key && byIdentity.get(key);
+        if (existing) {
+          const target = existing.value;
+          if (record.duplicate_of !== target) { record.duplicate_of = target; repairedReferences = true; }
+          redirects.set(record.key, target);
+        } else {
+          if (record.duplicate_of) { delete record.duplicate_of; repairedReferences = true; }
+          const item = { value: record.key, label: `New: ${proposedLabel(record)}`, identity: key, keys: [] };
+          refs[kind + 's'].push(item);
+          if (key) byIdentity.set(key, item);
+        }
+      }
+      for (const row of rows) if (redirects.has(row[kind])) {
+        row[kind] = redirects.get(row[kind]); row.reviewed = false; repairedReferences = true;
+      }
+      for (const [key, value] of Object.entries(editorState)) if (redirects.has(value)) {
+        editorState[key] = redirects.get(value); repairedReferences = true;
+      }
+    }
+  }
+  consolidateReferences();
   rows.forEach(row => { row.editor_id ||= crypto.randomUUID(); });
   let autosave;
   const editorControls = new Map();
@@ -47,11 +91,6 @@
     }
     return changed;
   }
-  const proposedLabel = draft => `${draft.code || draft.name}${draft.title_pending ? ' — Title awaiting confirmation' : ''}`;
-  for (const kind of ['courses', 'rooms']) {
-    pending[kind] ||= [];
-    for (const draft of pending[kind]) refs[kind].push({ value: draft.key, label: `New: ${proposedLabel(draft)}`, keys: [] });
-  }
   const days = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const tbody = document.querySelector('#document-table tbody');
   const pageSelect = document.getElementById('source-page');
@@ -69,7 +108,6 @@
   let visible = [];
   let activeBox = null;
   const pageSize = 25;
-  const normalise = value => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   pending.buildings ||= [];
   const buildingControls = new Map();
   function buildingChoices() {
@@ -304,14 +342,19 @@
         const section = element('div', undefined, root); section.className = 'reference-mapping';
         element('strong', `${key === 'course' ? 'Course' : 'Room'} “${text}” — ${affected.length} row(s)`, section);
         referenceActions(section, key, text, affected);
-        const query = element('input', undefined, section); query.type = 'search'; query.placeholder = `Search saved or proposed ${key}s`; query.setAttribute('aria-label', `Search choices for ${text}`);
-        const choice = element('select', undefined, section); choice.setAttribute('aria-label', `Map ${key} ${text}`);
-        [{ value: '', label: `Select correct ${key}…` }, ...refs[key + 's']].forEach(item => { const opt = element('option', item.label, choice); opt.value = item.value; });
+        const choice = element('select', undefined, section); choice.id = `map-${key}-${crypto.randomUUID()}`;
+        const label = element('label', `Select correct ${key}`, section); label.htmlFor = choice.id; choice.before(label);
+        choice.className = 'room-catalog-select'; choice.setAttribute('aria-label', `Map ${key} ${text}`);
+        [{ value: '', label: `Select correct ${key}…` }, ...refs[key + 's']].forEach(item => {
+          const opt = element('option', item.label, choice); opt.value = item.value;
+          opt.dataset.searchAliases = (item.keys || []).join(' ');
+        });
         const editKey = `mapping:${key}:${normalise(text) || affected[0].editor_id}`;
         bindEditor(choice, editKey + ':choice');
-        query.addEventListener('input', () => { for (const opt of choice.options) opt.hidden = !!opt.value && !opt.text.toLowerCase().includes(query.value.toLowerCase()); });
         const apply = element('button', 'Use for all matching unresolved rows', section); apply.type = 'button'; apply.disabled = !choice.value;
-        choice.addEventListener('change', () => { apply.disabled = !choice.value; });
+        const selected = () => { apply.disabled = !choice.value; };
+        choice.addEventListener('change', selected); window.django.jQuery(choice).on('change.referenceChoice', selected);
+        choice.dispatchEvent(new CustomEvent('room-catalog:added', { bubbles: true }));
         apply.addEventListener('click', () => {
           affected.filter(row => !row.skip && !valid[key].has(row[key])).forEach(row => { row[key] = choice.value; row.reviewed = false; });
           forgetEditor(editKey);
@@ -425,13 +468,14 @@
       function showSuggestions() {
         suggestions.replaceChildren();
         const key = window.OptispaceCourseSuggestions.codeKey(code.value);
-        const saved = refs.courses.filter(item => !item.value.startsWith('draft-') && window.OptispaceCourseSuggestions.codeKey(item.value) === key);
+        const saved = refs.courses.filter(item => item.value !== draft?.key && item.identity === key);
         if (saved.length) {
-          element('p', 'This course is already saved. Use its existing record from the choices above.', suggestions);
+          element('p', 'This course is already saved or prepared. Reuse its existing record.', suggestions);
           saved.forEach(item => {
-            const use = element('button', `Use saved ${item.label}`, suggestions); use.type = 'button';
+            const use = element('button', `Use existing ${item.label}`, suggestions); use.type = 'button';
             use.addEventListener('click', () => {
               affected.forEach(row => { row.course = item.value; row.reviewed = false; });
+              forgetEditor(editKey);
               invalidate(); mappings(); render();
             });
           });
@@ -512,6 +556,21 @@
     button.addEventListener('click', () => {
       captureEditors();
       const record = { key: draft?.key || `draft-${kind}-${crypto.randomUUID()}` };
+      // An existing name/code is reused before validating new-record fields;
+      // matching a saved room must not require re-entering capacity/building.
+      if (kind !== 'building') {
+        const name = kind === 'course' ? codeKey(fields.code.el.value) : fields.name.read();
+        const existing = refs[kind + 's'].find(item => item.value !== record.key
+          && item.identity === (kind === 'course' ? name : roomKey(name)));
+        if (existing && !draft) {
+          affected.forEach(row => { row[kind] = existing.value; row.reviewed = false; });
+          forgetEditor(editKey); invalidate(); mappings(); render(); return;
+        }
+        if (existing) {
+          error.textContent = `This ${kind} already exists. Select its existing record; edit that record to change its details.`;
+          return;
+        }
+      }
       for (const [key, field] of Object.entries(fields)) {
         if (kind === 'room' && ['building_name', 'campus_zone'].includes(key) && fields.building.el.value !== 'new') continue;
         record[key] = field.read ? field.read() : field.el.value.trim();
@@ -535,7 +594,7 @@
       const previous = pending[kind + 's'].findIndex(item => item.key === record.key);
       if (previous >= 0) pending[kind + 's'][previous] = record; else pending[kind + 's'].push(record);
       const list = refs[kind + 's']; const old = list.findIndex(item => item.value === record.key);
-      const choice = { value: record.key, label: `New: ${proposedLabel(record)}`, keys: [] };
+      const choice = { value: record.key, label: `New: ${proposedLabel(record)}`, identity: identity(kind, record), keys: [] };
       if (old >= 0) list[old] = choice; else list.push(choice);
       valid[kind].add(record.key);
       affected.forEach(row => { row[kind] = record.key; row.reviewed = false; });
@@ -549,7 +608,7 @@
     const root = document.getElementById('prepared-buildings');
     clearEditors(root);
     for (const building of pending.buildings) {
-      const used = pending.rooms.filter(room => room.building === building.key).length;
+      const used = pending.rooms.filter(room => !room.duplicate_of && room.building === building.key).length;
       const details = element('details', undefined, root);
       element('summary', `Prepared building: ${building.name} — ${building.campus_zone} · ${used} prepared room(s)`, details);
       recordEditor(details, 'building', '', [], building);
@@ -557,7 +616,28 @@
   }
   function proposedRecords() {
     const root = document.getElementById('proposed-records'); clearEditors(root);
+    for (const kind of ['course', 'room']) {
+      const duplicates = pending[kind + 's'].filter(record => record.duplicate_of);
+      if (!duplicates.length) continue;
+      const details = element('details', undefined, root); details.className = 'duplicate-proposals';
+      element('summary', `${duplicates.length} earlier duplicate ${kind} proposal(s) — retained for comparison`, details);
+      element('p', 'Their timetable rows now use the existing record. These earlier field values are kept here for comparison and will not create extra records. Check any different details before reviewing those rows.', details);
+      for (const record of duplicates) {
+        const item = element('details', undefined, details);
+        element('summary', `${proposedLabel(record)} → ${refs[kind + 's'].find(choice => choice.value === record.duplicate_of)?.label || 'existing record'}`, item);
+        const values = element('dl', undefined, item);
+        const names = kind === 'course' ? [['title', 'Earlier title'], ['department', 'Earlier department']]
+          : [['building', 'Earlier building'], ['room_number', 'Earlier room number'], ['room_type', 'Earlier room type'], ['capacity', 'Earlier capacity'], ['size_category', 'Earlier size category'], ['facilities', 'Earlier facilities']];
+        for (const [field, label] of names) {
+          let value = record[field];
+          if (field === 'building') value = pending.buildings.find(building => building.key === value)?.name
+            || creation.buildings.find(building => String(building.id) === String(value))?.name || record.building_name || value;
+          element('dt', label, values); element('dd', Array.isArray(value) ? value.join(', ') || 'None' : String(value || 'Not entered'), values);
+        }
+      }
+    }
     for (const kind of ['course', 'room']) for (const draft of pending[kind + 's']) {
+      if (draft.duplicate_of) continue;
       const affected = rows.filter(row => !row.skip && row[kind] === draft.key);
       if (!affected.length) continue;
       const details = element('details', undefined, root);
@@ -770,7 +850,7 @@
   semesterSummary(); mappings(); headings(); render();
   function snapshot() {
     return { rows: JSON.stringify(rows), pending: JSON.stringify(pending), editor_state: JSON.stringify(editorState),
-      teaching_semester: teachingSemester.value, department: document.getElementById('document-department').value,
+      teaching_semester: document.getElementById('teaching-semester').value, department: document.getElementById('document-department').value,
       faculty: document.getElementById('document-faculty').value, source_version: document.getElementById('source-version').value,
       coverage_checked: document.getElementById('coverage-checked').checked ? 'yes' : '' };
   }
@@ -786,7 +866,8 @@
     const warning = document.getElementById('draft-save-error'); warning.textContent = message; warning.hidden = !message;
   }
   if (window.fetch && window.OptispaceDraftAutosave && form.dataset.autosaveUrl) {
-    autosave = window.OptispaceDraftAutosave({ snapshot, accept: acceptSave, warn: warnSave, async send(state) {
+    autosave = window.OptispaceDraftAutosave({ snapshot, initialSnapshot: repairedReferences ? storedSnapshot : undefined,
+      accept: acceptSave, warn: warnSave, async send(state) {
       const body = new URLSearchParams({ ...state, document_token: form.querySelector('[name="document_token"]').value,
         csrfmiddlewaretoken: form.querySelector('[name="csrfmiddlewaretoken"]').value });
       const response = await fetch(form.dataset.autosaveUrl, { method: 'POST', body, credentials: 'same-origin', redirect: 'follow',
@@ -803,6 +884,7 @@
       if (!result.token) throw new Error('Autosave could not be confirmed. Keep this page open; it will retry.');
       return result;
     } });
+    if (repairedReferences) { invalidate(); autosave.changed(); }
   }
   document.getElementById('coverage-checked').addEventListener('change', invalidate);
   let submitting = false;

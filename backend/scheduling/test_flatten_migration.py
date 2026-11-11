@@ -18,7 +18,7 @@ class FlattenTimetableMigrationTests(TransactionTestCase):
         Day = apps.get_model("scheduling", "TimetableDay")
         Lecture = apps.get_model("scheduling", "Allocation")
         building = Building.objects.create(name="Migration building", campus_zone="Science")
-        room = Room.objects.create(name="Migration room", code="migrate", building=building, room_type="Classroom", capacity=30, size_category="small")
+        room = Room.objects.create(name="Migration room", name_key="migrationroom", code="migrate", building=building, room_type="Classroom", capacity=30, size_category="small")
         course = Course.objects.create(code="CSC101", title="Computing", department="Computing")
         day = Day.objects.create(room=room, date=date(2030, 1, 15), coverage_start=time(8), coverage_end=time(18))
         Lecture.objects.create(timetable=day, title="Original title", course=course, academic_session="2029/2030", start_time=time(9), end_time=time(11))

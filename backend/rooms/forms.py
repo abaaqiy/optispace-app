@@ -6,7 +6,7 @@ from django.utils.text import slugify
 
 from .catalog import (
     BUILDING_NAMES, CAMPUS_ZONES, OTHER_CHOICE, ROOM_ALIASES, ROOM_NAMES,
-    ROOM_TYPES, room_catalogue_name,
+    ROOM_TYPES, room_identity_key,
 )
 from .models import Building, Room
 
@@ -154,13 +154,7 @@ class RoomAdminForm(forms.ModelForm):
 
     def clean_name(self):
         name = self.cleaned_data["name"]
-        existing = Room.objects.exclude(pk=self.instance.pk)
-        canonical = room_catalogue_name(name)
-        alias_exists = canonical and any(
-            room_catalogue_name(value) == canonical
-            for value in existing.values_list("name", flat=True)
-        )
-        if existing.filter(name__iexact=name).exists() or alias_exists:
+        if Room.objects.filter(name_key=room_identity_key(name)).exclude(pk=self.instance.pk).exists():
             raise forms.ValidationError("This room already exists. Edit its existing record instead.")
         return name
 

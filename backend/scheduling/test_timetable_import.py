@@ -327,12 +327,13 @@ class TimetableImportTests(TestCase):
         with self.assertRaisesMessage(ImportProblem, "1000 classes"):
             parse_csv(timetable_csv(*[self.row() for _ in range(MAX_ROWS + 1)]))
 
-    def test_name_matching_is_case_insensitive_and_reports_ambiguity(self):
+    def test_name_matching_is_case_insensitive_and_duplicate_codes_are_rejected(self):
         self.apply(timetable_csv(self.row(room=self.room.name.upper(), course="csc101")))
         self.assertEqual(TimetableDay.objects.count(), 1)
-        Course.objects.create(code="csc101", title="Ambiguous", department="Computing")
-        with self.assertRaisesMessage(ImportProblem, "multiple records"):
-            preview_import(timetable_csv(self.row(date="2030-01-16")))
+        with self.assertRaisesMessage(ValidationError, "already exists"):
+            Course.objects.create(code="csc101", title="Ambiguous", department="Computing")
+        self.assertEqual(Course.objects.count(), 1)
+        self.assertEqual(preview_import(timetable_csv(self.row(date="2030-01-16"))).counts['Add'], 1)
 
     def test_preview_escapes_html_and_downloads_neutralise_formulas(self):
         self.course.title = "<script>alert(1)</script>"

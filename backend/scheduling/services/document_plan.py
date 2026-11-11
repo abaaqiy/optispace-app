@@ -7,7 +7,7 @@ from django import forms
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
 
-from rooms.catalog import room_catalogue_name
+from rooms.catalog import room_identity_key
 from rooms.models import Building, Room
 from scheduling.models import Course, TimetableDay, TimetableImageImport
 
@@ -68,7 +68,7 @@ def stage_references(pending, rows, user):
     errors, keys = [], set()
     seen = {
         "courses": {normalise(code) for code in Course.objects.values_list("code", flat=True)},
-        "rooms": {normalise(room_catalogue_name(name) or name) for name in Room.objects.values_list("name", flat=True)},
+        "rooms": set(Room.objects.values_list("name_key", flat=True)),
     }
     building_proposals = {}
     buildings = pending.get('buildings', [])
@@ -126,6 +126,9 @@ def stage_references(pending, rows, user):
             # Discard unreferenced drafts, e.g. after skipping their last class.
             if key not in used[kind]:
                 continue
+            if data.get('duplicate_of'):
+                errors.append(f"Select the existing {kind[:-1]} instead of an earlier duplicate proposal.")
+                continue
             if kind == "courses" and not isinstance(data.get("title_pending", False), bool):
                 raise ImportProblem("Confirm whether the course title is awaiting confirmation using the checkbox.")
             if any(not isinstance(data.get(name, ""), (str, int)) for name in form_type._meta.fields if name != "facilities"):
@@ -162,7 +165,7 @@ def stage_references(pending, rows, user):
                               for name, messages in form.errors.items())
                 continue
             obj = form.save(commit=False)
-            identity = normalise(room_catalogue_name(obj.name) or obj.name) if kind == "rooms" else normalise(obj.code)
+            identity = room_identity_key(obj.name) if kind == "rooms" else normalise(obj.code)
             if identity in seen[kind]:
                 errors.append(f"{obj}: already exists or repeats another proposed {kind[:-1]}. Match it once instead.")
                 continue

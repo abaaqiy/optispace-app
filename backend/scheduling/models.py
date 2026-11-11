@@ -21,17 +21,36 @@ class Course(models.Model):
 
     class Meta:
         ordering = ["code"]
+        constraints = [
+            models.UniqueConstraint(
+                models.functions.Upper(models.Func(
+                    'code', models.Value(r'\s+'), models.Value(''), models.Value('g'),
+                    function='REGEXP_REPLACE', output_field=models.CharField(),
+                )), name='course_code_normalised_unique',
+            ),
+        ]
 
     def __str__(self):
         return f"{self.code} — {self.title or 'Title awaiting confirmation'}"
 
     def clean(self):
         super().clean()
+        self.code = re.sub(r'\s+', '', self.code).upper()
+        if not self.code:
+            raise ValidationError({'code': 'Enter a course code.'})
+        if type(self).objects.filter(code__iexact=self.code).exclude(pk=self.pk).exists():
+            raise ValidationError({'code': 'This course code already exists. Select or edit its existing record.'})
         self.title = self.title.strip()
         if self.title:
             self.title_pending = False
         elif not self.title_pending:
             raise ValidationError({"title": "Enter a title or explicitly mark it as awaiting confirmation."})
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        if kwargs.get('update_fields') is not None and 'title' in kwargs['update_fields']:
+            kwargs['update_fields'] = {*kwargs['update_fields'], 'title_pending'}
+        return super().save(*args, **kwargs)
 
 
 class AcademicSemester(models.Model):

@@ -5,7 +5,7 @@ from django.urls import path, reverse
 from django.utils.decorators import method_decorator
 from django.views.decorators.http import require_GET
 
-from .forms import TimetableAdminForm
+from .forms import CourseAdminForm, TimetableAdminForm
 from .import_admin import TimetableImportAdminMixin
 from .document_admin import TimetableDocumentAdminMixin
 from .models import AcademicSemester, Course, TimetableDay
@@ -29,6 +29,7 @@ class AcademicSemesterAdmin(admin.ModelAdmin):
 
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
+    form = CourseAdminForm
     change_form_template = "scheduling/admin/course_change_form.html"
     list_display = ("code", "display_title", "department", "title_pending")
     search_fields = ("code", "title", "department")

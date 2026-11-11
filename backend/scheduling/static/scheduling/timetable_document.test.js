@@ -34,7 +34,7 @@ function editor(t, rows = [row()], pending = { courses: [], rooms: [] }, options
   Object.assign(creation, options.creation || {});
   for (const [id, data] of Object.entries({
     'document-rows': rows,
-    'document-references': { courses: [], rooms: [{ value: 'step-a', label: 'STEP A', keys: [] }] },
+    'document-references': options.references || { courses: [], rooms: [{ value: 'step-a', label: 'STEP A', keys: [] }] },
     'document-pages': [{ url: '/source', width: 200, height: 300 }],
     'document-pending': pending, 'document-creation-choices': creation, 'document-editor-state': options.editorState || {},
   })) {
@@ -221,7 +221,7 @@ test('skipping a mistaken reading removes its proposal until restored', t => {
 });
 
 test('new building uses searchable catalogue and supports Others without free-typing listed names', t => {
-  const e = editor(t, [{ ...row(), room: '' }]);
+  const e = editor(t, [{ ...row(), room: '' }], undefined, { references: { courses: [], rooms: [] } });
   const form = e.mapping('STEP A').querySelector('.record-editor');
   e.change(e.field(form, 'Building'), 'new');
   const building = e.field(form, 'New building name');
@@ -251,6 +251,7 @@ test('new building uses searchable catalogue and supports Others without free-ty
 test('a building prepared in one unfinished room is immediately reusable and autosaved with other unfinished rooms', async t => {
   const requests = [];
   const e = editor(t, [{ ...row(), room: '' }, { ...row(), room_text: 'STEP B', room: '', day: 'Tuesday' }], undefined, {
+    references: { courses: [], rooms: [] },
     fetch: async (url, init) => {
       requests.push(new URLSearchParams(init.body.toString()));
       return { ok: true, json: async () => ({ token: 'building-draft-token' }) };
@@ -283,6 +284,7 @@ test('a building prepared in one unfinished room is immediately reusable and aut
   assert.equal(persisted.buildings.length, 1);
   assert.equal(persisted.rooms.length, 0);
   const resumed = editor(t, JSON.parse(sent.get('rows')), persisted, {
+    references: { courses: [], rooms: [] },
     editorState: JSON.parse(sent.get('editor_state')),
     creation: { room_names: [{ name: 'STEP A', aliases: [] }, { name: 'STEP B', aliases: [] }] },
   });
@@ -308,6 +310,7 @@ test('shared building edits update both rooms and removing the first room keeps 
     name, building: key, room_type: 'Classroom', capacity: '70', size_category: 'large', facilities: [] }));
   const pending = { courses: [], rooms, buildings: [{ key, name: 'Computer Building Complex', campus_zone: 'Faculty of Computing Science and Engineering' }] };
   const e = editor(t, rooms.map(room => ({ ...row(), room: room.key, room_text: room.name, reviewed: true })), pending, {
+    references: { courses: [], rooms: [] },
     creation: { faculties: ['Faculty of Computing Science and Engineering', 'Faculty of Science'] },
   });
   const building = e.document.querySelector('#prepared-buildings .record-editor');
@@ -327,7 +330,7 @@ test('shared building edits update both rooms and removing the first room keeps 
   assert.equal(saved.pending.rooms[0].name, 'STEP B');
   assert.equal(saved.pending.rooms[0].building, key);
   assert.equal(saved.pending.buildings.length, 1);
-  const resumed = editor(t, saved.rows, saved.pending, { editorState: saved.editorState });
+  const resumed = editor(t, saved.rows, saved.pending, { editorState: saved.editorState, references: { courses: [], rooms: [] } });
   assert.equal(resumed.field(resumed.document.querySelector('#proposed-records .record-editor'), 'Building').value, key);
 });
 
@@ -336,6 +339,7 @@ test('repeated legacy building details become one reusable choice while conflict
     name, building: 'new', building_name: 'Computer Building Complex', campus_zone: 'Faculty of Computing Science and Engineering',
     room_type: 'Classroom', capacity: '70', size_category: 'large', facilities: [] }));
   const e = editor(t, rooms.map(room => ({ ...row(), room: room.key, room_text: room.name })), { courses: [], rooms }, {
+    references: { courses: [], rooms: [] },
     creation: { faculties: ['Faculty of Computing Science and Engineering', 'Faculty of Science'] },
   });
   const upgraded = e.payload();
@@ -386,6 +390,97 @@ test('real searchable widgets show shared buildings immediately and preserve oth
   assert.equal(bBuilding.value, key);
   assert.match($(bBuilding).next('.select2').text(), /Verified academic block/);
   assert.equal(e.payload().pending.buildings.length, 1);
+});
+
+test('room and course matching search inside their dropdowns and enable the apply action', t => {
+  const references = { rooms: [{ value: 'ch102', name: 'CH 102', label: 'CH 102 — Faculty of Science', keys: ['ch102'] },
+    { value: 'step-a', name: 'STEP A', label: 'STEP A — Computing', keys: ['stepa'] }],
+    courses: [{ value: 'CSC102', label: 'CSC102 — Introduction to Computing', keys: ['csc102'] },
+      { value: 'CHM102', label: 'CHM102 — Chemistry', keys: ['chm102'] }] };
+  const e = editor(t, [{ ...row('CSC107'), room: '', room_text: 'CH 107' }], undefined, { realWidgets: true, references });
+  const $ = e.window.django.jQuery;
+  assert.equal(e.document.querySelectorAll('#reference-mappings input[type="search"]').length, 0);
+  for (const [text, kind, term, expected] of [['CH 107', 'room', 'ch102', 'ch102'], ['CSC107', 'course', 'computing', 'CSC102']]) {
+    const mapping = e.mapping(text);
+    const select = mapping.querySelector(`select[aria-label="Map ${kind} ${text}"]`);
+    assert.ok($(select).data('select2'));
+    const apply = [...mapping.querySelectorAll('button')].find(button => button.textContent === 'Use for all matching unresolved rows');
+    assert.equal(apply.disabled, true);
+    $(select).select2('open');
+    const search = e.document.querySelector('.select2-container--open .select2-search__field');
+    $(search).val(term).trigger('input');
+    const matches = [...e.document.querySelectorAll('.select2-results__option')].filter(option => option.getAttribute('aria-selected') !== null);
+    assert.equal(matches.length, 1, 'Typing inside the dropdown filters its choices');
+    $(matches[0]).trigger('mouseup');
+    assert.equal(select.value, expected);
+    assert.equal(apply.disabled, false, 'Select2 selection enables the existing bulk mapping action');
+    e.button(mapping, 'Use for all matching unresolved rows');
+    assert.equal(e.payload().rows[0][kind], expected);
+  }
+  assert.equal(e.payload().rows[0].start_time, '08:00');
+});
+
+test('a saved room and prepared course are reused instead of creating duplicate proposals', t => {
+  const courses = [{ key: 'draft-course-12345678', code: 'CSC102', title: 'Introduction', department: 'Computing' }];
+  const e = editor(t, [{ ...row('CSC107'), room: '', room_text: 'CH 107' }, { ...row('CSC102'), course: courses[0].key }], { courses, rooms: [] }, {
+    references: { courses: [], rooms: [{ value: 'ch102', name: 'CH 102', label: 'CH 102 — Science', keys: ['ch102'] }] },
+    creation: { room_names: [{ name: 'Chemistry Lecture Theatre 102 (CH 102)', aliases: ['CH102', 'CH 102'] }] },
+  });
+  const room = e.mapping('CH 107').querySelector('.record-editor');
+  e.change(e.field(room, 'Room name'), 'Chemistry Lecture Theatre 102 (CH 102)');
+  e.button(room, 'Use new record for matching entries');
+  assert.equal(e.payload().pending.rooms.length, 0, 'Saved room reuse needs no new capacity or building');
+  assert.equal(e.payload().rows[0].room, 'ch102');
+  const course = e.mapping('CSC107').querySelector('.record-editor');
+  e.change(e.field(course, 'Course code'), 'csc 102');
+  e.button(course, 'Use new record for matching entries');
+  assert.equal(e.payload().pending.courses.length, 1);
+  assert.equal(e.payload().rows[0].course, courses[0].key);
+});
+
+test('duplicate room proposals reopen as one choice with earlier details retained and are autosaved without new edits', async t => {
+  const requests = [];
+  const rooms = [60, 45].map((capacity, index) => ({ key: `draft-room-${index ? '87654321' : '12345678'}`,
+    name: index ? 'ch102' : 'CH 102', building: '7', room_type: 'Classroom', capacity: String(capacity), size_category: 'small', facilities: [] }));
+  const rows = rooms.map(room => ({ ...row(), room: room.key, room_text: room.name, reviewed: true }));
+  const references = { courses: [], rooms: [{ value: 'ch102', name: 'CH 102', label: 'CH 102 — Science', keys: ['ch102'] }] };
+  const e = editor(t, rows, { courses: [], rooms }, { references,
+    fetch: async (url, init) => {
+      requests.push(new URLSearchParams(init.body.toString()));
+      return { ok: true, json: async () => ({ token: 'deduplicated-token' }) };
+    },
+    creation: { room_names: [{ name: 'Chemistry Lecture Theatre 102 (CH 102)', aliases: ['CH102', 'CH 102'] }] },
+  });
+  await Promise.resolve(); await e.saver.flush();
+  assert.equal(requests.length, 1, 'Repairs save even if the administrator only reopens the draft');
+  const sent = requests[0];
+  const updatedRows = JSON.parse(sent.get('rows'));
+  assert.ok(updatedRows.every(row => row.room === 'ch102' && !row.reviewed));
+  assert.ok(updatedRows.every(row => row.start_time === '08:00' && row.day === 'Monday'));
+  const updatedPending = JSON.parse(sent.get('pending'));
+  assert.deepEqual(updatedPending.rooms.map(room => room.capacity), ['60', '45']);
+  assert.ok(updatedPending.rooms.every(room => room.duplicate_of === 'ch102'));
+  assert.match(e.document.querySelector('.duplicate-proposals').textContent, /60/);
+  assert.match(e.document.querySelector('.duplicate-proposals').textContent, /45/);
+  assert.equal(e.document.querySelectorAll('#proposed-records .record-editor').length, 0);
+  const resumed = editor(t, updatedRows, updatedPending, { references, editorState: JSON.parse(sent.get('editor_state')) });
+  const roomOptions = resumed.document.querySelector('select[aria-label="room, row 1"]');
+  assert.equal([...roomOptions.options].filter(option => /CH 102/.test(option.textContent)).length, 1);
+});
+
+test('repeated prepared course codes share one proposal and remap saved mapping choices', t => {
+  const courses = [false, true].map((second, index) => ({ key: `draft-course-${index ? '87654321' : '12345678'}`,
+    code: second ? 'csc 102' : 'CSC102', title: second ? 'Earlier alternate title' : 'Introduction', department: 'Computing' }));
+  const e = editor(t, [{ ...row(), course: courses[1].key, reviewed: true }, row('CSC107')], { courses, rooms: [] }, {
+    editorState: { 'mapping:course:csc107:choice': courses[1].key },
+  });
+  const saved = e.payload();
+  assert.equal(saved.rows[0].course, courses[0].key);
+  assert.equal(saved.rows[0].reviewed, false);
+  const choice = e.mapping('CSC107').querySelector('select[aria-label="Map course CSC107"]');
+  assert.equal(choice.value, courses[0].key);
+  assert.equal([...choice.options].filter(option => option.value.startsWith('draft-course')).length, 1);
+  assert.match(e.document.querySelector('.duplicate-proposals').textContent, /Earlier alternate title/);
 });
 
 test('image times show AM/PM while corrections retain canonical values and order', t => {

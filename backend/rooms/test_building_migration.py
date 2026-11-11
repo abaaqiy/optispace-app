@@ -31,6 +31,8 @@ class RequiredBuildingMigrationTests(TransactionTestCase):
             missing.save()
             executor = MigrationExecutor(connection)
             executor.migrate([self.after])
+            executor = MigrationExecutor(connection)
+            executor.migrate(latest)
             migrated = executor.loader.project_state(latest).apps
             new_room = migrated.get_model("rooms", "Room").objects.get(pk=room.pk)
             self.assertEqual(new_room.building.campus_zone, "Building zone")

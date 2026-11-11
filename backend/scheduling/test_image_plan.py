@@ -245,6 +245,36 @@ class ImagePlanTests(TestCase):
         self.confirm(fingerprint)
         self.assertEqual(Course.objects.count(), 1)
 
+    def test_duplicate_proposals_with_same_codes_or_room_aliases_cannot_be_imported(self):
+        duplicate = {**self.pending['courses'][0], 'key': 'draft-course-87654321', 'code': 'chm102'}
+        self.pending['courses'].append(duplicate)
+        self.rows.append({**self.rows[0], 'course': duplicate['key'], 'day': 'Tuesday'})
+        with self.assertRaisesMessage(ImportProblem, 'repeats another proposed'):
+            self.preview()
+        self.pending['courses'].pop()
+        self.rows.pop()
+        room = {**self.pending['rooms'][0], 'key': 'draft-room-87654321',
+                'name': 'Chemistry Room 220 (CH 220)'}
+        self.pending['rooms'].append(room)
+        self.rows.append({**self.rows[0], 'room': room['key'], 'day': 'Tuesday'})
+        with self.assertRaisesMessage(ImportProblem, 'repeats another proposed'):
+            self.preview()
+        self.assertFalse(Room.objects.exists())
+        self.assertFalse(Course.objects.exists())
+
+    def test_earlier_duplicate_details_are_preserved_but_never_create_a_second_record(self):
+        duplicate = {**self.pending['rooms'][0], 'key': 'draft-room-87654321',
+                     'duplicate_of': self.pending['rooms'][0]['key'], 'capacity': '45'}
+        self.pending['rooms'].append(duplicate)
+        *_, fingerprint = self.preview()
+        self.confirm(fingerprint)
+        self.assertEqual(Room.objects.count(), 1)
+        self.assertEqual(Room.objects.get().capacity, 70)
+        self.assertEqual(self.pending['rooms'][1]['capacity'], '45')
+        self.rows[0]['room'] = duplicate['key']
+        with self.assertRaisesMessage(ImportProblem, 'earlier duplicate proposal'):
+            self.preview()
+
     def test_confirmed_code_with_unknown_title_imports_and_keeps_room_occupied(self):
         self.pending['courses'][0].update(code='PUL301', title='', title_pending=True, department='Public Law')
         *_, fingerprint = self.preview()

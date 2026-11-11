@@ -1,6 +1,17 @@
+import re
+
 from django import forms
 
-from .models import TimetableDay
+from .models import Course, TimetableDay
+
+
+class CourseAdminForm(forms.ModelForm):
+    class Meta:
+        model = Course
+        fields = ('code', 'title', 'department', 'title_pending')
+
+    def clean_code(self):
+        return re.sub(r'\s+', '', self.cleaned_data['code']).upper()
 
 
 class TimetableUploadForm(forms.Form):

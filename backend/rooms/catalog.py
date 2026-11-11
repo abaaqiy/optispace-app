@@ -84,6 +84,11 @@ def room_catalogue_name(value):
     return matches[0] if len(matches) == 1 else None
 
 
+def room_identity_key(value):
+    """One identity for spelling/spacing variants and documented room aliases."""
+    return room_name_key(room_catalogue_name(value) or value)
+
+
 # Faculties and colleges used as campus-area choices, including the faculties
 # within Health Sciences. These are app navigation choices, not numbered zones.
 CAMPUS_ZONES = (

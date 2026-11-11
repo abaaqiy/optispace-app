@@ -115,8 +115,20 @@ remain available**, including dated lectures and bulk corrections.
    have no department. Do not infer every course's department or a venue's building
    from the heading; shared university spaces can belong to other faculties.
 3. Resolve unique course/venue labels once. Match existing records (including
-   documented room aliases), or **prepare a new course/room here**. Codes/names are
-   prefilled. Course-title suggestions match exact codes against sourced OAU
+   documented room aliases), or **prepare a new course/room here**. Search inside
+   the **Select correct course/room** dropdowns; open a dropdown
+   and type part of the code, name, building or title. There is no separate search
+   field beside these mapping selectors. A course code or room name that is already
+   saved or prepared reuses that record rather than adding another proposal.
+   Case and spacing differences (such as `CH102` / `CH 102`) and documented room
+   aliases identify the same room. Existing drafts with repeated proposals show
+   one selectable record and keep the earlier field values in a collapsed
+   comparison panel. Their linked rows and unfinished selections move to the
+   existing record; affected review ticks are cleared without changing times,
+   weekdays, course readings or source locations. Autosave persists this repair.
+   Compare any different titles, capacities or locations before reviewing the rows.
+   The retained earlier proposals never create additional database records.
+   New course codes and room names are prefilled. Course-title suggestions match exact codes against sourced OAU
    handbooks/course pages, across departments. Each shows its edition and source;
    confirm the curriculum applies before selecting it. No title is guessed for
    unknown codes, and typed titles are never automatically replaced. Coverage is
@@ -199,8 +211,12 @@ dates are seeded or inferred from an academic-session label.
 The November restructure is local development work, not deployed. Migration
 `scheduling.0006` adds optional import provenance, `scheduling.0007` adds the
 explicit pending-title flag, `scheduling.0008` adds durable private image drafts,
-`scheduling.0009` extends active drafts to 24 hours, and `scheduling.0010` adds
-shared semester settings. Apply them only to the explicitly configured local
+`scheduling.0009` extends active drafts to 24 hours, `scheduling.0010` adds
+shared semester settings, `rooms.0004` adds unique room-name identities, and
+`scheduling.0011` enforces unique course codes after normalising case and spacing.
+The uniqueness upgrades keep primary keys, room URLs, timetable and reservation
+links unchanged. They stop with a readable error if conflicting saved records
+exist instead of deleting or merging records silently. Apply them only to the explicitly configured local
 database while testing. The CSV columns remain unchanged; exported clock times
 now use AM/PM, and the importer accepts both formats.
 

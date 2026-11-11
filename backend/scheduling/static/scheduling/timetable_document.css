@@ -42,6 +42,8 @@
 .reference-mapping { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--hairline-color); min-width: 0; }
 .reference-mapping strong { flex: 1 0 100%; overflow-wrap: anywhere; }
 .reference-mapping select { max-width: 100%; min-width: 180px; }
+.reference-mapping .select2-container { flex: 1 1 250px; max-width: 100%; min-width: 180px; }
+.reference-mapping > label { margin: 0; }
 .reference-mapping input { max-width: 100%; box-sizing: border-box; }
 .review-toolbar, .review-batch, .review-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 14px 0; }
 .review-toolbar label { display: flex; align-items: center; gap: 6px; }
@@ -63,6 +65,9 @@
 .record-editor [hidden] { display: none; }
 .reference-mapping > details { flex-basis: 100%; min-width: 0; }
 #prepared-buildings > details, #proposed-records > details { border: 1px solid var(--hairline-color); padding: 12px; }
+.duplicate-proposals dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 12px; }
+.duplicate-proposals dt { font-weight: bold; }
+.duplicate-proposals dd { margin: 0; overflow-wrap: anywhere; }
 .weekly-scroll { overflow-x: auto; max-width: 100%; margin: 12px 0; }
 .weekly-grid { min-width: 760px; width: 100%; table-layout: fixed; }
 .weekly-grid th, .weekly-grid td { vertical-align: top; border: 1px solid var(--hairline-color); padding: 5px; }

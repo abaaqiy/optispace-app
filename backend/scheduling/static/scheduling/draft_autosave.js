@@ -1,7 +1,7 @@
 /* Debounced, ordered saves. Only failures are announced. No source-image upload. */
 (() => {
-  window.OptispaceDraftAutosave = function ({ snapshot, send, accept, warn, timers = window }) {
-    let saved = JSON.stringify(snapshot()), timer, running = null, retry = null;
+  window.OptispaceDraftAutosave = function ({ snapshot, initialSnapshot, send, accept, warn, timers = window }) {
+    let saved = JSON.stringify(initialSnapshot || snapshot()), timer, running = null, retry = null;
     let paused = false, blocked = false, failures = 0, firstChange = 0;
     const dirty = () => JSON.stringify(snapshot()) !== saved || !!retry;
     const clear = () => { timers.clearTimeout(timer); timer = null; };

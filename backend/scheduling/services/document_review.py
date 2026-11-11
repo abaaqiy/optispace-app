@@ -6,7 +6,7 @@ import re
 from datetime import date, timedelta
 
 from rooms.models import Room
-from rooms.catalog import ROOM_ALIASES, room_catalogue_name
+from rooms.catalog import ROOM_ALIASES, room_catalogue_name, room_identity_key
 from scheduling.models import Course
 
 from .document_extract import DAYS, MAX_DRAFT_ROWS
@@ -22,6 +22,8 @@ def references():
         {
             "value": r.code,
             "label": f"{r.name} — {r.building.name}",
+            "name": r.name,
+            "identity": room_identity_key(r.name),
             "keys": list(
                 {
                     normalise(r.code),
@@ -35,7 +37,8 @@ def references():
         for r in Room.objects.select_related("building").order_by("name")
     ]
     courses = [
-        {"value": c.code, "label": str(c), "keys": [normalise(c.code)]}
+        {"value": c.code, "label": str(c), "identity": re.sub(r'\s+', '', c.code).upper(),
+         "keys": [normalise(c.code)]}
         for c in Course.objects.order_by("code")
     ]
     return {"rooms": rooms, "courses": courses}
