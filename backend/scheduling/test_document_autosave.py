@@ -11,7 +11,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from rooms.models import Building, Room
-from .models import Course, TimetableDay, TimetableImageDraft
+from .models import AcademicSemester, Course, TimetableDay, TimetableImageDraft
 from .services.document_drafts import load_document, save_document
 
 
@@ -63,6 +63,39 @@ class DocumentAutosaveTests(TestCase):
         self.assertEqual(manual.context['errors'], [])
         self.assertEqual(self.save(first.json()['token'], department='Late autosave').status_code, 409)
         self.assertEqual(TimetableImageDraft.objects.get().document['review_options']['department'], 'Computing')
+
+    def test_validate_accepts_identical_edits_when_autosave_token_response_was_lost(self):
+        building = Building.objects.create(name='Autosave teaching block', campus_zone='Faculty of Science')
+        room = Room.objects.create(name='Autosave classroom', code='autosave-room', building=building,
+                                   capacity=60, room_type='Classroom', size_category='small')
+        Course.objects.create(code='CSC201', title='Computing', department='Computing')
+        semester = AcademicSemester.objects.create(academic_session='2029/2030', semester='Rain',
+            first_date='2030-01-07', last_date='2030-01-07')
+        state = {**self.state, 'teaching_semester': str(semester.pk), 'coverage_checked': 'yes',
+                 'level_view': '3', 'rows': json.dumps([{'course': 'CSC201', 'room': room.code,
+                     'day': 'Monday', 'start_time': '08:00', 'end_time': '09:00', 'reviewed': True}])}
+        saved = self.save(**state)
+        self.assertEqual(saved.status_code, 200)
+        # The database saved these edits, but the page still has its older token.
+        reviewed = self.client.post(self.review_url, {**state, 'action': 'review', 'document_token': self.token})
+        self.assertEqual(reviewed.context['errors'], [])
+        self.assertTrue(reviewed.context['preview_token'])
+        self.assertEqual(len(reviewed.context['plan'].rows), 1)
+        self.assertFalse(TimetableDay.objects.exists())
+
+    def test_stale_manual_validation_does_not_overwrite_different_saved_edits(self):
+        self.assertEqual(self.save(department='Newer saved department').status_code, 200)
+        unsaved_editor = {'record:course:CSC102:title': 'Unsaved title from the older page'}
+        reviewed = self.client.post(self.review_url,
+            {**self.state, 'action': 'review', 'document_token': self.token, 'coverage_checked': 'yes',
+             'editor_state': json.dumps(unsaved_editor)})
+        self.assertIn('another tab', ' '.join(reviewed.context['errors']))
+        self.assertFalse(reviewed.context['preview_token'])
+        self.assertEqual(reviewed.context['editor_state'], unsaved_editor)
+        self.assertEqual(reviewed.context['document_token'], self.token)
+        self.assertEqual(TimetableImageDraft.objects.get().document['review_options']['department'], 'Newer saved department')
+        self.assertEqual(TimetableImageDraft.objects.get().document['editor_state'], json.loads(self.state['editor_state']))
+        self.assertFalse(TimetableDay.objects.exists())
 
     def test_shared_building_choices_and_links_survive_autosave_manual_save_and_resume(self):
         building_key = 'draft-building-12345678'

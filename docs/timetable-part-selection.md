@@ -26,6 +26,10 @@ This local feature adds a department/Part view directly to commit `312fbd1` on
    then use the existing **Validate reviewed entries → Confirm and import** steps.
    Validation still requires every retained row to be reviewed, including hidden
    Parts. Import still saves the full retained timetable in one transaction.
+   Save/Validate waits for background saving and submits the latest draft token.
+   If an autosave response was lost but the submitted edits exactly match the
+   saved draft, validation can continue. Different edits from a stale tab remain
+   blocked to prevent overwriting someone else's review.
 
 ## What selecting Chemistry Part III displays
 

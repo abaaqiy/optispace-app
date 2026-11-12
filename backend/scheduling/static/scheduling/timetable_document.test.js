@@ -115,6 +115,46 @@ test('background save captures partially typed forms, selections and rows withou
   assert.equal(requests.length, 1, 'Search-only actions do not trigger writes');
 });
 
+test('Validate waits for autosave and submits the latest token with every retained Part', { timeout: 5000 }, async t => {
+  let finishFirst, finishSubmit;
+  const firstResponse = new Promise(resolve => { finishFirst = resolve; });
+  const submitted = new Promise(resolve => { finishSubmit = resolve; });
+  const requests = [], submissions = [];
+  const rows = [3, 4].map(part => ({ ...row('CSC201'), course: 'CSC201',
+    class_group_kind: 'part', class_group: String(part), reviewed: true, day: part === 3 ? 'Monday' : 'Tuesday' }));
+  const e = editor(t, rows, undefined, { references: {
+    courses: [{ value: 'CSC201', label: 'CSC201', keys: [] }], rooms: [{ value: 'step-a', label: 'STEP A', keys: [] }],
+  }, fetch: async (_, init) => {
+    requests.push(new URLSearchParams(init.body.toString()));
+    return requests.length === 1 ? firstResponse : { ok: true, json: async () => ({ token: 'latest-token' }) };
+  } });
+  const form = e.document.getElementById('document-review');
+  form.querySelector('[name="document_token"]').value = 'original-token';
+  e.window.HTMLFormElement.prototype.submit = function () {
+    submissions.push(new e.window.FormData(this)); finishSubmit();
+  };
+  e.change(e.document.getElementById('level-view'), '3');
+  const version = e.document.getElementById('source-version');
+  version.value = 'First draft'; version.dispatchEvent(new e.window.Event('input', { bubbles: true }));
+  const firstSave = e.saver.flush();
+  version.value = 'Revised draft'; version.dispatchEvent(new e.window.Event('input', { bubbles: true }));
+  const submitter = [...form.querySelectorAll('button')].find(button => button.textContent === 'Validate reviewed entries');
+  form.dispatchEvent(new e.window.SubmitEvent('submit', { cancelable: true, submitter }));
+  assert.equal(submissions.length, 0);
+  finishFirst({ ok: true, json: async () => ({ token: 'autosaved-token' }) });
+  await firstSave; await submitted;
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].get('document_token'), 'autosaved-token');
+  assert.equal(submissions.length, 1);
+  const data = submissions[0];
+  assert.equal(data.get('document_token'), 'latest-token');
+  assert.deepEqual(data.getAll('action'), ['review']);
+  assert.equal(data.get('source_version'), 'Revised draft');
+  assert.equal(data.get('level_view'), '3');
+  assert.deepEqual(JSON.parse(data.get('rows')).map(row => row.class_group), ['3', '4']);
+  assert.equal(e.saver.dirty(), false);
+});
+
 test('unfinished room selectors and custom names are restored without applying the proposal', t => {
   const e = editor(t, [{ ...row(), room: '' }]);
   const room = e.mapping('STEP A').querySelector('.record-editor');

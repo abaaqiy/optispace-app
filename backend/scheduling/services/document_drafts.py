@@ -29,7 +29,12 @@ class DraftConflict(ImportProblem):
 def check_version(token, draft):
     expected = signing.loads(token, salt=DOCUMENT_SALT, max_age=DOCUMENT_TTL).get('version')
     if expected != draft.saved_at.isoformat():
-        raise DraftConflict('This draft changed in another tab. Keep this page open, copy any unsaved edits, then reopen the saved draft before continuing.')
+        raise DraftConflict('This draft has newer saved changes, possibly from another tab. Keep this page open, copy any unsaved edits, then reopen the saved draft before continuing.')
+
+
+def review_state_matches(document, state):
+    return all(document.get(key, {} if key == 'editor_state' else None) == value
+               for key, value in state.items())
 
 
 def cleanup_expired_drafts():
@@ -89,12 +94,27 @@ def save_document(document, user, *, token=None):
     return draft_token(draft)
 
 
+def save_review_document(token, user, state):
+    """Save manual review state without treating an identical autosave as a conflict."""
+    with transaction.atomic():
+        draft = get_draft(token, user, lock=True)
+        # Lost/delayed autosave responses can leave the page with an old token.
+        # Identical edits are safe; different stale edits must never overwrite it.
+        if not review_state_matches(draft.document, state):
+            check_version(token, draft)
+        document = unpack_document(draft)
+        document.update(state)
+        document['preview_version'] = secrets.token_urlsafe(16)
+        document.pop('preview_records', None)
+        fresh = save_document(document, user, token=draft_token(draft))
+        return fresh, document
+
+
 def autosave_document(token, user, state):
     """Update only review metadata, without loading or rewriting the source image."""
     with transaction.atomic():
         draft = get_draft(token, user, lock=True, metadata_only=True)
-        unchanged = all(draft.document.get(key, {} if key == 'editor_state' else None) == value
-                        for key, value in state.items())
+        unchanged = review_state_matches(draft.document, state)
         # A successful response can be lost in transit. Retrying identical state
         # returns the current token without extending expiry or invalidating preview.
         if not unchanged:

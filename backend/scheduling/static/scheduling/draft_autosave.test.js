@@ -66,17 +66,44 @@ test('conflicting tabs stop retries and prevent manual overwrite', async () => {
   assert.match(e.warnings[0], /another tab/);
 });
 
-test('manual submission waits for current autosave and cancels queued background writes', async () => {
-  const gate = deferred(); const e = setup(() => gate.promise);
+test('manual submission waits for current autosave, saves newer edits and uses the latest token', async () => {
+  const gate = deferred(); const e = setup(() => e.calls.length === 1 ? gate.promise : { token: 'final-token' });
   e.edit('first'); e.save.flush(); e.edit('latest');
   let finished = false;
   const submit = e.save.beforeSubmit().then(result => { finished = result; });
   await Promise.resolve(); assert.equal(finished, false);
   gate.resolve({ token: 'newest-token' }); await submit;
   assert.equal(finished, true);
-  assert.equal(e.calls.length, 1);
+  assert.deepEqual(e.calls.map(item => item.value), ['first', 'latest']);
   assert.equal(e.timers.size, 0);
   assert.equal(e.accepted[0].token, 'newest-token');
+  assert.equal(e.accepted[1].token, 'final-token');
+  assert.equal(e.save.dirty(), false);
+});
+
+test('manual submission saves pending edits before allowing validation', async () => {
+  const e = setup();
+  e.edit('latest');
+  assert.equal(e.calls.length, 0);
+  assert.equal(await e.save.beforeSubmit(), true);
+  assert.deepEqual(e.calls, [{ value: 'latest' }]);
+  assert.equal(e.save.dirty(), false);
+  assert.equal(e.timers.size, 0);
+});
+
+test('validation recovers a lost response before saving edits made afterward', async () => {
+  let fail = true;
+  const e = setup(async () => {
+    if (fail) { fail = false; throw new Error('Autosave response lost'); }
+    return { token: `saved-${e.calls.length}` };
+  });
+  e.edit('first'); await e.save.flush();
+  e.edit('latest');
+  assert.equal(await e.save.beforeSubmit(), true);
+  assert.deepEqual(e.calls.map(item => item.value), ['first', 'first', 'latest']);
+  assert.equal(e.accepted.at(-1).token, 'saved-3');
+  assert.equal(e.save.dirty(), false);
+  assert.equal(e.timers.size, 0);
 });
 
 test('failed save cannot be silently bypassed by manual submission', async () => {

@@ -33,7 +33,7 @@ from .services.part_catalogue import LEVEL_PROFILES
 
 from .services.document_drafts import (
     DOCUMENT_SALT, DOCUMENT_TTL, get_draft, load_document, save_document, saved_drafts, unpack_document,
-    autosave_document, DraftConflict,
+    autosave_document, save_review_document, DraftConflict,
 )
 
 
@@ -224,10 +224,8 @@ class TimetableDocumentAdminMixin:
                             )
                         )
                     state = read_review_state(request.POST)
-                    document.update(state)
                     rows, pending, options = state['review_rows'], state['pending'], state['review_options']
                     coverage_checked = state['coverage_checked']
-                    document["preview_version"] = secrets.token_urlsafe(16)
                     if action == "refresh":
                         # Draft references are intentionally not saved yet.
                         draft_refs = {key: [*value, *[
@@ -235,8 +233,14 @@ class TimetableDocumentAdminMixin:
                             for item in pending.get(key, [])
                         ]] for key, value in refs.items()}
                         rows = refresh_rows(rows, draft_refs)
-                        document["review_rows"] = rows
-                    token = save_document(document, request.user, token=token)
+                        state["review_rows"] = rows
+                    try:
+                        token, document = save_review_document(token, request.user, state)
+                    except DraftConflict:
+                        # Render the submitted edits for copying/recovery, while
+                        # leaving the newer saved draft and stale token untouched.
+                        document.update(state)
+                        raise
                     if action in {"save", "refresh"}:
                         self.message_user(
                             request,
