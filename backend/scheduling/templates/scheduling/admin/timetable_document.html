@@ -63,9 +63,10 @@
           <label for="level-profile">Programme and handbook:</label>
           <select id="level-profile" name="level_profile" class="room-catalog-select" data-saved="{{ options.level_profile }}"><option value="">Use image Part headings / assign manually</option></select>
           <p id="level-profile-source" class="help"></p>
-          <label><input type="checkbox" id="level-profile-confirmed" name="level_profile_confirmed" value="yes" {% if options.level_profile_confirmed == 'yes' %}checked{% endif %}> I checked that this programme and handbook edition apply to this timetable.</label>
+          <label><input type="checkbox" id="level-profile-confirmed" name="level_profile_confirmed" value="yes" aria-describedby="level-profile-confirmation" {% if options.level_profile_confirmed == 'yes' %}checked{% endif %}> I checked that this programme and handbook edition apply to this timetable.</label>
+          <p id="level-profile-confirmation" class="help" role="status"></p>
           <label for="level-view">Level / Part:</label>
-          <select id="level-view" name="level_view" data-saved="{{ options.level_view }}"></select>
+          <select id="level-view" name="level_view" data-saved="{{ options.level_view }}" aria-describedby="level-profile-confirmation part-status part-unassigned"></select>
           <p id="part-status" class="help" role="status"></p>
           <p id="part-unassigned" class="help" role="status"></p>
           <p class="help">Choose a Part to show its courses, venues, days and times in sections 2 and 3, shared-heading review, day groups and extracted entries. Switch Parts to continue reviewing; edits remain saved. Handbooks have partial coverage. Uncertain or missing course assignments stay in Unassigned for checking. The first digit of a course code does not determine its Part.</p>

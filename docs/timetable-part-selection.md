@@ -13,6 +13,10 @@ This local feature adds a programme/Part view directly to commit `312fbd1` on
    edition for the department/programme and cohort on this timetable, then confirm
    the applicability checkbox. For example, Chemistry and Industrial Chemistry
    have separate curriculum profiles even though they are in the same department.
+   Until the checkbox is ticked, Part options show **awaiting handbook
+   confirmation** rather than misleading zero counts. Any image-heading or manual
+   assignments remain available and are counted separately while confirmation is
+   pending. Checking the box updates the counts immediately.
 3. Choose **Level / Part**. Part 1–6 and **Unassigned / uncertain** are available;
    **All extracted entries** restores the complete review view. Each option shows
    its retained-entry count. The page also shows overall review progress.

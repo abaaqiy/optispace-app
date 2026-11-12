@@ -734,16 +734,27 @@
   showPage(1);
   function partStatus() {
     const retained = rows.filter(row => !row.skip);
+    const profile = levelProfiles.find(item => item.id === levelProfile.value);
+    const confirmationPending = !!profile && !levelConfirmed.checked;
     for (const option of levelView.options) {
       const entries = retained.filter(row => partTool.matches(partInfo(row), option.value));
-      option.textContent = `${option.dataset.label} · ${entries.length} entries`;
+      const part = /^[1-6]$/.test(option.value);
+      option.textContent = confirmationPending && part
+        ? `${option.dataset.label} · ${entries.length ? `${entries.length} image/manual entries; handbook pending` : 'awaiting handbook confirmation'}`
+        : `${option.dataset.label} · ${entries.length} entries`;
     }
+    document.getElementById('level-profile-confirmation').textContent = confirmationPending
+      ? 'Confirm this handbook using the checkbox above to calculate Part counts from its courses. Until then, only image Part headings and manual assignments are used.'
+      : profile
+        ? 'Handbook confirmed. Part counts include matching course codes. Courses with no clear Part evidence remain Unassigned.'
+        : 'Select an applicable handbook to assign Parts by course code. Image Part headings and manual assignments work without a handbook.';
     const current = retained.filter(inPart);
     document.getElementById('part-status').textContent = `${current.length} retained entries in this view; ${current.filter(row => row.reviewed).length} reviewed. Full image: ${retained.filter(row => row.reviewed).length} of ${retained.length} retained entries reviewed. Final validation checks every Part.`;
     const unknown = retained.filter(row => !partInfo(row).parts.length).length;
-    document.getElementById('part-unassigned').textContent = `${unknown} entries are unassigned or have several possible Parts. Review them in Unassigned, or assign a Part using “Check / correct Part” in the row editor. A shared class can appear in more than one Part's view.`;
+    document.getElementById('part-unassigned').textContent = confirmationPending
+      ? `${unknown} entries currently have no assigned Part. Confirm the selected handbook above before checking for missing or uncertain course assignments.`
+      : `${unknown} entries are unassigned or have several possible Parts. Review them in Unassigned, or assign a Part using “Check / correct Part” in the row editor. A shared class can appear in more than one Part's view.`;
     const root = document.getElementById('level-profile-source'); root.replaceChildren();
-    const profile = levelProfiles.find(item => item.id === levelProfile.value);
     levelConfirmed.disabled = !profile;
     if (profile) {
       const source = creation.course_sources[profile.source_id] || {};

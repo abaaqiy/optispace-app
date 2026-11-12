@@ -566,19 +566,56 @@ test('selecting a Part filters courses, venues, weekly cards, shared headings, d
 
 test('handbook applicability must be confirmed; several possible Parts and missing codes remain Unassigned', t => {
   const e = editor(t, [row('CSC201'), row('BIO101'), row('ICH308')], undefined, { levelProfiles: curriculumProfiles });
+  const level = e.document.getElementById('level-view');
+  const partLabel = part => [...level.options].find(option => option.value === part).textContent;
   e.change(e.document.getElementById('level-profile'), 'programme-a');
-  e.change(e.document.getElementById('level-view'), '3');
+  assert.match(partLabel('3'), /awaiting handbook confirmation/);
+  assert.doesNotMatch(partLabel('3'), /0 entries/);
+  assert.match(e.document.getElementById('level-profile-confirmation').textContent, /checkbox above/);
+  assert.match(e.document.getElementById('part-unassigned').textContent, /3 entries currently have no assigned Part/);
+  e.change(level, '3');
   assert.equal(e.document.querySelectorAll('.weekly-card').length, 0);
   e.change(e.document.getElementById('level-profile-confirmed'), true);
   assert.equal(e.document.querySelectorAll('.weekly-card').length, 1);
+  assert.match(partLabel('3'), /1 entries$/);
+  assert.match(e.document.getElementById('level-profile-confirmation').textContent, /Handbook confirmed/);
   e.change(e.document.getElementById('level-view'), 'unassigned');
   assert.equal(e.document.querySelectorAll('.weekly-card').length, 2);
   e.change(e.document.getElementById('level-profile'), 'programme-b');
   assert.equal(e.document.getElementById('level-profile-confirmed').checked, false);
   assert.equal(e.document.querySelectorAll('.weekly-card').length, 3);
+  assert.match(partLabel('4'), /awaiting handbook confirmation/);
   e.change(e.document.getElementById('level-profile-confirmed'), true);
   e.change(e.document.getElementById('level-view'), '4');
   assert.equal(e.document.querySelectorAll('.weekly-card').length, 1, 'Programme-specific mapping replaces the other programme evidence');
+  assert.match(partLabel('4'), /1 entries$/);
+  assert.deepEqual(e.payload().rows.map(row => row.course_text), ['CSC201', 'BIO101', 'ICH308']);
+});
+
+test('pending handbook confirmation preserves image and manual Parts, corrections and completed review', t => {
+  const rows = [
+    { ...row('ICH308'), class_group_kind: 'part', class_group: 'III', reviewed: true },
+    { ...row('MAC201'), level_override: [4], level_override_code: 'MAC201', day: 'Tuesday', reviewed: true },
+    row('CSC201'),
+    { ...row('CSC201'), skip: true },
+  ];
+  const e = editor(t, rows, undefined, { levelProfiles: curriculumProfiles,
+    partOptions: { level_profile: 'programme-a', level_view: '3' } });
+  const level = e.document.getElementById('level-view');
+  const partLabel = part => [...level.options].find(option => option.value === part).textContent;
+  assert.match(partLabel('all'), /3 entries$/);
+  assert.match(partLabel('3'), /1 image\/manual entries; handbook pending/);
+  assert.match(partLabel('4'), /1 image\/manual entries; handbook pending/);
+  assert.match(partLabel('2'), /awaiting handbook confirmation/);
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 1);
+  assert.match(e.document.querySelector('.weekly-card').textContent, /ICH308/);
+  e.change(level, '4');
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 1);
+  assert.match(e.document.querySelector('.weekly-card').textContent, /MAC201/);
+  e.change(e.document.getElementById('level-profile-confirmed'), true);
+  assert.match(partLabel('3'), /2 entries$/);
+  assert.deepEqual(e.payload().rows.map(row => [row.day, row.reviewed, !!row.skip]),
+    rows.map(row => [row.day, row.reviewed, !!row.skip]));
 });
 
 test('bulk review and shared-heading corrections only change the selected Part', t => {
