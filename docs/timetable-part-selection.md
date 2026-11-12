@@ -30,6 +30,11 @@ This local feature adds a department/Part view directly to commit `312fbd1` on
    If an autosave response was lost but the submitted edits exactly match the
    saved draft, validation can continue. Different edits from a stale tab remain
    blocked to prevent overwriting someone else's review.
+   Retired programme and confirmation fields do not count as changed edits when
+   comparing an older draft. A genuine conflict shows **Save my edits as a new
+   draft**, which preserves the source and every submitted correction in a private
+   copy while leaving the newer original draft unchanged. **Open the latest saved
+   draft in another tab** is also available for comparison.
 
 ## What selecting Chemistry Part III displays
 

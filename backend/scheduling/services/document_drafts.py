@@ -29,12 +29,38 @@ class DraftConflict(ImportProblem):
 def check_version(token, draft):
     expected = signing.loads(token, salt=DOCUMENT_SALT, max_age=DOCUMENT_TTL).get('version')
     if expected != draft.saved_at.isoformat():
-        raise DraftConflict('This draft has newer saved changes, possibly from another tab. Keep this page open, copy any unsaved edits, then reopen the saved draft before continuing.')
+        raise DraftConflict('This draft has newer saved changes, possibly from another tab. Save your edits as a new draft to continue, or open the latest saved draft.')
+
+
+def comparable_review_options(options):
+    """Retired view controls must not make unchanged course/room edits conflict."""
+    if not isinstance(options, dict):
+        return options
+    result = options.copy()
+    result.pop('level_profile', None)
+    result.pop('level_profile_confirmed', None)
+    result.setdefault('level_view', 'all')
+    return result
 
 
 def review_state_matches(document, state):
-    return all(document.get(key, {} if key == 'editor_state' else None) == value
-               for key, value in state.items())
+    for key, value in state.items():
+        saved = document.get(key, {} if key == 'editor_state' else None)
+        if key == 'review_options':
+            saved, value = comparable_review_options(saved), comparable_review_options(value)
+        if saved != value:
+            return False
+    return True
+
+
+def recover_review_document(token, user, state):
+    """Preserve a conflicting page's edits in a new private draft, without overwriting."""
+    _, document = load_document(token, user)
+    document.update(state)
+    document['filename'] = f"Recovered edits — {document.get('filename', 'Timetable image')}"[:255]
+    document['preview_version'] = secrets.token_urlsafe(16)
+    document.pop('preview_records', None)
+    return save_document(document, user)
 
 
 def cleanup_expired_drafts():

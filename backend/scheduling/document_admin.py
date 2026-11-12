@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import secrets
+from urllib.parse import urlencode
 
 from django import forms
 from django.contrib import messages
@@ -33,7 +34,7 @@ from .services.part_catalogue import LEVEL_PROFILES
 
 from .services.document_drafts import (
     DOCUMENT_SALT, DOCUMENT_TTL, get_draft, load_document, save_document, saved_drafts, unpack_document,
-    autosave_document, save_review_document, DraftConflict,
+    autosave_document, save_review_document, recover_review_document, draft_token, DraftConflict,
 )
 
 
@@ -96,7 +97,11 @@ class TimetableDocumentAdminMixin:
             result = autosave_document(request.POST.get('document_token', ''), request.user, read_review_state(request.POST))
             return JsonResponse(result)
         except DraftConflict as error:
-            return JsonResponse({'error': str(error)}, status=409)
+            try:
+                draft = get_draft(request.POST.get('document_token', ''), request.user, metadata_only=True)
+            except ImportProblem as unavailable:
+                return JsonResponse({'error': str(unavailable)}, status=400)
+            return JsonResponse({'error': str(error), 'latest_token': draft_token(draft)}, status=409)
         except ImportProblem as error:
             return JsonResponse({'error': str(error)}, status=400)
 
@@ -133,6 +138,8 @@ class TimetableDocumentAdminMixin:
         form = DocumentUploadForm()
         errors, document, token, rows, plan, preview = [], None, "", [], None, ""
         coverage_checked = False
+        draft_conflict = False
+        latest_token = ''
         pending = {"courses": [], "rooms": []}
         refs = references()
         options = {
@@ -170,7 +177,7 @@ class TimetableDocumentAdminMixin:
                         document["review_options"] = options.copy()
                         token = save_document(document, request.user)
                         rows = document["rows"]
-                elif action in {"review", "confirm", "save", "refresh"}:
+                elif action in {"review", "confirm", "save", "refresh", "recover"}:
                     token = request.POST.get("document_token", "")
                     payload, document = load_document(token, request.user)
                     rows = document.get("review_rows", document["rows"])
@@ -224,6 +231,12 @@ class TimetableDocumentAdminMixin:
                             )
                         )
                     state = read_review_state(request.POST)
+                    if action == 'recover':
+                        recovered = recover_review_document(token, request.user, state)
+                        self.message_user(request, 'Your edits were saved as a new draft. The previous draft is unchanged.', messages.SUCCESS)
+                        return HttpResponseRedirect(reverse(
+                            f'{self.admin_site.name}:scheduling_timetableday_document'
+                        ) + '?' + urlencode({'review': recovered}))
                     rows, pending, options = state['review_rows'], state['pending'], state['review_options']
                     coverage_checked = state['coverage_checked']
                     if action == "refresh":
@@ -240,6 +253,8 @@ class TimetableDocumentAdminMixin:
                         # Render the submitted edits for copying/recovery, while
                         # leaving the newer saved draft and stale token untouched.
                         document.update(state)
+                        draft_conflict = True
+                        latest_token = payload['token']
                         raise
                     if action in {"save", "refresh"}:
                         self.message_user(
@@ -291,6 +306,8 @@ class TimetableDocumentAdminMixin:
             "catalog_media": SearchableSelect().media,
             "saved_drafts": saved_drafts(request.user),
             "errors": errors,
+            "draft_conflict": draft_conflict,
+            "latest_document_token": latest_token or token,
             "document": document,
             "document_token": token,
             "editor_state": document.get('editor_state', {}) if document else {},

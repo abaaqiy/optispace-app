@@ -975,8 +975,16 @@
     const open = document.getElementById('source-open');
     if (open.href) { const url = new URL(open.href, location.href); url.searchParams.set('token', result.token); open.href = url; }
   }
-  function warnSave(message) {
+  function warnSave(message, error) {
     const warning = document.getElementById('draft-save-error'); warning.textContent = message; warning.hidden = !message;
+    const recovery = document.getElementById('draft-conflict-recovery');
+    if (error?.conflict) {
+      recovery.hidden = false;
+      if (error.latestToken) {
+        const link = document.getElementById('latest-saved-draft');
+        const latest = new URL(link.href, location.href); latest.searchParams.set('review', error.latestToken); link.href = latest;
+      }
+    } else if (!message) recovery.hidden = true;
   }
   if (window.fetch && window.OptispaceDraftAutosave && form.dataset.autosaveUrl) {
     autosave = window.OptispaceDraftAutosave({ snapshot, initialSnapshot: repairedReferences ? storedSnapshot : undefined,
@@ -992,6 +1000,8 @@
       if (!response.ok) {
         const error = new Error(result.error || 'Autosave failed. Keep this page open and use Save draft.');
         error.permanent = response.status >= 400 && response.status < 500 && response.status !== 429;
+        error.conflict = response.status === 409;
+        error.latestToken = result.latest_token;
         throw error;
       }
       if (!result.token) throw new Error('Autosave could not be confirmed. Keep this page open; it will retry.');
@@ -1007,7 +1017,8 @@
     event.preventDefault();
     if (submitting) return;
     submitting = true;
-    if (!await autosave.beforeSubmit()) { submitting = false; autosave.resume(); return; }
+    const ready = await autosave.beforeSubmit();
+    if (!ready && event.submitter?.value !== 'recover') { submitting = false; autosave.resume(); return; }
     serialiseForm(event);
     HTMLFormElement.prototype.submit.call(form);
   }

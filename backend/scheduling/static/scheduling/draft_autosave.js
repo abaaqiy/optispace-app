@@ -27,7 +27,7 @@
           blocked = !!error.permanent;
           retry = payload;
           failures++;
-          warn(blocked ? error.message : 'Changes could not be saved. Keep this page open; autosave will retry.');
+          warn(blocked ? error.message : 'Changes could not be saved. Keep this page open; autosave will retry.', error);
         } finally {
           running = null;
           if (!paused && !blocked && dirty()) {

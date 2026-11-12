@@ -43,6 +43,11 @@
     {{ document.metadata.heading_text|default:""|json_script:"document-source-heading" }}
     <noscript><p class="errornote">Enable JavaScript to review this document, or use the CSV importer.</p></noscript>
     <p id="draft-save-error" class="errornote" role="alert" hidden></p>
+    <div id="draft-conflict-recovery" class="module document-mappings" {% if not draft_conflict %}hidden{% endif %}>
+      <p>Your edits are still on this page. Save them as a new draft to continue without replacing the newer saved version.</p>
+      <button type="submit" form="document-review" name="action" value="recover" formnovalidate class="button">Save my edits as a new draft</button>
+      <a id="latest-saved-draft" href="?review={{ latest_document_token|urlencode }}" target="_blank" rel="noopener">Open the latest saved draft in another tab</a>
+    </div>
     <form method="post" id="document-review" data-autosave-url="{% url 'admin:scheduling_timetableday_autosave' %}">
       {% csrf_token %}<input type="hidden" name="action" value="review"><input type="hidden" name="document_token" value="{{ document_token }}"><input type="hidden" name="rows" id="review-rows"><input type="hidden" name="pending" id="pending-records">
       <input type="hidden" name="editor_state" id="editor-state">

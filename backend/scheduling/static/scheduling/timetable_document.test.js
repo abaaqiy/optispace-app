@@ -155,6 +155,35 @@ test('Validate waits for autosave and submits the latest token with every retain
   assert.equal(e.saver.dirty(), false);
 });
 
+test('a genuine draft conflict lets an administrator preserve unsaved edits in a separate draft', { timeout: 5000 }, async t => {
+  const e = editor(t, [row()], undefined, { fetch: async () => ({ ok: false, status: 409,
+    json: async () => ({ error: 'Newer saved changes exist', latest_token: 'latest-saved-token' }) }) });
+  const courseTitle = e.field(e.mapping('PUL301').querySelector('.record-editor'), 'Course title');
+  courseTitle.value = 'Keep this unsaved title';
+  courseTitle.dispatchEvent(new e.window.Event('input', { bubbles: true }));
+  await Promise.resolve(); await e.saver.flush();
+  const recovery = e.document.getElementById('draft-conflict-recovery');
+  assert.equal(recovery.hidden, false);
+  assert.match(e.document.getElementById('latest-saved-draft').href, /review=latest-saved-token/);
+  assert.equal(await e.saver.beforeSubmit(), false, 'Normal save/validate cannot overwrite a newer draft');
+  const form = e.document.getElementById('document-review');
+  form.querySelector('[name="document_token"]').value = 'stale-token';
+  let finishSubmit;
+  const done = new Promise(resolve => { finishSubmit = resolve; });
+  const submissions = [];
+  e.window.HTMLFormElement.prototype.submit = function () {
+    submissions.push(new e.window.FormData(this)); finishSubmit();
+  };
+  const submitter = recovery.querySelector('button');
+  form.dispatchEvent(new e.window.SubmitEvent('submit', { cancelable: true, submitter }));
+  await done;
+  const data = submissions[0];
+  assert.deepEqual(data.getAll('action'), ['recover']);
+  assert.equal(data.get('document_token'), 'stale-token');
+  assert.match(data.get('editor_state'), /Keep this unsaved title/);
+  assert.equal(JSON.parse(data.get('rows')).length, 1);
+});
+
 test('unfinished room selectors and custom names are restored without applying the proposal', t => {
   const e = editor(t, [{ ...row(), room: '' }]);
   const room = e.mapping('STEP A').querySelector('.record-editor');
