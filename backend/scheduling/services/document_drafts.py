@@ -29,7 +29,39 @@ class DraftConflict(ImportProblem):
 def check_version(token, draft):
     expected = signing.loads(token, salt=DOCUMENT_SALT, max_age=DOCUMENT_TTL).get('version')
     if expected != draft.saved_at.isoformat():
-        raise DraftConflict('This draft changed in another tab. Keep this page open, copy any unsaved edits, then reopen the saved draft before continuing.')
+        raise DraftConflict('This draft has newer saved changes, possibly from another tab. Save your edits as a new draft to continue, or open the latest saved draft.')
+
+
+def comparable_review_options(options):
+    """Retired view controls must not make unchanged course/room edits conflict."""
+    if not isinstance(options, dict):
+        return options
+    result = options.copy()
+    result.pop('level_profile', None)
+    result.pop('level_profile_confirmed', None)
+    result.setdefault('level_view', 'all')
+    return result
+
+
+def review_state_matches(document, state):
+    for key, value in state.items():
+        saved = document.get(key, {} if key == 'editor_state' else None)
+        if key == 'review_options':
+            saved, value = comparable_review_options(saved), comparable_review_options(value)
+        if saved != value:
+            return False
+    return True
+
+
+def recover_review_document(token, user, state):
+    """Preserve a conflicting page's edits in a new private draft, without overwriting."""
+    _, document = load_document(token, user)
+    document.update(state)
+    document['filename'] = f"Recovered edits — {document.get('filename', 'Timetable image')}"[:255]
+    document['preview_version'] = secrets.token_urlsafe(16)
+    document.pop('preview_records', None)
+    document.pop('preview_scope', None)
+    return save_document(document, user)
 
 
 def cleanup_expired_drafts():
@@ -89,12 +121,28 @@ def save_document(document, user, *, token=None):
     return draft_token(draft)
 
 
+def save_review_document(token, user, state):
+    """Save manual review state without treating an identical autosave as a conflict."""
+    with transaction.atomic():
+        draft = get_draft(token, user, lock=True)
+        # Lost/delayed autosave responses can leave the page with an old token.
+        # Identical edits are safe; different stale edits must never overwrite it.
+        if not review_state_matches(draft.document, state):
+            check_version(token, draft)
+        document = unpack_document(draft)
+        document.update(state)
+        document['preview_version'] = secrets.token_urlsafe(16)
+        document.pop('preview_records', None)
+        document.pop('preview_scope', None)
+        fresh = save_document(document, user, token=draft_token(draft))
+        return fresh, document
+
+
 def autosave_document(token, user, state):
     """Update only review metadata, without loading or rewriting the source image."""
     with transaction.atomic():
         draft = get_draft(token, user, lock=True, metadata_only=True)
-        unchanged = all(draft.document.get(key, {} if key == 'editor_state' else None) == value
-                        for key, value in state.items())
+        unchanged = review_state_matches(draft.document, state)
         # A successful response can be lost in transit. Retrying identical state
         # returns the current token without extending expiry or invalidating preview.
         if not unchanged:
@@ -102,6 +150,7 @@ def autosave_document(token, user, state):
             draft.document.update(state)
             draft.document['preview_version'] = secrets.token_urlsafe(16)
             draft.document.pop('preview_records', None)
+            draft.document.pop('preview_scope', None)
             draft.saved_at = timezone.now()
             draft.expires_at = draft.saved_at + timedelta(seconds=DOCUMENT_TTL)
             draft.save(update_fields=['document', 'saved_at', 'expires_at'])

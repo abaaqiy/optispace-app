@@ -99,6 +99,10 @@ repository or saved as files on the server.
 
 ## Lecture timetable image import
 
+The local addition based on `312fbd1` provides [Part selection within the existing
+review sections](timetable-part-selection.md). The complete image and final import
+workflow are retained.
+
 Administrators can choose **Timetables → Import Image** to upload a PNG or JPEG
 lecture timetable, up to 10 MB / 20 megapixels. PDF uploads and examination
 layouts are not supported. **CSV import, export, templates and reference downloads
@@ -128,28 +132,6 @@ remain available**, including dated lectures and bulk corrections.
    weekdays, course readings or source locations. Autosave persists this repair.
    Compare any different titles, capacities or locations before reviewing the rows.
    The retained earlier proposals never create additional database records.
-   Probable OCR variants now share one suggested mapping group. This uses
-   documented room aliases, saved/prepared references, sourced handbook codes,
-   common character confusions, missing/reversed letters and repeated readings
-   in the same image. For example, `1000IST` and `1000SIT` can appear together
-   under the suggested `1000 SLT`; `CM202` can share a group with `CHM202` when
-   the course catalogue supports that prefix. Each spelling shows its row count
-   and a source example. Choose the saved record once or use **Confirm reading**
-   after comparing the image, then prepare the missing record once. Suggestions
-   never map, rewrite or import anything until the administrator acts.
-   Use **Review this spelling separately** if a group combines different
-   identities; **Allow suggested grouping again** restores the suggestion.
-   Literal different numbers and venue suffixes (such as `CH102`/`CH202`,
-   `CHM202`/`CHM302`, `BOOA`/`BOOB`, `STEP A`/`STEP B`) are protected.
-   Ambiguous or badly damaged readings remain separate; no layout, building,
-   capacity or timetable position is inferred from another entry. The same
-   rules apply across departments, without requiring every course to be in a
-   handbook. Unreadable fields are collected in collapsed lists with individual
-   source/correction controls, rather than treated as one shared identity.
-   Original readings, source positions and weekday/time associations remain
-   available. Group separation, unfinished edits and explicit corrections
-   survive save/autosave and resume. Previously started individual forms remain
-   separate so their details are not lost when reopening with the new rules.
    New course codes and room names are prefilled. Course-title suggestions match exact codes against sourced OAU
    handbooks/course pages, across departments. Each shows its edition and source;
    confirm the curriculum applies before selecting it. No title is guessed for
@@ -190,16 +172,6 @@ remain available**, including dated lectures and bulk corrections.
 4. Compare the **weekly preview** against the image, including missing cells. It
    keeps course, venue, day, time and Part/group together, flags incomplete entries
    and overlaps within the draft, and links to the editable row/source crop.
-   **Needs attention** means missing/invalid fields, an unchecked shared heading,
-   or an unreviewed OCR warning/recognition score below 90. Cards display the
-   specific reasons. **Overlap — check** means two retained entries with valid
-   times select the same room and weekday during overlapping intervals; the
-   card lists the other row numbers. Adjacent classes and skipped entries do not
-   count. A misread venue, time or duplicated OCR entry can cause this warning;
-   check the image rather than assuming the university schedule is incorrect.
-   The weekly preview checks this draft only; saved timetables and approved
-   reservations are checked during validation. Overlapping entries are excluded
-   from the weekly **Confirm clear entries together** action.
    Confirm clear entries together after comparison. Uncertain readings and
    grouped practicals still need individual attention. Shared-heading corrections,
    day groups, source zoom, search and the 25-row editor remain available.

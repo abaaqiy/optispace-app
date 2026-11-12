@@ -3,6 +3,7 @@ import json
 
 from .document_extract import MAX_DRAFT_ROWS
 from .timetable_import import ImportProblem
+from .part_catalogue import part_options, validate_part_assignments
 
 
 def read_review_state(data):
@@ -23,6 +24,7 @@ def read_review_state(data):
         raise ImportProblem('Review data is invalid. Reload the document.')
     if len(rows) > MAX_DRAFT_ROWS:
         raise ImportProblem(f'Review at most {MAX_DRAFT_ROWS} rows per image.')
+    validate_part_assignments(rows)
     pending = decode('pending', '{"courses": [], "rooms": []}', 300_000, 'Proposed courses and rooms could not be read.')
     if not isinstance(pending, dict) or set(pending) - {'buildings', 'courses', 'rooms'} or any(
         not isinstance(pending.get(key, []), list) or len(pending.get(key, [])) > 300
@@ -36,6 +38,7 @@ def read_review_state(data):
     ):
         raise ImportProblem('Invalid unfinished editor fields.')
     options = {key: data.get(key, '')[:2000] for key in ('teaching_semester', 'department', 'faculty', 'source_version')}
+    options.update(part_options(data))
     options['mode'] = 'weekly'
     return {'review_rows': rows, 'pending': pending, 'review_options': options,
             'coverage_checked': data.get('coverage_checked') == 'yes', 'editor_state': editor}

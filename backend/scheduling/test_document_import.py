@@ -392,6 +392,7 @@ class DocumentWorkflowTests(TestCase):
         self.options = {
             "mode": "weekly",
             "teaching_semester": str(self.semester.pk),
+            "department": "Chemistry",
         }
         self.row = {
             "course": "CHM102",
@@ -508,7 +509,7 @@ class DocumentWorkflowTests(TestCase):
         response = self.review(token, mode="dated")
         self.assertEqual(response.context["options"]["mode"], "weekly")
         blocked = self.review(token, coverage_checked="")
-        self.assertContains(blocked, "Check the full image")
+        self.assertIn("Check the selected Level / Part", ' '.join(blocked.context['errors']))
         self.assertFalse(blocked.context["preview_token"])
         self.assertFalse(TimetableDay.objects.exists())
 
@@ -519,11 +520,11 @@ class DocumentWorkflowTests(TestCase):
             ([{**self.row, "room": ""}], "select an existing course and room"),
             ([{**self.row, "end_time": ""}], "both start and end"),
             ([self.row, self.row], "duplicates"),
-            ([{**self.row, "skip": True}], "No classes remain"),
+            ([{**self.row, "skip": True}], "No retained entries remain"),
         ]:
             with self.subTest(message=message):
                 response = self.review(token, rows)
-                self.assertContains(response, message)
+                self.assertIn(message, ' '.join(response.context['errors']))
                 self.assertFalse(response.context["preview_token"])
                 self.assertFalse(TimetableDay.objects.exists())
 
@@ -721,7 +722,11 @@ class DocumentWorkflowTests(TestCase):
 
     def test_image_review_uses_same_building_names_as_manual_admin(self):
         response = self.upload()
-        self.assertEqual(response.context['creation_choices']['building_names'], BUILDING_NAMES)
+        from rooms.forms import BuildingAdminForm
+        manual = BuildingAdminForm().fields['name'].widget.widgets[0].choices
+        self.assertEqual(response.context['creation_choices']['building_names'],
+                         tuple(name for name, _ in manual if name not in {'', '__other__'}))
+        self.assertTrue(set(BUILDING_NAMES).issubset(response.context['creation_choices']['building_names']))
         self.assertNotIn('Moremi Hall', response.context['creation_choices']['building_names'])
 
     def test_refresh_preserves_manual_selection_and_unknown_names_stay_blank(self):
@@ -795,7 +800,8 @@ class DocumentWorkflowTests(TestCase):
         self.assertEqual(draft['filename'], 'example.jpg')
         resumed = self.client.get(self.url, {'review': draft['token']})
         self.assertEqual(resumed.context['rows'], changed)
-        self.assertEqual(draft['token'], saved.context['document_token'])
+        self.assertEqual(signing.loads(draft['token'], salt=DOCUMENT_SALT),
+                         signing.loads(saved.context['document_token'], salt=DOCUMENT_SALT))
         other = get_user_model().objects.create_superuser(username='draft-list-other', email='draft-list@oauife.edu.ng', password='local-test')
         self.client.force_login(other)
         self.assertEqual(self.client.get(self.url).context['saved_drafts'], [])

@@ -6,8 +6,9 @@ from django.utils.text import slugify
 
 from .catalog import (
     BUILDING_NAMES, CAMPUS_ZONES, OTHER_CHOICE, ROOM_ALIASES, ROOM_NAMES,
-    ROOM_TYPES, room_identity_key,
+    ROOM_TYPES, building_identity_key, room_catalogue_name, room_identity_key,
 )
+from .choices import building_names, room_catalogue, room_types
 from .models import Building, Room
 
 
@@ -38,7 +39,7 @@ class SearchableSelect(forms.Select):
 class RoomNameSelect(SearchableSelect):
     def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
         option = super().create_option(name, value, label, selected, index, subindex, attrs)
-        option["attrs"]["data-search-aliases"] = " ".join(ROOM_ALIASES.get(str(value), ()))
+        option["attrs"]["data-search-aliases"] = " ".join(ROOM_ALIASES.get(room_catalogue_name(str(value)) or str(value), ()))
         return option
 
 
@@ -77,10 +78,10 @@ class CatalogNameWidget(forms.MultiWidget):
 
 class CatalogNameField(forms.MultiValueField):
     def __init__(self, names, kind, *, value_label=None, max_length=200,
-                 select_class=SearchableSelect, **kwargs):
+                 select_class=SearchableSelect, accepted_names=(), **kwargs):
         self.value_label = value_label or f"{kind} name"
         super().__init__(fields=(
-            forms.ChoiceField(choices=[(name, name) for name in names]
+            forms.ChoiceField(choices=[(name, name) for name in dict.fromkeys((*names, *accepted_names))]
                               + [(OTHER_CHOICE, "Others")]),
             forms.CharField(required=False, max_length=max_length),
         ), widget=CatalogNameWidget(
@@ -117,6 +118,10 @@ class BuildingAdminForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields['name'] = CatalogNameField(
+            building_names(), 'building', label='Building name',
+            help_text=self.fields['name'].help_text, accepted_names=BUILDING_NAMES,
+        )
         value = self.instance.campus_zone
         if self.instance.pk and value and value not in dict(self.fields["campus_zone"].choices):
             self.fields["campus_zone"].choices = [
@@ -125,7 +130,7 @@ class BuildingAdminForm(forms.ModelForm):
 
     def clean_name(self):
         name = self.cleaned_data["name"]
-        if Building.objects.filter(name__iexact=name).exclude(pk=self.instance.pk).exists():
+        if Building.objects.filter(name_key=building_identity_key(name)).exclude(pk=self.instance.pk).exists():
             raise forms.ValidationError("This building already exists. Edit its existing record instead.")
         return name
 
@@ -150,6 +155,14 @@ class RoomAdminForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields['name'] = CatalogNameField(
+            tuple(item['name'] for item in room_catalogue()), 'room', select_class=RoomNameSelect,
+            label='Room name', help_text=self.fields['name'].help_text, accepted_names=ROOM_NAMES,
+        )
+        self.fields['room_type'] = CatalogNameField(
+            room_types(), 'room type', value_label='room type', max_length=100,
+            help_text=self.fields['room_type'].help_text, accepted_names=ROOM_TYPES,
+        )
         self.fields["building"].help_text = "Choose a building. This room uses the building's zone / campus area."
 
     def clean_name(self):

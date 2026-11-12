@@ -349,6 +349,7 @@ def parse_table(table, page=1, continuation=None, layout="auto"):
                     )
                 )
                 drafts[-1]["class_group"] = row[classcol].text.strip()
+                drafts[-1]["class_group_kind"] = "part" if part_grid else "group"
                 continue
             # Law cells contain alternating course and venue lines, sometimes wrapped.
             lines = [

@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import secrets
+from urllib.parse import urlencode
 
 from django import forms
 from django.contrib import messages
@@ -13,9 +14,10 @@ from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils.decorators import method_decorator
 from django.views.decorators.http import require_GET, require_http_methods
-from rooms.catalog import BUILDING_NAMES, ROOM_TYPES, ROOM_CATALOGUE, CAMPUS_ZONES
+from rooms.catalog import CAMPUS_ZONES
 from rooms.models import Building, Facility
 from rooms.forms import SearchableSelect
+from rooms.choices import building_names, room_catalogue, room_types
 
 from .models import AcademicSemester
 from .services.document_extract import MAX_UPLOAD, extract_document
@@ -29,10 +31,13 @@ from .services.document_plan import image_plan, apply_image
 from .services.course_catalog import catalogue_coverage, catalogue_payload, handbook_file
 from .services.semesters import suggested_semester
 from .services.document_state import read_review_state
+from .services.part_catalogue import LEVEL_PROFILES, import_selection, part_label
+from .services.document_parts import continue_after_import
+from .services.document_submissions import submitted_parts
 
 from .services.document_drafts import (
     DOCUMENT_SALT, DOCUMENT_TTL, get_draft, load_document, save_document, saved_drafts, unpack_document,
-    autosave_document, DraftConflict,
+    autosave_document, save_review_document, recover_review_document, draft_token, DraftConflict,
 )
 
 
@@ -95,7 +100,11 @@ class TimetableDocumentAdminMixin:
             result = autosave_document(request.POST.get('document_token', ''), request.user, read_review_state(request.POST))
             return JsonResponse(result)
         except DraftConflict as error:
-            return JsonResponse({'error': str(error)}, status=409)
+            try:
+                draft = get_draft(request.POST.get('document_token', ''), request.user, metadata_only=True)
+            except ImportProblem as unavailable:
+                return JsonResponse({'error': str(unavailable)}, status=400)
+            return JsonResponse({'error': str(error), 'latest_token': draft_token(draft)}, status=409)
         except ImportProblem as error:
             return JsonResponse({'error': str(error)}, status=400)
 
@@ -132,6 +141,8 @@ class TimetableDocumentAdminMixin:
         form = DocumentUploadForm()
         errors, document, token, rows, plan, preview = [], None, "", [], None, ""
         coverage_checked = False
+        draft_conflict = False
+        latest_token = ''
         pending = {"courses": [], "rooms": []}
         refs = references()
         options = {
@@ -169,7 +180,7 @@ class TimetableDocumentAdminMixin:
                         document["review_options"] = options.copy()
                         token = save_document(document, request.user)
                         rows = document["rows"]
-                elif action in {"review", "confirm", "save", "refresh"}:
+                elif action in {"review", "confirm", "save", "refresh", "recover"}:
                     token = request.POST.get("document_token", "")
                     payload, document = load_document(token, request.user)
                     rows = document.get("review_rows", document["rows"])
@@ -177,6 +188,7 @@ class TimetableDocumentAdminMixin:
                     coverage_checked = document.get("coverage_checked", False)
                     pending = document.get("pending", pending)
                     if action == "confirm":
+                        remaining_token = None
                         with transaction.atomic():
                             draft = get_draft(token, request.user, lock=True)
                             document = unpack_document(draft)
@@ -195,6 +207,11 @@ class TimetableDocumentAdminMixin:
                                     != document.get("preview_version")
                                 ):
                                     raise signing.BadSignature
+                                selected_rows, selected_pending, scope = import_selection(
+                                    document['review_rows'], options, pending, document.get('metadata'),
+                                )
+                                if confirmed.get('scope') != scope or document.get('preview_scope') != scope:
+                                    raise signing.BadSignature
                             except (signing.BadSignature, KeyError, TypeError) as error:
                                 raise ImportProblem(
                                     "This preview is invalid or expired. Validate the reviewed rows again."
@@ -208,25 +225,35 @@ class TimetableDocumentAdminMixin:
                                 )
 
                             counts = apply_image(
-                                document["review_rows"], options, pending,
+                                selected_rows, options, selected_pending,
                                 confirmed["fingerprint"], request.user, document.get("filename", "Timetable image"), log,
+                                scope=scope,
                             )
-                            draft.delete()
+                            remaining_token = continue_after_import(draft, document, scope, counts['resolved'])
                         self.message_user(
                             request,
-                            f"Timetable import complete: {counts['Add']} added, {counts['Unchanged']} unchanged; {counts['courses']} courses and {counts['rooms']} rooms created. Room availability will update automatically.",
+                            f"{part_label(scope['view'])} imported: {counts['Add']} added, {counts['Unchanged']} unchanged; {counts['courses']} courses and {counts['rooms']} rooms created. Room availability will update automatically."
+                            + (' Other entries remain in this draft for review.' if remaining_token else ''),
                             messages.SUCCESS,
                         )
+                        if remaining_token:
+                            return HttpResponseRedirect(reverse(
+                                f'{self.admin_site.name}:scheduling_timetableday_document'
+                            ) + '?' + urlencode({'review': remaining_token}))
                         return HttpResponseRedirect(
                             reverse(
                                 f"{self.admin_site.name}:scheduling_timetableday_changelist"
                             )
                         )
                     state = read_review_state(request.POST)
-                    document.update(state)
+                    if action == 'recover':
+                        recovered = recover_review_document(token, request.user, state)
+                        self.message_user(request, 'Your edits were saved as a new draft. The previous draft is unchanged.', messages.SUCCESS)
+                        return HttpResponseRedirect(reverse(
+                            f'{self.admin_site.name}:scheduling_timetableday_document'
+                        ) + '?' + urlencode({'review': recovered}))
                     rows, pending, options = state['review_rows'], state['pending'], state['review_options']
                     coverage_checked = state['coverage_checked']
-                    document["preview_version"] = secrets.token_urlsafe(16)
                     if action == "refresh":
                         # Draft references are intentionally not saved yet.
                         draft_refs = {key: [*value, *[
@@ -234,8 +261,16 @@ class TimetableDocumentAdminMixin:
                             for item in pending.get(key, [])
                         ]] for key, value in refs.items()}
                         rows = refresh_rows(rows, draft_refs)
-                        document["review_rows"] = rows
-                    token = save_document(document, request.user, token=token)
+                        state["review_rows"] = rows
+                    try:
+                        token, document = save_review_document(token, request.user, state)
+                    except DraftConflict:
+                        # Render the submitted edits for copying/recovery, while
+                        # leaving the newer saved draft and stale token untouched.
+                        document.update(state)
+                        draft_conflict = True
+                        latest_token = payload['token']
+                        raise
                     if action in {"save", "refresh"}:
                         self.message_user(
                             request,
@@ -250,9 +285,13 @@ class TimetableDocumentAdminMixin:
                     else:
                         if not coverage_checked:
                             raise ImportProblem(
-                                "Check the full image for omitted entries and confirm the weekday/time headings before validation."
+                                "Check the selected Level / Part against the image for omitted entries and confirm its weekday/time headings before validation."
                             )
-                        plan, staged, text, fingerprint = image_plan(rows, options, pending, request.user)
+                        selected_rows, selected_pending, scope = import_selection(
+                            rows, options, pending, document.get('metadata'),
+                        )
+                        plan, staged, text, fingerprint = image_plan(selected_rows, options, selected_pending, request.user, scope=scope)
+                        document['preview_scope'] = scope
                         document["preview_records"] = {
                             key: [str(obj) for _, obj, _ in values] for key, values in staged.items()
                         }
@@ -263,6 +302,7 @@ class TimetableDocumentAdminMixin:
                                 "user": request.user.pk,
                                 "document": payload["key"],
                                 "version": document["preview_version"],
+                                "scope": scope,
                             },
                             salt=DOCUMENT_SALT + ".apply",
                             compress=True,
@@ -286,18 +326,21 @@ class TimetableDocumentAdminMixin:
             "catalog_media": SearchableSelect().media,
             "saved_drafts": saved_drafts(request.user),
             "errors": errors,
+            "draft_conflict": draft_conflict,
+            "latest_document_token": latest_token or token,
             "document": document,
             "document_token": token,
             "editor_state": document.get('editor_state', {}) if document else {},
             "rows": rows,
+            "level_profiles": LEVEL_PROFILES,
             "references": refs,
             "pending": pending,
             "course_coverage": catalogue_coverage(),
             "creation_choices": {
                 "buildings": list(Building.objects.values("id", "name", "campus_zone")),
-                "building_names": BUILDING_NAMES,
+                "building_names": building_names(),
                 "facilities": [{"value": f.pk, "label": f.get_code_display()} for f in Facility.objects.all()],
-                "room_types": ROOM_TYPES, "room_names": ROOM_CATALOGUE, "faculties": CAMPUS_ZONES,
+                "room_types": room_types(), "room_names": room_catalogue(), "faculties": CAMPUS_ZONES,
                 **catalogue_payload(lambda key: reverse(
                     f"{self.admin_site.name}:scheduling_timetableday_course_handbook", args=[key]
                 )),
@@ -312,7 +355,20 @@ class TimetableDocumentAdminMixin:
             "coverage_checked": coverage_checked,
             "plan": plan,
             "preview_token": preview,
+            "import_scope_label": part_label(options.get('level_view') or 'all'),
+            "submitted_parts": [],
+            "selected_entry_count": len(document.get('preview_scope', {}).get('indices', [])) if plan else 0,
+            "other_entry_count": sum(not row.get('skip') for row in rows)
+            - len(document.get('preview_scope', {}).get('indices', [])) if plan else 0,
         }
+        semester_id = str(options.get('teaching_semester', ''))
+        if document and semester_id.isascii() and semester_id.isdigit() and len(semester_id) <= 18:
+            selected_semester = AcademicSemester.objects.filter(pk=int(semester_id)).first()
+            if selected_semester:
+                context['submitted_parts'] = submitted_parts({**options, 'academic_session': selected_semester.academic_session,
+                                                             'semester': selected_semester.semester})
+                context['submission_department'] = options.get('department', '')
+                context['submission_semester'] = str(selected_semester)
         if document:
             context["pages"] = [
                 {

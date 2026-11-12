@@ -2,18 +2,43 @@ from django.core.validators import MinValueValidator
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from .catalog import room_identity_key
+from .catalog import building_identity_key, room_identity_key
 
 
 class Building(models.Model):
     name = models.CharField(max_length=200, unique=True)
+    name_key = models.CharField(max_length=400, unique=True, editable=False)
     campus_zone = models.CharField(max_length=150)
 
     class Meta:
         ordering = ["name"]
+        constraints = [
+            models.CheckConstraint(condition=~models.Q(name_key=''), name='building_name_key_required'),
+            models.UniqueConstraint(
+                models.Func(models.functions.Lower('name'), models.Value('[^a-z0-9]'),
+                            models.Value(''), models.Value('g'), function='REGEXP_REPLACE',
+                            output_field=models.CharField()),
+                name='building_name_normalised_unique',
+            ),
+        ]
 
     def __str__(self):
         return self.name
+
+    def clean(self):
+        super().clean()
+        self.name = self.name.strip()
+        self.name_key = building_identity_key(self.name)
+        if not self.name_key:
+            raise ValidationError({'name': 'Enter a building name containing letters or numbers.'})
+        if type(self).objects.filter(name_key=self.name_key).exclude(pk=self.pk).exists():
+            raise ValidationError({'name': 'This building already exists. Select or edit its existing record.'})
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        if kwargs.get('update_fields') is not None and 'name' in kwargs['update_fields']:
+            kwargs['update_fields'] = {*kwargs['update_fields'], 'name_key'}
+        return super().save(*args, **kwargs)
 
 
 class Facility(models.Model):

@@ -1,4 +1,4 @@
-"""Stage missing references without writes; confirm the whole image atomically."""
+"""Stage missing references without writes; confirm reviewed classes atomically."""
 import hashlib
 import json
 import re
@@ -7,13 +7,15 @@ from django import forms
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
 
-from rooms.catalog import room_identity_key
+from rooms.catalog import building_identity_key, room_identity_key
 from rooms.models import Building, Room
 from scheduling.models import Course, TimetableDay, TimetableImageImport
 
 from .document_review import normalise, references, reviewed_csv
 from .locking import lock_rooms
 from .semesters import semester_options
+from .document_submissions import check_submission, record_submission
+from .part_catalogue import part_options
 from .timetable_import import (
     ImportProblem, build_plan, parse_csv, resolve_rows,
 )
@@ -94,7 +96,7 @@ def stage_references(pending, rows, user):
                           for name, messages in building_form.errors.items())
             return None
         candidate = building_form.save(commit=False)
-        if Building.objects.filter(name__iexact=candidate.name).exists():
+        if Building.objects.filter(name_key=building_identity_key(candidate.name)).exists():
             errors.append(f'Building {candidate.name} already exists. Select the saved building.')
             return None
         bkey = normalise(candidate.name)
@@ -182,9 +184,11 @@ def stage_references(pending, rows, user):
     return staged, refs
 
 
-def image_plan(rows, options, pending, user):
+def image_plan(rows, options, pending, user, *, scope=None):
+    scope = scope or {'view': part_options(options)['level_view']}
     options = semester_options(options)
     check_metadata(options)
+    check_submission(options, scope)
     staged, refs = stage_references(pending, rows, user)
     replacements = {kind[:-1]: {key: obj.code for key, obj, _ in staged[kind]} for kind in ("courses", "rooms")}
     translated = []
@@ -199,12 +203,18 @@ def image_plan(rows, options, pending, user):
         parse_image_rows(text), extra_rooms=[obj for _, obj, _ in staged["rooms"]],
         extra_courses=[obj for _, obj, _ in staged["courses"]],
     ))
-    snapshot = json.dumps({"plan": plan.fingerprint, "pending": pending, "options": options}, sort_keys=True)
+    if plan.counts['Unchanged']:
+        raise ImportProblem(
+            'Some reviewed classes are already saved in Timetables. Nothing was imported. '
+            'Keep only unsubmitted entries or choose an unsubmitted Part; edit existing classes in Timetables.'
+        )
+    snapshot = json.dumps({"plan": plan.fingerprint, "pending": pending, "options": options, "scope": scope}, sort_keys=True)
     fingerprint = hashlib.sha256(snapshot.encode()).hexdigest()
     return plan, staged, text, fingerprint
 
 
-def apply_image(rows, options, pending, expected, user, filename, log):
+def apply_image(rows, options, pending, expected, user, filename, log, *, scope=None):
+    scope = scope or {'view': part_options(options)['level_view']}
     try:
         with transaction.atomic():
             # Serialize image imports creating the same reference names. Room
@@ -212,14 +222,14 @@ def apply_image(rows, options, pending, expected, user, filename, log):
             with connection.cursor() as cursor:
                 cursor.execute("SELECT pg_advisory_xact_lock(%s)", [739184020])
             options = semester_options(options, lock=True)
-            plan, staged, text, fingerprint = image_plan(rows, options, pending, user)
+            plan, staged, text, fingerprint = image_plan(rows, options, pending, user, scope=scope)
             existing_rooms = {row.room.pk for row in plan.rows if row.room.pk > 0}
             with lock_rooms(existing_rooms):
                 building_ids = {obj.building_id for _, obj, _ in staged["rooms"] if obj.building_id > 0}
                 list(Building.objects.select_for_update().filter(pk__in=building_ids).order_by("pk"))
                 course_ids = {row.course.pk for row in plan.rows if row.course.pk > 0}
                 list(Course.objects.select_for_update().filter(pk__in=course_ids).order_by("pk"))
-                plan, staged, text, fingerprint = image_plan(rows, options, pending, user)
+                plan, staged, text, fingerprint = image_plan(rows, options, pending, user, scope=scope)
                 if fingerprint != expected:
                     raise ImportProblem("The semester settings, records, timetable or approved reservations changed after preview. Validate again.")
                 for entries in staged.values():
@@ -238,15 +248,28 @@ def apply_image(rows, options, pending, expected, user, filename, log):
                     source = TimetableImageImport.objects.create(
                         filename=filename[:255],
                         teaching_semester_id=options['teaching_semester'],
+                        review_scope=scope['view'],
                         **{key: options.get(key, "").strip() for key in (
                             "department", "faculty", "academic_session", "semester", "source_version",
                             "first_date", "last_date", "exclude_dates",
                         )},
                     )
+                    record_submission(source, options, scope)
                 for row in new_rows:
                     entry = TimetableDay(**row.values, image_import=source)
                     entry.save()
                     log(entry, "Add")
-                return {**final.counts, **{key: len(value) for key, value in staged.items()}}
+                resolved = {
+                    kind: {key: str(obj.pk) if kind == 'buildings' else obj.code for key, obj, _ in values}
+                    for kind, values in staged.items()
+                }
+                # Staged buildings use their normalised name as the deduplication
+                # key. Remaining Parts refer to the original draft identifiers.
+                resolved['buildings'] = {
+                    record['key']: resolved['buildings'][normalise(record.get('name', ''))]
+                    for record in pending.get('buildings', [])
+                    if normalise(record.get('name', '')) in resolved['buildings']
+                }
+                return {**final.counts, **{key: len(value) for key, value in staged.items()}, 'resolved': resolved}
     except (ValidationError, IntegrityError) as error:
         raise ImportProblem("A record changed or is invalid. Nothing was imported. Validate the draft again.") from error

@@ -34,6 +34,8 @@ function editor(t, rows = [row()], pending = { courses: [], rooms: [] }, options
   Object.assign(creation, options.creation || {});
   for (const [id, data] of Object.entries({
     'document-rows': rows,
+    'document-level-profiles': options.levelProfiles || [],
+    'document-source-heading': options.heading || '',
     'document-references': options.references || { courses: [], rooms: [{ value: 'step-a', label: 'STEP A', keys: [] }] },
     'document-pages': [{ url: '/source', width: 200, height: 300 }],
     'document-pending': pending, 'document-creation-choices': creation, 'document-editor-state': options.editorState || {},
@@ -41,10 +43,11 @@ function editor(t, rows = [row()], pending = { courses: [], rooms: [] }, options
     const script = document.createElement('script'); script.id = id; script.type = 'application/json';
     script.textContent = JSON.stringify(data); document.body.append(script);
   }
-  document.getElementById('document-department').value = 'Public Law';
+  document.getElementById('document-department').value = options.department ?? 'Public Law';
+  document.getElementById('level-view').dataset.saved = options.partOptions?.level_view || 'all';
   window.eval(read('./clock.js'));
   window.eval(read('./course_suggestions.js'));
-  window.eval(read('./ocr_reference_groups.js'));
+  window.eval(read('./part_selection.js'));
   let saver;
   if (options.fetch) {
     window.fetch = options.fetch;
@@ -110,6 +113,140 @@ test('background save captures partially typed forms, selections and rows withou
   filter.dispatchEvent(new e.window.Event('input', { bubbles: true }));
   await Promise.resolve(); await e.saver.flush();
   assert.equal(requests.length, 1, 'Search-only actions do not trigger writes');
+});
+
+test('Validate waits for autosave and sends selected scope plus all draft rows for preservation', { timeout: 5000 }, async t => {
+  let finishFirst, finishSubmit;
+  const firstResponse = new Promise(resolve => { finishFirst = resolve; });
+  const submitted = new Promise(resolve => { finishSubmit = resolve; });
+  const requests = [], submissions = [];
+  const rows = [3, 4].map(part => ({ ...row('CSC201'), course: 'CSC201',
+    class_group_kind: 'part', class_group: String(part), reviewed: true, day: part === 3 ? 'Monday' : 'Tuesday' }));
+  const e = editor(t, rows, undefined, { references: {
+    courses: [{ value: 'CSC201', label: 'CSC201', keys: [] }], rooms: [{ value: 'step-a', label: 'STEP A', keys: [] }],
+  }, fetch: async (_, init) => {
+    requests.push(new URLSearchParams(init.body.toString()));
+    return requests.length === 1 ? firstResponse : { ok: true, json: async () => ({ token: 'latest-token' }) };
+  } });
+  const form = e.document.getElementById('document-review');
+  form.querySelector('[name="document_token"]').value = 'original-token';
+  e.window.HTMLFormElement.prototype.submit = function () {
+    submissions.push(new e.window.FormData(this)); finishSubmit();
+  };
+  e.change(e.document.getElementById('level-view'), '3');
+  const version = e.document.getElementById('source-version');
+  version.value = 'First draft'; version.dispatchEvent(new e.window.Event('input', { bubbles: true }));
+  const firstSave = e.saver.flush();
+  version.value = 'Revised draft'; version.dispatchEvent(new e.window.Event('input', { bubbles: true }));
+  const submitter = [...form.querySelectorAll('button')].find(button => button.textContent === 'Validate reviewed entries');
+  form.dispatchEvent(new e.window.SubmitEvent('submit', { cancelable: true, submitter }));
+  assert.equal(submissions.length, 0);
+  finishFirst({ ok: true, json: async () => ({ token: 'autosaved-token' }) });
+  await firstSave; await submitted;
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].get('document_token'), 'autosaved-token');
+  assert.equal(submissions.length, 1);
+  const data = submissions[0];
+  assert.equal(data.get('document_token'), 'latest-token');
+  assert.deepEqual(data.getAll('action'), ['review']);
+  assert.equal(data.get('source_version'), 'Revised draft');
+  assert.equal(data.get('level_view'), '3');
+  assert.deepEqual(JSON.parse(data.get('rows')).map(row => row.class_group), ['3', '4']);
+  assert.equal(e.saver.dirty(), false);
+});
+
+test('import scope text follows Part selection and resets coverage confirmation without removing other levels', t => {
+  const rows = [1, 2].map(part => ({ ...row('CSC201'), course: 'CSC201',
+    class_group_kind: 'part', class_group: String(part), reviewed: part === 1, day: part === 1 ? 'Monday' : 'Tuesday' }));
+  const e = editor(t, rows, undefined, { references: {
+    courses: [{ value: 'CSC201', label: 'CSC201', keys: [] }], rooms: [{ value: 'step-a', label: 'STEP A', keys: [] }],
+  } });
+  const coverage = e.document.getElementById('coverage-checked');
+  e.change(coverage, true);
+  e.change(e.document.getElementById('level-view'), '1');
+  assert.equal(coverage.checked, false);
+  assert.match(e.document.getElementById('part-status').textContent, /Validation imports Part 1 \(100 level\) only/);
+  assert.match(e.document.getElementById('import-scope-status').textContent, /1 other entries stay in this draft/);
+  assert.match(e.document.getElementById('coverage-label').textContent, /Part 1 \(100 level\)/);
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 1);
+  assert.deepEqual(e.payload().rows.map(row => row.reviewed), [true, false]);
+  e.change(coverage, true);
+  e.change(e.document.getElementById('document-department'), 'Chemistry');
+  assert.equal(coverage.checked, false, 'Changing departmental classification needs a fresh coverage check');
+  e.change(e.document.getElementById('level-view'), 'all');
+  assert.match(e.document.getElementById('import-scope-status').textContent, /All extracted entries · 2 weekly entries/);
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 2);
+  assert.equal(e.payload().rows.length, 2);
+});
+
+test('saved building from a different import replaces a prepared duplicate and remains selectable for unfinished rooms', async t => {
+  const bkey = 'draft-building-12345678';
+  const pending = {courses: [], buildings: [{key: bkey, name: 'Shared-Teaching-Block', campus_zone: 'Faculty of Computing Science and Engineering'}],
+    rooms: [{key: 'draft-room-12345678', name: 'STEP A', building: bkey, room_type: 'Classroom', capacity: '45', size_category: 'small'}]};
+  const requests = [];
+  const e = editor(t, [{...row('CSC201'), course: 'CSC201', room: 'draft-room-12345678'},
+    {...row('CSC202'), room: '', room_text: 'STEP B', day: 'Tuesday'}], pending, {
+      references: {courses: [{value: 'CSC201', label: 'CSC201', keys: []}], rooms: []},
+      creation: {buildings: [{id: 42, name: 'Shared Teaching Block', campus_zone: 'Faculty of Computing Science and Engineering'}]},
+      editorState: {'record:room:stepb:building': bkey, 'record:room:stepb:capacity': '40'},
+      fetch: async (_, init) => {requests.push(new URLSearchParams(init.body.toString())); return {ok: true, json: async () => ({token: 'shared-record-token'})};},
+    });
+  const building = e.field(e.mapping('STEP B').querySelector('.record-editor'), 'Building');
+  assert.equal(building.value, '42');
+  assert.equal([...building.options].filter(option => /Shared Teaching Block/.test(option.textContent)).length, 1);
+  await Promise.resolve(); await e.saver.flush();
+  assert.equal(requests.length, 1);
+  const saved = JSON.parse(requests[0].get('pending'));
+  assert.equal(saved.buildings.length, 0);
+  assert.equal(saved.rooms[0].building, '42');
+  assert.equal(JSON.parse(requests[0].get('editor_state'))['record:room:stepb:building'], '42');
+  assert.equal(JSON.parse(requests[0].get('editor_state'))['record:room:stepb:capacity'], '40');
+});
+
+test('saved room spelling keeps its documented identity and reuses proposals without duplicate menu options', t => {
+  const rows = [{...row('CSC201'), course: 'CSC201', room: 'draft-room-12345678'}];
+  const e = editor(t, rows, {courses: [], rooms: [{key: 'draft-room-12345678', name: 'CH 102'}]}, {
+    references: {courses: [{value: 'CSC201', label: 'CSC201', keys: []}], rooms: [{value: 'stable-ch102', name: 'CH 102',
+      label: 'CH 102 — Science', identity: 'chemistrylecturetheatre102ch102', keys: ['ch102']}]},
+    creation: {room_names: [{name: 'CH 102', identity: 'chemistrylecturetheatre102ch102',
+      aliases: ['Chemistry Lecture Theatre 102 (CH 102)']}]},
+  });
+  assert.equal(e.payload().rows[0].room, 'stable-ch102');
+  assert.equal(e.payload().pending.rooms[0].duplicate_of, 'stable-ch102');
+  e.change(e.document.getElementById('review-filter'), 'all');
+  e.document.getElementById('review-filter').dispatchEvent(new e.window.Event('input', {bubbles: true}));
+  const select = e.document.querySelector('select[aria-label="room, row 1"]');
+  assert.equal([...select.options].filter(option => option.value === 'stable-ch102').length, 1);
+  assert.equal([...select.options].some(option => option.value === 'draft-room-12345678'), false);
+});
+
+test('a genuine draft conflict lets an administrator preserve unsaved edits in a separate draft', { timeout: 5000 }, async t => {
+  const e = editor(t, [row()], undefined, { fetch: async () => ({ ok: false, status: 409,
+    json: async () => ({ error: 'Newer saved changes exist', latest_token: 'latest-saved-token' }) }) });
+  const courseTitle = e.field(e.mapping('PUL301').querySelector('.record-editor'), 'Course title');
+  courseTitle.value = 'Keep this unsaved title';
+  courseTitle.dispatchEvent(new e.window.Event('input', { bubbles: true }));
+  await Promise.resolve(); await e.saver.flush();
+  const recovery = e.document.getElementById('draft-conflict-recovery');
+  assert.equal(recovery.hidden, false);
+  assert.match(e.document.getElementById('latest-saved-draft').href, /review=latest-saved-token/);
+  assert.equal(await e.saver.beforeSubmit(), false, 'Normal save/validate cannot overwrite a newer draft');
+  const form = e.document.getElementById('document-review');
+  form.querySelector('[name="document_token"]').value = 'stale-token';
+  let finishSubmit;
+  const done = new Promise(resolve => { finishSubmit = resolve; });
+  const submissions = [];
+  e.window.HTMLFormElement.prototype.submit = function () {
+    submissions.push(new e.window.FormData(this)); finishSubmit();
+  };
+  const submitter = recovery.querySelector('button');
+  form.dispatchEvent(new e.window.SubmitEvent('submit', { cancelable: true, submitter }));
+  await done;
+  const data = submissions[0];
+  assert.deepEqual(data.getAll('action'), ['recover']);
+  assert.equal(data.get('document_token'), 'stale-token');
+  assert.match(data.get('editor_state'), /Keep this unsaved title/);
+  assert.equal(JSON.parse(data.get('rows')).length, 1);
 });
 
 test('unfinished room selectors and custom names are restored without applying the proposal', t => {
@@ -509,166 +646,301 @@ test('shared image time headings convert noon correctly for every affected entry
   assert.equal(e.payload().rows[0].time_checked, true);
 });
 
-const sltChoices = { room_names: [{ name: '1,000-Seater Lecture Theatre (1000 SLT)', aliases: ['1000SLT', '1000 SLT'] }] };
-const sltReferences = { courses: [], rooms: [{ value: '1000-slt', name: sltChoices.room_names[0].name,
-  label: '1000 SLT — Central Campus', keys: ['1000slt'], identity: sltChoices.room_names[0].name }] };
+const curriculumProfiles = [{ id: 'programme-a', programme: 'Programme A', source_id: 'source-a', entries: [
+  { code: 'CSC201', level: 3, page: 27, heading: 'PART III' },
+  { code: 'MAC201', level: 4, page: 28, heading: 'PART IV' },
+  { code: 'BIO101', level: 1, page: 26, heading: 'PART I' },
+  { code: 'BIO101', level: 2, page: 27, heading: 'PART II' },
+] }, { id: 'programme-b', programme: 'Programme B', source_id: 'source-b', entries: [
+  { code: 'CSC201', level: 4, page: 45, heading: 'PART IV' },
+] }];
+const courseRefs = { courses: [ { value: 'CSC201', label: 'CSC201 — Computing', keys: [] },
+  { value: 'MAC201', label: 'MAC201 — Management', keys: [] } ],
+  rooms: [{ value: 'step-a', label: 'STEP A', keys: [] }, { value: 'step-b', label: 'STEP B', keys: [] }] };
+const curriculumChoices = { course_sources: {
+  'source-a': { edition: '2023', source_title: 'Programme A handbook', source_url: '/handbook-a/' },
+  'source-b': { edition: '2024', source_title: 'Programme B handbook', source_url: '/handbook-b/' }
+} };
 
-test('a suggested room group maps all spellings together only on confirmation and preserves every source row', t => {
-  const rows = ['1000IST', '1000Sit', '1000Sit', '1000Sit'].map((text, index) => ({ ...row(), room: '', room_text: text,
-    day: index % 2 ? 'Tuesday' : 'Monday', box: [20, index * 30, 100, index * 30 + 25], source: `Original ${text}` }));
-  const e = editor(t, rows, undefined, { creation: sltChoices, references: sltReferences, realWidgets: true });
-  const group = e.mapping('1000IST');
-  assert.equal(e.document.querySelectorAll('#reference-mappings > .reference-mapping[data-kind="room"]').length, 1);
-  assert.match(group.querySelector('.ocr-group').textContent, /1000IST.*1 row\(s\).*1000Sit.*3 row\(s\)/s);
-  assert.ok(e.payload().rows.every(row => row.room === ''), 'The suggestion has not mapped anything');
-  const examples = group.querySelectorAll('.ocr-reading button');
-  examples[2].click();
-  assert.equal(e.document.getElementById('source-highlight').style.top, '10%');
-  const choice = group.querySelector('select[aria-label="Map room 1000IST"]');
-  assert.equal(choice.value, '1000-slt');
-  e.button(group, 'Use for all matching unresolved rows');
-  const saved = e.payload();
-  assert.ok(saved.rows.every(row => row.room === '1000-slt' && !row.reviewed));
-  assert.deepEqual(saved.rows.map(row => row.room_text), rows.map(row => row.room_text));
-  assert.deepEqual(saved.rows.map(row => [row.day, row.start_time, row.end_time, row.box, row.source]),
-    rows.map(row => [row.day, row.start_time, row.end_time, row.box, row.source]));
+test('selecting a Part filters courses, venues, weekly cards, shared headings, day groups and extracted entries', t => {
+  const rows = [{ ...row('CSC201'), editor_id: 'part-three', course: 'CSC201', room: '', day_group: 'mon', time_group: 'morning',
+    day_checked: false, time_checked: false },
+  { ...row('MAC201'), editor_id: 'part-four', course: 'MAC201', room: '', room_text: 'STEP B', day: 'Tuesday',
+    day_group: 'tue', time_group: 'afternoon', start_time: '14:00', end_time: '15:00' }];
+  const e = editor(t, rows, undefined, { department: 'Programme A', levelProfiles: curriculumProfiles, creation: curriculumChoices, references: courseRefs });
+  const level = e.document.getElementById('level-view');
+  e.change(level, '3');
+  assert.ok(e.mapping('STEP A')); assert.equal(e.mapping('STEP B'), undefined);
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 1);
+  assert.match(e.document.querySelector('.weekly-card').textContent, /CSC201/);
+  assert.equal(e.document.querySelectorAll('.heading-mapping').length, 2);
+  assert.match(e.document.getElementById('heading-mappings').textContent, /2 entries|1 entries/);
+  e.change(e.document.getElementById('review-filter'), 'all');
+  e.document.getElementById('review-filter').dispatchEvent(new e.window.Event('input', { bubbles: true }));
+  const table = e.document.querySelector('#document-table tbody');
+  assert.equal(table.children.length, 1);
+  assert.deepEqual([...table.querySelectorAll('select[aria-label^="course,"]')].map(el => el.value), ['CSC201']);
+  assert.ok(table.querySelector('.part-evidence a[href="/handbook-a/#page=27"]'));
+  e.change(level, '4');
+  assert.ok(e.mapping('STEP B')); assert.equal(e.mapping('STEP A'), undefined);
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 1);
+  assert.deepEqual([...table.querySelectorAll('select[aria-label^="course,"]')].map(el => el.value), ['MAC201']);
+  assert.equal(e.payload().rows.length, 2, 'Filtering preserves the full extracted timetable');
+  e.change(level, 'all');
+  assert.ok(e.mapping('STEP A')); assert.ok(e.mapping('STEP B'));
+  assert.equal(table.children.length, 2);
+  const ready = editor(t, [{ ...row('CSC201'), course: 'CSC201' }, { ...row('MAC201'), course: 'MAC201', day:'Tuesday' }], undefined,
+    { department: 'Programme A', levelProfiles: curriculumProfiles, references: courseRefs, partOptions: {level_view:'3'} });
+  assert.match(ready.document.getElementById('ready-groups').textContent, /Monday/);
+  assert.doesNotMatch(ready.document.getElementById('ready-groups').textContent, /Tuesday/);
 });
 
-test('correcting one probable group preserves original spellings and prepares a single shared record', t => {
-  const e = editor(t, ['1000IST', '1000SIT', '1000SIT'].map(text => ({ ...row(), room: '', room_text: text })), undefined,
-    { creation: sltChoices, references: { courses: [], rooms: [] } });
-  const group = e.mapping('1000IST');
-  const correction = e.field(group, 'Correct room reading for all 3 entries');
-  assert.equal(correction.value.replace(/\s/g, ''), '1000SLT');
-  correction.value = '1000SLT';
-  correction.parentElement.nextElementSibling.click();
-  const corrected = e.payload();
-  assert.deepEqual(corrected.rows.map(row => row.original_room_text), ['1000IST', '1000SIT', '1000SIT']);
-  assert.ok(corrected.rows.every(row => row.room_text === '1000SLT' && row.room_reading_checked));
-  const form = e.mapping('1000SLT').querySelector('.record-editor');
-  e.change(e.field(form, 'Building'), 'new');
-  e.change(e.field(form, 'New building name'), 'Computer Building Complex');
-  e.change(e.field(form, 'New building campus area'), 'Faculty of Computing Science and Engineering');
-  e.change(e.field(form, 'Room type'), 'Classroom');
-  e.change(e.field(form, 'Capacity'), '1000');
-  e.change(e.field(form, 'Size category'), 'large');
-  e.button(form, 'Use new record for matching entries');
-  const saved = e.payload();
-  assert.equal(saved.pending.rooms.length, 1);
-  assert.ok(saved.rows.every(row => row.room === saved.pending.rooms[0].key));
+test('department matching assigns Parts automatically and updates when the department is edited', t => {
+  const e = editor(t, [row('CSC201'), row('BIO101'), row('ICH308')], undefined, { department: '', levelProfiles: curriculumProfiles });
+  const department = e.document.getElementById('document-department');
+  const level = e.document.getElementById('level-view');
+  const partLabel = part => [...level.options].find(option => option.value === part).textContent;
+  assert.equal(e.document.getElementById('level-profile'), null);
+  assert.equal(e.document.getElementById('level-profile-confirmed'), null);
+  assert.match(e.document.getElementById('part-department-status').textContent, /Enter the department above/);
+  e.change(level, '3');
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 0);
+  department.value = 'Programme A';
+  department.dispatchEvent(new e.window.Event('input', { bubbles: true }));
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 1);
+  assert.match(partLabel('3'), /1 entries$/);
+  assert.match(e.document.getElementById('part-department-status').textContent, /matched automatically for Programme A/);
+  e.change(level, 'unassigned');
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 2);
+  e.change(department, 'Programme B');
+  assert.equal(level.value, 'unassigned');
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 2);
+  e.change(level, '4');
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 1, 'Department-specific evidence replaces the previous match');
+  assert.match(partLabel('4'), /1 entries$/);
+  e.change(department, 'Unknown department');
+  assert.match(e.document.getElementById('part-department-status').textContent, /No applicable Part catalogue/);
+  e.change(level, 'all');
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 3);
+  assert.deepEqual(e.payload().rows.map(row => row.course_text), ['CSC201', 'BIO101', 'ICH308']);
 });
 
-test('separating a spelling is durable and can be reversed without changing readings or unfinished group fields', async t => {
-  const requests = [];
-  const e = editor(t, ['1000IST', '1000SIT', '1000SIT'].map(text => ({ ...row(), room: '', room_text: text })), undefined, {
-    creation: sltChoices, references: sltReferences,
-    fetch: async (url, init) => { requests.push(new URLSearchParams(init.body.toString())); return { ok: true, json: async () => ({ token: 'saved-group' }) }; },
-  });
-  const lines = e.mapping('1000IST').querySelectorAll('.ocr-reading');
-  e.button(lines[1], 'Review this spelling separately');
-  assert.equal(e.document.querySelectorAll('#reference-mappings > .reference-mapping[data-kind="room"]').length, 2);
-  assert.equal(e.mapping('1000SIT').querySelector('select[aria-label="Map room 1000SIT"]').value, '');
-  await Promise.resolve(); await e.saver.flush();
-  const state = requests.at(-1);
-  const resumed = editor(t, JSON.parse(state.get('rows')), JSON.parse(state.get('pending')), {
-    creation: sltChoices, references: sltReferences, editorState: JSON.parse(state.get('editor_state')),
-  });
-  assert.ok(resumed.mapping('1000SIT'));
-  resumed.button(resumed.mapping('1000SIT'), 'Allow suggested grouping again');
-  assert.equal(resumed.document.querySelectorAll('#reference-mappings > .reference-mapping[data-kind="room"]').length, 1);
-  assert.ok(resumed.payload().rows.every(row => !row.room_group_separate && row.room === ''));
-});
-
-test('a partially edited probable group reopens as one group without losing entered values', t => {
-  const rows = ['1000IST', '1000SIT', '1000SIT'].map(text => ({ ...row(), room: '', room_text: text }));
-  const options = { creation: sltChoices, references: sltReferences };
-  const e = editor(t, rows, undefined, options);
-  const form = e.mapping('1000IST').querySelector('.record-editor');
-  e.change(e.field(form, 'Capacity'), '750');
-  const saved = e.payload();
-  const resumed = editor(t, saved.rows, saved.pending, { ...options, editorState: saved.editorState });
-  assert.equal(resumed.document.querySelectorAll('#reference-mappings > .reference-mapping[data-kind="room"]').length, 1);
-  assert.equal(resumed.field(resumed.mapping('1000IST').querySelector('.record-editor'), 'Capacity').value, '750');
-});
-
-test('earlier individually edited probable readings keep both forms and their values on opening', t => {
-  const e = editor(t, ['1000IST', '1000SIT'].map(text => ({ ...row(), room: '', room_text: text })), undefined, {
-    creation: sltChoices, references: sltReferences,
-    editorState: { 'record:room:1000ist:capacity': '1000', 'record:room:1000sit:capacity': '800' },
-  });
-  assert.equal(e.document.querySelectorAll('#reference-mappings > .reference-mapping[data-kind="room"]').length, 2);
-  assert.equal(e.field(e.mapping('1000IST').querySelector('.record-editor'), 'Capacity').value, '1000');
-  assert.equal(e.field(e.mapping('1000SIT').querySelector('.record-editor'), 'Capacity').value, '800');
-});
-
-test('missing readings have individual correction controls in one collapsed list', t => {
-  const e = editor(t, [{ ...row(), course_text: '', room_text: '', room: '' }, { ...row(), course_text: '', room_text: '', room: '' }]);
-  const containers = e.document.querySelectorAll('.missing-readings');
-  assert.equal(containers.length, 2);
-  assert.ok([...containers].every(container => !container.open && container.querySelectorAll('.reference-mapping').length === 2));
-  const field = e.field(containers[0], 'Correct course reading in row 1');
-  field.value = 'CSC102'; field.parentElement.nextElementSibling.click();
-  assert.equal(e.payload().rows[0].course_text, 'CSC102');
-  assert.equal(e.payload().rows[1].course_text, '');
-});
-
-test('confirming a suggested course code updates its variants, enables title suggestions and prepares one course', t => {
-  const e = editor(t, [row('CM202'), row('CHM202'), row('CM202'), row('CHM302')], undefined, {
-    creation: { course_catalogue: [{ code: 'CHM202', title: 'Verified test title', department: 'Chemistry',
-      source_id: 'test-handbook', page: 15 }, { code: 'CHM302', title: 'Another title', department: 'Chemistry',
-      source_id: 'test-handbook', page: 25 }], course_sources: { 'test-handbook': {
-        source_title: 'Test course handbook', source_url: '/test-handbook/', edition: 'Test edition',
-      } } },
-  });
-  assert.equal(e.document.querySelectorAll('#reference-mappings > .reference-mapping[data-kind="course"]').length, 2);
-  e.button(e.mapping('CM202'), 'Confirm reading “CHM202” for this group');
-  const corrected = e.payload().rows;
-  assert.ok(corrected.slice(0, 3).every(row => row.course_text === 'CHM202' && row.course === '' && !row.reviewed));
-  assert.equal(corrected[0].original_course_text, 'CM202');
-  assert.equal(corrected[3].course_text, 'CHM302');
-  const form = e.mapping('CHM202').querySelector('.record-editor');
-  assert.equal(e.field(form, 'Course code').value, 'CHM202');
-  assert.match(form.querySelector('.course-suggestions').textContent, /Verified test title/);
-  const applicable = form.querySelector('.course-suggestions input[type="checkbox"]');
-  e.change(applicable, true); e.button(form.querySelector('.course-suggestions'), 'Use this title');
-  e.button(form, 'Use new record for matching entries');
-  const saved = e.payload();
-  assert.equal(saved.pending.courses.length, 1);
-  assert.equal(saved.pending.courses[0].code, 'CHM202');
-  assert.equal(saved.pending.courses[0].title, 'Verified test title');
-  assert.ok(saved.rows.slice(0, 3).every(row => row.course === saved.pending.courses[0].key));
-  assert.equal(saved.rows[3].course, '');
-});
-
-test('weekly preview states missing fields, confidence and unchecked heading reasons', t => {
-  const references = { courses: [{ value: 'CSC102', label: 'CSC102', keys: ['csc102'] }], rooms: sltReferences.rooms };
+test('automatic matching preserves image and manual Parts, corrections and completed review', t => {
   const rows = [
-    { ...row('CSC102'), course: '', room: '1000-slt' },
-    { ...row('CSC102'), course: 'CSC102', room: '1000-slt', confidence: 70, day: 'Tuesday' },
-    { ...row('CSC102'), course: 'CSC102', room: '1000-slt', day_group: 'heading', day_checked: false, day: 'Wednesday' },
+    { ...row('ICH308'), class_group_kind: 'part', class_group: 'III', reviewed: true },
+    { ...row('MAC201'), level_override: [4], level_override_code: 'MAC201', day: 'Tuesday', reviewed: true },
+    row('CSC201'),
+    { ...row('CSC201'), skip: true },
   ];
-  const e = editor(t, rows, undefined, { references });
-  const cards = e.document.querySelectorAll('.weekly-card');
-  assert.ok([...cards].every(card => /Needs attention/.test(card.textContent)));
-  assert.match(cards[0].textContent, /Match or prepare a course/);
-  assert.match(cards[1].textContent, /Uncertain reading/);
-  assert.match(cards[2].textContent, /Check the shared weekday heading/);
+  const e = editor(t, rows, undefined, { department: 'Programme A', levelProfiles: curriculumProfiles,
+    partOptions: { level_view: '3' } });
+  const level = e.document.getElementById('level-view');
+  const partLabel = part => [...level.options].find(option => option.value === part).textContent;
+  assert.match(partLabel('all'), /3 entries$/);
+  assert.match(partLabel('3'), /2 entries$/);
+  assert.match(partLabel('4'), /1 entries$/);
+  assert.match(partLabel('2'), /0 entries$/);
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 2);
+  assert.match(e.document.querySelector('.weekly-card').textContent, /ICH308/);
+  e.change(level, '4');
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 1);
+  assert.match(e.document.querySelector('.weekly-card').textContent, /MAC201/);
+  e.change(e.document.getElementById('document-department'), 'Unknown department');
+  assert.match(partLabel('3'), /1 entries$/);
+  assert.match(partLabel('4'), /1 entries$/);
+  assert.deepEqual(e.payload().rows.map(row => [row.day, row.reviewed, !!row.skip]),
+    rows.map(row => [row.day, row.reviewed, !!row.skip]));
 });
 
-test('weekly overlap reports conflicting row numbers, ignores adjacent/skipped rows and excludes bulk approval', t => {
-  const references = { courses: [{ value: 'CSC102', label: 'CSC102', keys: ['csc102'] }], rooms: sltReferences.rooms };
-  const lecture = { ...row('CSC102'), course: 'CSC102', room: '1000-slt' };
-  const e = editor(t, [lecture, { ...lecture, start_time: '08:30', end_time: '09:30' },
-    { ...lecture, start_time: '09:30', end_time: '10:30' }, { ...lecture, skip: true }], undefined, { references });
-  const cards = e.document.querySelectorAll('.weekly-card');
-  assert.match(cards[0].textContent, /Overlap — check.*Overlaps row\(s\) 2/s);
-  assert.match(cards[1].textContent, /Overlap — check.*Overlaps row\(s\) 1/s);
-  assert.doesNotMatch(cards[2].textContent, /Overlap/);
+test('bulk review and shared-heading corrections only change the selected Part', t => {
+  const rows = [3, 4].map((part, index) => ({ ...row(index ? 'MAC201' : 'CSC201'), course: index ? 'MAC201' : 'CSC201',
+    class_group_kind: 'part', class_group: String(part), day_group:'shared-day', day_text:'MONDAY', day_checked:false }));
+  const e = editor(t, rows, undefined, { references:courseRefs });
+  e.change(e.document.getElementById('level-view'), '3');
+  const heading = e.document.querySelector('.heading-mapping');
+  e.change(heading.querySelector('select'), 'Wednesday');
+  e.button(heading, 'Confirm heading for these entries');
+  const afterHeading = e.payload().rows;
+  assert.deepEqual(afterHeading.map(row => row.day), ['Wednesday', 'Monday']);
   e.change(e.document.getElementById('weekly-checked'), true);
   e.button(e.document, 'Confirm clear entries together');
-  const saved = e.payload();
-  assert.equal(saved.rows[0].reviewed, false);
-  assert.equal(saved.rows[1].reviewed, false);
-  assert.equal(saved.rows[2].reviewed, true);
-  assert.equal(saved.rows[3].reviewed, false);
+  assert.deepEqual(e.payload().rows.map(row => row.reviewed), [true, false]);
+  e.change(e.document.getElementById('level-view'), '4');
+  assert.match(e.document.getElementById('ready-groups').textContent, /No clear unreviewed groups/);
+  e.change(e.document.getElementById('level-view'), '3');
+  assert.equal(e.payload().rows[0].reviewed, true, 'Switching views preserves completed review');
+});
+
+test('source-card navigation targets the correct row after filtering and pagination', t => {
+  const rows = Array.from({length:70}, (_, index) => ({ ...row('CSC201'), editor_id:`source-${index}`, course:'CSC201',
+    class_group_kind:'part', class_group: index % 2 ? 'III' : 'IV' }));
+  const e = editor(t, rows, undefined, { references:courseRefs });
+  e.change(e.document.getElementById('level-view'), '3');
+  const cards = [...e.document.querySelectorAll('.weekly-card')];
+  assert.equal(cards.length, 35);
+  cards[30].click();
+  const table = e.document.querySelector('#document-table tbody');
+  assert.match(e.document.getElementById('review-page-status').textContent, /26–35 of 35/);
+  assert.match(table.children[5].textContent, /Row 62/);
+  assert.deepEqual(e.payload().rows.map(row => row.editor_id), rows.map(row => row.editor_id));
+});
+
+test('overlap checks include other Parts while keeping the preview layout and existing warning behavior', t => {
+  const rows = [3, 4].map(part => ({ ...row('CSC201'), course:'CSC201', class_group_kind:'part', class_group:String(part) }));
+  const e = editor(t, rows, undefined, { references:courseRefs });
+  e.change(e.document.getElementById('level-view'), '3');
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 1);
+  assert.match(e.document.querySelector('.weekly-card').textContent, /Overlap — check/);
+  assert.ok(e.document.querySelector('.weekly-grid'));
+  e.change(e.document.getElementById('review-filter'), 'all');
+  e.document.getElementById('review-filter').dispatchEvent(new e.window.Event('input', { bubbles: true }));
+  const reviewed = [...e.document.querySelectorAll('#document-table input[type=checkbox]')]
+    .find(el => el.parentElement.textContent.trim() === 'Reviewed');
+  e.change(reviewed, true);
+  assert.match(e.document.querySelector('.weekly-card').textContent, /Overlap — check/);
+});
+
+test('Part choice, unfinished assignment and full image edits autosave and reopen without resetting review', async t => {
+  const requests = [];
+  const e = editor(t, [{ ...row('ICH308'), editor_id:'unknown-1', reviewed:false },
+    { ...row('MAC201'), editor_id:'part-four', class_group_kind:'part', class_group:'IV', reviewed:true }], undefined, {
+      fetch: async (_, init) => { requests.push(new URLSearchParams(init.body.toString())); return {ok:true, json:async () => ({token:'saved-part-view'})}; }
+    });
+  e.change(e.document.getElementById('level-view'), 'unassigned');
+  e.change(e.document.getElementById('review-filter'), 'all');
+  const evidence = e.document.querySelector('.part-evidence');
+  e.change([...evidence.querySelectorAll('label')].find(el => el.textContent === ' Part 3').querySelector('input'), true);
+  await Promise.resolve(); await e.saver.flush();
+  const sent = requests.at(-1);
+  assert.equal(sent.get('level_view'), 'unassigned');
+  assert.equal(JSON.parse(sent.get('rows')).length, 2);
+  assert.equal(JSON.parse(sent.get('rows'))[1].reviewed, true);
+  const saved = editor(t, JSON.parse(sent.get('rows')), JSON.parse(sent.get('pending')), {
+    editorState:JSON.parse(sent.get('editor_state')), partOptions:{level_view:sent.get('level_view')}
+  });
+  assert.equal(saved.document.getElementById('level-view').value, 'unassigned');
+  const restored = saved.document.querySelector('.part-evidence');
+  assert.equal([...restored.querySelectorAll('label')].find(el => el.textContent === ' Part 3').querySelector('input').checked, true);
+  saved.button(restored, 'Use checked Parts for this entry');
+  assert.deepEqual(saved.payload().rows[0].level_override, [3]);
+  assert.equal(saved.document.querySelectorAll('.weekly-card').length, 0);
+  saved.change(saved.document.getElementById('level-view'), '3');
+  assert.equal(saved.document.querySelectorAll('.weekly-card').length, 1);
+});
+
+test('manual Part assignment applies once to repeated code and does not guess its numeric level', t => {
+  const e = editor(t, [{...row('ICH308'), editor_id:'ich-one'}, {...row('ICH308'), editor_id:'ich-two', day:'Tuesday'}]);
+  e.change(e.document.getElementById('level-view'), 'unassigned');
+  const evidence = e.document.querySelector('.part-evidence');
+  e.change([...evidence.querySelectorAll('label')].find(el => el.textContent === ' Part 4').querySelector('input'), true);
+  e.button(evidence, 'Use checked Parts for all 2 entries of ICH308');
+  assert.deepEqual(e.payload().rows.map(row => row.level_override), [[4], [4]]);
+  e.change(e.document.getElementById('level-view'), '4');
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 2);
+  e.change(e.document.getElementById('review-filter'), 'all');
+  const first = e.document.querySelector('#document-table tbody tr');
+  e.change(first.querySelector('select[aria-label="course, row 1"]'), '');
+  assert.equal(e.payload().rows[0].level_override_code, 'ICH308');
+});
+
+test('a combined Chemistry timetable uses both curricula without guessing conflicting Parts', t => {
+  const profiles = JSON.parse(read('../../data/course_levels.json'));
+  const sources = Object.fromEntries(JSON.parse(read('../../data/handbook_sources.json')).map(source => [source.id, source]));
+  const e = editor(t, [row('CSC201'), row('CHM304'), row('MAC201'), row('ICH308'), row('ICH202')], undefined,
+    { department: 'Chemistry', levelProfiles: profiles, creation: { course_sources: sources } });
+  assert.match(e.document.getElementById('part-department-status').textContent, /BSc Chemistry; BSc Industrial Chemistry/);
+  e.change(e.document.getElementById('level-view'), '3');
+  assert.ok(e.mapping('CSC201'));
+  assert.equal(e.mapping('CHM304'), undefined, 'CHM304 has differing curriculum Parts in the shared handbook');
+  assert.equal(e.mapping('MAC201'), undefined); assert.equal(e.mapping('ICH308'), undefined);
+  e.change(e.document.getElementById('level-view'), '2');
+  assert.ok(e.mapping('ICH202'), 'Industrial Chemistry curriculum courses are included');
+  e.change(e.document.getElementById('level-view'), 'unassigned');
+  assert.ok(e.mapping('CHM304')); assert.ok(e.mapping('MAC201')); assert.ok(e.mapping('ICH308'));
+  const evidence = e.document.querySelector('.part-evidence').textContent;
+  assert.match(evidence, /BSc Chemistry.*Part 3/);
+  assert.match(evidence, /BSc Industrial Chemistry.*Part 4/);
+  e.change(e.document.getElementById('document-department'), 'Department of Chemistry and Industrial Chemistry');
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 3);
+  e.change(e.document.getElementById('level-view'), 'all');
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 5);
+  assert.equal(e.payload().rows.length, 5);
+});
+
+test('department recognition works across the supplied catalogue and preserves curriculum boundaries', t => {
+  const profiles = JSON.parse(read('../../data/course_levels.json'));
+  const sources = Object.fromEntries(JSON.parse(read('../../data/handbook_sources.json')).map(source => [source.id, source]));
+  const e = editor(t, [], undefined, { levelProfiles: profiles, creation: { course_sources: sources } });
+  const ids = department => [...e.window.OptispacePartSelection.detect(department, profiles, sources).profiles].map(profile => profile.id);
+  const departments = new Map();
+  for (const profile of profiles) {
+    const department = sources[profile.source_id].department;
+    if (!department) continue;
+    if (!departments.has(department)) departments.set(department, []);
+    departments.get(department).push(profile.id);
+  }
+  for (const [department, expected] of departments) {
+    assert.deepEqual(ids(`Department of ${department.toUpperCase().replace(/ and /gi, ' & ')} (OAU)`), expected);
+  }
+  assert.deepEqual(ids('Chemistry'), ['chemistry-2023', 'industrial-chemistry-2023']);
+  assert.deepEqual(ids('Chemistry / Industrial Chemistry'), ['chemistry-2023', 'industrial-chemistry-2023']);
+  assert.deepEqual(ids('Biochemistry and Molecular Biology'), ['biochemistry-2017']);
+  assert.deepEqual(ids('Law'), ['law-llb']);
+  assert.deepEqual(ids('Software Engineering'), ['software-engineering']);
+  assert.deepEqual(ids('Architecture'), [], 'Course-title coverage alone is not verified Part evidence');
+  assert.deepEqual(ids('English'), []);
+  assert.deepEqual(ids('Chemistry and Unknown department'), [], 'Do not partially match an unknown joint heading');
+});
+
+test('automatic matching cannot apply historical B.Pharm Parts to a PharmD or unidentified Pharmacy timetable', t => {
+  const profiles = JSON.parse(read('../../data/course_levels.json'));
+  const sources = Object.fromEntries(JSON.parse(read('../../data/handbook_sources.json')).map(source => [source.id, source]));
+  const e = editor(t, [], undefined, { levelProfiles: profiles, creation: { course_sources: sources } });
+  const detect = heading => e.window.OptispacePartSelection.detect('Pharmacy', profiles, sources, heading);
+  assert.equal(detect('').profiles.length, 0);
+  assert.equal(detect('Doctor of Pharmacy (PharmD)').profiles.length, 0);
+  assert.equal(detect('B.Pharm revised to PharmD').profiles.length, 0);
+  assert.equal(detect('B.Pharm lecture timetable').profiles[0].id, 'pharmacy-bpharm-2019');
+  assert.match(e.window.OptispacePartSelection.detect('Pharmacy', profiles, sources).restricted[0].notes, /does not apply to PharmD/);
+});
+
+test('department-based Part view autosaves and resumes without retired profile controls', async t => {
+  const requests = [];
+  const e = editor(t, [row('CSC201'), row('MAC201')], undefined, { department: 'Programme A', levelProfiles: curriculumProfiles,
+    fetch: async (_, init) => { requests.push(new URLSearchParams(init.body.toString())); return { ok: true, json: async () => ({ token: 'department-draft' }) }; }
+  });
+  e.change(e.document.getElementById('level-view'), '3');
+  e.change(e.document.getElementById('document-department'), 'Programme B');
+  e.change(e.document.getElementById('level-view'), '4');
+  await Promise.resolve(); await e.saver.flush();
+  const sent = requests.at(-1);
+  assert.equal(sent.get('department'), 'Programme B');
+  assert.equal(sent.get('level_view'), '4');
+  assert.equal(sent.has('level_profile'), false);
+  assert.equal(sent.has('level_profile_confirmed'), false);
+  const restored = editor(t, JSON.parse(sent.get('rows')), JSON.parse(sent.get('pending')), {
+    department: sent.get('department'), levelProfiles: curriculumProfiles,
+    editorState: JSON.parse(sent.get('editor_state')), partOptions: { level_view: sent.get('level_view') },
+  });
+  assert.equal(restored.document.querySelectorAll('.weekly-card').length, 1);
+  assert.match(restored.document.querySelector('.weekly-card').textContent, /CSC201/);
+  assert.equal(restored.payload().rows.length, 2);
+  restored.change(restored.document.getElementById('level-view'), 'all');
+  assert.equal(restored.document.querySelectorAll('.weekly-card').length, 2);
+});
+
+test('a missing entry added in the selected Part stays there when its first course is chosen', t => {
+  const e = editor(t, [], undefined, { references:courseRefs });
+  e.change(e.document.getElementById('level-view'), '3');
+  e.button(e.document, 'Add missing entry');
+  const course = e.document.querySelector('select[aria-label="course, row 1"]');
+  assert.ok(course);
+  e.change(course, 'CSC201');
+  assert.equal(e.document.querySelector('#document-table tbody').children.length, 1);
+  assert.equal(e.payload().rows[0].level_override_code, 'CSC201');
+  const updated = e.document.querySelector('select[aria-label="course, row 1"]');
+  e.change(updated, 'MAC201');
+  assert.equal(e.document.querySelector('#document-table tbody').children.length, 0, 'A subsequent course-code change needs a new Part assignment');
+  e.change(e.document.getElementById('level-view'), 'unassigned');
+  assert.equal(e.document.querySelector('#document-table tbody').children.length, 1);
 });

@@ -27,7 +27,7 @@
           blocked = !!error.permanent;
           retry = payload;
           failures++;
-          warn(blocked ? error.message : 'Changes could not be saved. Keep this page open; autosave will retry.');
+          warn(blocked ? error.message : 'Changes could not be saved. Keep this page open; autosave will retry.', error);
         } finally {
           running = null;
           if (!paused && !blocked && dirty()) {
@@ -44,11 +44,13 @@
         paused = true; clear();
         if (running) await running;
         if (blocked) return false;
-        if (retry) {
+        // Synchronize the latest edits and token before Save/Validate submits.
+        // If an earlier response was lost, retry its exact state first, then
+        // send any edits made while that request was in flight.
+        while (dirty()) {
           paused = false; await flush(); paused = true; clear();
           if (retry || blocked) return false;
         }
-        // Manual Save/Validate submits the latest complete payload itself.
         return true;
       },
       resume() { paused = false; schedule(); },

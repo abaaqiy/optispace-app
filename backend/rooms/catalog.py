@@ -76,6 +76,11 @@ def room_name_key(value):
     return re.sub(r"[^a-z0-9]", "", value.casefold())
 
 
+def building_identity_key(value):
+    """One building name regardless of case, spacing or punctuation."""
+    return room_name_key(value)
+
+
 def room_catalogue_name(value):
     """Resolve only unambiguous documented names/aliases, never fuzzy guesses."""
     key = room_name_key(value)

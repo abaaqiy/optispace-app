@@ -15,12 +15,34 @@
   const pending = JSON.parse(document.getElementById('document-pending').textContent);
   const creation = JSON.parse(document.getElementById('document-creation-choices').textContent);
   const editorState = JSON.parse(document.getElementById('document-editor-state')?.textContent || '{}');
+  const partTool = window.OptispacePartSelection;
+  const levelProfiles = JSON.parse(document.getElementById('document-level-profiles')?.textContent || '[]');
+  const levelView = document.getElementById('level-view');
+  const departmentInput = document.getElementById('document-department');
+  const sourceHeading = JSON.parse(document.getElementById('document-source-heading')?.textContent || '""');
+  let departmentMatch = partTool.detect(departmentInput.value, levelProfiles, creation.course_sources, sourceHeading);
+  for (const [value, label] of [['all', 'All extracted entries'], ...[1, 2, 3, 4, 5, 6]
+    .map(part => [String(part), `Part ${part} (${part}00 level)`]), ['unassigned', 'Unassigned / uncertain']]) {
+    const option = document.createElement('option'); option.value = value;
+    option.textContent = label; option.dataset.label = label; levelView.append(option);
+  }
+  levelView.value = levelView.dataset.saved || 'all';
+  const partOptions = () => ({ level_view: levelView.value || 'all' });
+  const partInfo = row => partTool.classify(row, departmentMatch.profiles, pending);
+  const inPart = row => partTool.matches(partInfo(row), levelView.value);
+  const partRows = () => rows.filter(inPart);
+  function chooseReference(row, field, value) {
+    // Bind a manually added blank entry's chosen Part to its first course code.
+    if (field === 'course' && Array.isArray(row.level_override) && row.level_override_code === ''
+      && !partTool.code(row, pending)) row.level_override_code = partTool.code({ ...row, course: value }, pending);
+    row[field] = value;
+  }
   const normalise = value => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   const codeKey = window.OptispaceCourseSuggestions.codeKey;
   function roomKey(value) {
     const key = normalise(value);
     const matches = creation.room_names.filter(item => [item.name, ...item.aliases].some(name => normalise(name) === key));
-    return matches.length === 1 ? normalise(matches[0].name) : key;
+    return matches.length === 1 ? matches[0].identity || normalise(matches[0].name) : key;
   }
   const identity = (kind, record) => kind === 'course' ? codeKey(record.code) : roomKey(record.name);
   const proposedLabel = draft => `${draft.code || draft.name}${draft.title_pending ? ' — Title awaiting confirmation' : ''}`;
@@ -45,8 +67,7 @@
           redirects.set(record.key, target);
         } else {
           if (record.duplicate_of) { delete record.duplicate_of; repairedReferences = true; }
-          const item = { value: record.key, label: `New: ${proposedLabel(record)}`, name: record.name,
-            identity: key, keys: [kind === 'course' ? record.code : record.name] };
+          const item = { value: record.key, label: `New: ${proposedLabel(record)}`, identity: key, keys: [] };
           refs[kind + 's'].push(item);
           if (key) byIdentity.set(key, item);
         }
@@ -110,6 +131,26 @@
   let activeBox = null;
   const pageSize = 25;
   pending.buildings ||= [];
+  function consolidateBuildings() {
+    const identities = new Map(creation.buildings.map(building => [normalise(building.name),
+      { value: String(building.id), campus_zone: building.campus_zone }]));
+    const redirects = new Map();
+    pending.buildings = pending.buildings.filter(building => {
+      const key = normalise(building.name);
+      const existing = key && identities.get(key);
+      if (existing && existing.campus_zone === building.campus_zone) {
+        redirects.set(building.key, existing.value); repairedReferences = true; return false;
+      }
+      if (key) identities.set(key, { value: building.key, campus_zone: building.campus_zone });
+      return true;
+    });
+    for (const room of pending.rooms) if (redirects.has(room.building)) room.building = redirects.get(room.building);
+    for (const [key, value] of Object.entries(editorState)) if (redirects.has(value)) editorState[key] = redirects.get(value);
+    for (const key of Object.keys(editorState)) {
+      if ([...redirects.keys()].some(recordKey => key.startsWith(`record:building:${recordKey}:`))) delete editorState[key];
+    }
+  }
+  consolidateBuildings();
   const buildingControls = new Map();
   function buildingChoices() {
     return [
@@ -138,7 +179,7 @@
   function prepareBuilding(name, zone, key = null) {
     name = String(name || '').trim(); zone = String(zone || '').trim();
     if (!name || name.length > 200 || !zone || zone.length > 150) throw new Error('Enter the building name and campus area once before preparing it.');
-    const saved = creation.buildings.find(building => building.name.trim().toLowerCase() === name.toLowerCase());
+    const saved = creation.buildings.find(building => normalise(building.name) === normalise(name));
     if (saved) {
       if (key || saved.campus_zone !== zone) throw new Error(`Building ${saved.name} already exists in ${saved.campus_zone}. Select its saved record or edit it in Buildings.`);
       return String(saved.id);
@@ -202,24 +243,17 @@
     queueMicrotask(() => { captureEditors(); autosave?.changed(); });
   }
   function status() {
-    const kept = rows.filter(r => !r.skip);
-    document.getElementById('review-status').textContent = `${kept.filter(r => r.reviewed).length} of ${kept.length} retained rows reviewed; ${kept.filter(r => problems(r).length).length} with missing/invalid fields; ${kept.filter(ready).length} ready for batch review; ${rows.length - kept.length} skipped.`;
+    partStatus();
+    const current = partRows();
+    const kept = current.filter(r => !r.skip);
+    document.getElementById('review-status').textContent = `${kept.filter(r => r.reviewed).length} of ${kept.length} retained rows reviewed; ${kept.filter(r => problems(r).length).length} with missing/invalid fields; ${kept.filter(ready).length} ready for batch review; ${current.length - kept.length} skipped.`;
     batchStatus();
     readyGroups();
     weeklyPreview();
   }
-  function validTimes(row) {
-    return [row.start_time, row.end_time].every(value => /^([01]\d|2[0-3]):[0-5]\d$/.test(value || ''))
-      && row.start_time < row.end_time;
-  }
-  function overlappingRows(row, index, kept) {
-    if (!valid.room.has(row.room) || !days.slice(1).includes(row.day) || !validTimes(row)) return [];
-    return kept.filter(({ row: other, index: i }) => i !== index && row.room === other.room
-      && row.day === other.day && validTimes(other) && row.start_time < other.end_time && row.end_time > other.start_time);
-  }
   function weeklyPreview() {
     const root = document.getElementById('weekly-preview'); root.replaceChildren();
-    const kept = rows.map((row, index) => ({ row, index })).filter(({ row }) => !row.skip);
+    const kept = rows.map((row, index) => ({ row, index })).filter(({ row }) => inPart(row) && !row.skip);
     const times = [...new Set(kept.map(({ row }) => `${row.start_time || '?'}–${row.end_time || '?'}`))].sort();
     const table = element('table', undefined, root); table.className = 'weekly-grid';
     const header = element('tr', undefined, element('thead', undefined, table));
@@ -233,22 +267,20 @@
       for (const day of shownDays) {
         const td = element('td', undefined, tr);
         kept.filter(({ row }) => `${row.start_time || '?'}–${row.end_time || '?'}` === time && (row.day === day || day === 'Needs weekday' && (!row.day || !days.includes(row.day)))).forEach(({ row, index }) => {
-          const issues = [...problems(row), ...(!row.reviewed ? warnings(row) : [])];
-          const issue = issues.length;
-          const conflicts = overlappingRows(row, index, kept), overlap = conflicts.length;
+          const issue = problems(row).length || (!row.reviewed && (row.note || row.confidence != null && Number(row.confidence) < 90));
+          const overlap = rows.some((other, i) => !other.skip && i !== index && row.room && row.room === other.room && row.day === other.day && row.start_time < other.end_time && row.end_time > other.start_time);
           const button = element('button', undefined, td); button.type = 'button'; button.className = `weekly-card${issue || overlap ? ' weekly-issue' : ''}`;
           if (issue || overlap) flagged++;
           element('strong', refs.courses.find(item => item.value === row.course)?.label || row.course_text || 'Course missing', button);
           element('span', refs.rooms.find(item => item.value === row.room)?.label || row.room_text || 'Venue missing', button);
           element('small', `Row ${index + 1}${overlap ? ' · Overlap — check' : issue ? ' · Needs attention' : row.reviewed ? ' · Reviewed' : ''}`, button);
-          if (issue) element('small', issues.join('; '), button).className = 'weekly-reasons';
-          if (overlap) element('small', `Overlaps row(s) ${conflicts.map(({ index }) => index + 1).join(', ')} in this room`, button).className = 'weekly-reasons';
           if (row.class_group) element('small', `Part / group: ${row.class_group}`, button);
           button.addEventListener('click', () => {
             filter.value = 'all'; search.value = ''; dayFilter.value = ''; sourceFilter.value = '';
-            offset = Math.floor(index / pageSize) * pageSize; render();
+            const position = partRows().indexOf(row);
+            offset = Math.floor(position / pageSize) * pageSize; render();
             showPage(row.page, row.box);
-            tbody.children[index % pageSize]?.scrollIntoView({ block: 'center' });
+            tbody.children[position % pageSize]?.scrollIntoView({ block: 'center' });
           });
         });
       }
@@ -262,14 +294,14 @@
     for (const kind of ['day', 'time']) {
       const groups = new Map();
       rows.forEach(row => {
-        if (row.skip || !row[kind + '_group']) return;
+        if (!inPart(row) || row.skip || !row[kind + '_group']) return;
         const key = row[kind + '_group'];
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(row);
       });
       for (const affected of groups.values()) {
         const first = affected[0];
-        const editKey = `heading:${kind}:${first[kind + '_group']}`;
+        const editKey = `heading:${kind}:${first[kind + '_group']}` + (levelView.value === 'all' ? '' : `:part-${levelView.value}`);
         const section = element('div', undefined, root); section.className = 'heading-mapping';
         const label = kind === 'day' ? 'Weekday' : 'Time';
         element('strong', `${label}: “${first[kind + '_text'] || 'not readable'}” · ${affected.length} entries`, section);
@@ -314,7 +346,7 @@
     const open = new Set([...root.querySelectorAll('details[open]')].map(el => el.dataset.day));
     root.replaceChildren();
     for (const day of days.slice(1)) {
-      const group = rows.map((row, index) => ({ row, index })).filter(({ row }) => row.day === day && ready(row));
+      const group = rows.map((row, index) => ({ row, index })).filter(({ row }) => inPart(row) && row.day === day && ready(row));
       if (!group.length) continue;
       const details = element('details', undefined, root); details.dataset.day = day; details.open = open.has(day);
       element('summary', `${day}: ${group.length} clear entries to check`, details);
@@ -340,58 +372,21 @@
     captureEditors();
     const root = document.getElementById('reference-mappings');
     clearEditors(root);
-    let groupCount = 0, readingCount = 0, groupedCount = 0, missingCount = 0;
+    let groupCount = 0;
     for (const key of ['course', 'room']) {
-      const result = window.OptispaceOcrGroups.build({ kind: key, rows, references: refs[key + 's'],
-        catalogue: key === 'course' ? creation.course_catalogue : creation.room_names,
-        isEditing: reading => !editorState[`ocr-grouped:${key}:${normalise(reading)}`] && Object.entries(editorState).some(([field, value]) => value && (
-          field === `mapping:${key}:${normalise(reading)}:choice` || field.startsWith(`record:${key}:${normalise(reading)}:`))) });
-      readingCount += result.readingCount; missingCount += result.missing.length;
-      for (const group of result.groups) {
-        const { text, rows: affected, target, readings } = group;
+      const groups = new Map();
+      rows.forEach((row, index) => {
+        if (!inPart(row) || row.skip || valid[key].has(row[key])) return;
+        const text = row[key + '_text'] || '';
+        const group = normalise(text) || `missing-${index}`;
+        if (!groups.has(group)) groups.set(group, { text, rows: [] });
+        groups.get(group).rows.push(row);
+      });
+      for (const { text, rows: affected } of groups.values()) {
         groupCount++;
-        if (group.suggested || readings.length > 1) groupedCount++;
         const section = element('div', undefined, root); section.className = 'reference-mapping';
-        section.dataset.kind = key;
         element('strong', `${key === 'course' ? 'Course' : 'Room'} “${text}” — ${affected.length} row(s)`, section);
-        if (group.suggested || readings.length > 1) {
-          // New grouped editors reopen together. Older unfinished individual
-          // editors stay separate so their entered details cannot disappear.
-          editorState[`ocr-grouped:${key}:${normalise(text)}`] = true;
-          const info = element('div', undefined, section); info.className = 'ocr-group';
-          element('p', target ? `Suggested match: ${target.label}. Compare the readings below with the image before applying it.`
-            : 'These readings differ only in case, spacing or punctuation. Compare their source locations before applying one choice.', info);
-          if (target && !target.value) {
-            element('p', target.source === 'reading' ? 'Suggested from repeated readings in this image; confirm the actual name.'
-              : `Suggested from the ${key === 'course' ? 'course-code' : 'room'} catalogue; confirm it applies to this image.`, info).className = 'help';
-            const confirm = element('button', `Confirm reading “${target.text}” for this group`, info); confirm.type = 'button';
-            confirm.addEventListener('click', () => { correctReadings(key, affected, target.text); invalidate(); mappings(); render(); });
-          }
-          for (const reading of readings) {
-            const line = element('div', undefined, info); line.className = 'ocr-reading';
-            element('span', `“${reading.text}” — ${reading.rows.length} row(s)`, line);
-            const show = element('button', 'Show example', line); show.type = 'button';
-            show.addEventListener('click', () => showPage(reading.rows[0].page, reading.rows[0].box));
-            if (readings.some(other => normalise(other.text) !== normalise(reading.text))) {
-              const separate = element('button', 'Review this spelling separately', line); separate.type = 'button';
-              separate.addEventListener('click', () => {
-                affected.filter(row => normalise(row[key + '_text']) === normalise(reading.text))
-                  .forEach(row => { row[key + '_group_separate'] = true; });
-                invalidate(); mappings(); render();
-              });
-            }
-          }
-        }
-        if (group.separated) {
-          element('p', 'You chose to review this reading separately.', section).className = 'help';
-          const regroup = element('button', 'Allow suggested grouping again', section); regroup.type = 'button';
-          regroup.addEventListener('click', () => {
-            affected.forEach(row => { delete row[key + '_group_separate']; });
-            invalidate(); mappings(); render();
-          });
-        }
-        if (group.editing) element('p', 'Your unfinished edits are kept with this reading.', section).className = 'help';
-        referenceActions(section, key, text, affected, target?.text);
+        referenceActions(section, key, text, affected);
         const choice = element('select', undefined, section); choice.id = `map-${key}-${crypto.randomUUID()}`;
         const label = element('label', `Select correct ${key}`, section); label.htmlFor = choice.id; choice.before(label);
         choice.className = 'room-catalog-select'; choice.setAttribute('aria-label', `Map ${key} ${text}`);
@@ -400,57 +395,34 @@
           opt.dataset.searchAliases = (item.keys || []).join(' ');
         });
         const editKey = `mapping:${key}:${normalise(text) || affected[0].editor_id}`;
-        if (!Object.hasOwn(editorState, editKey + ':choice') && target?.value) choice.value = target.value;
         bindEditor(choice, editKey + ':choice');
         const apply = element('button', 'Use for all matching unresolved rows', section); apply.type = 'button'; apply.disabled = !choice.value;
         const selected = () => { apply.disabled = !choice.value; };
         choice.addEventListener('change', selected); window.django.jQuery(choice).on('change.referenceChoice', selected);
         choice.dispatchEvent(new CustomEvent('room-catalog:added', { bubbles: true }));
         apply.addEventListener('click', () => {
-          affected.filter(row => !row.skip && !valid[key].has(row[key])).forEach(row => { row[key] = choice.value; row.reviewed = false; });
+          affected.filter(row => !row.skip && !valid[key].has(row[key])).forEach(row => { chooseReference(row, key, choice.value); row.reviewed = false; });
           forgetEditor(editKey);
           invalidate(); offset = 0; mappings(); render();
         });
         if (creation['can_add_' + key]) {
           const details = element('details', undefined, section);
           element('summary', `Prepare a new ${key} here`, details);
-          // A probable reading is never silently used as a new database identity.
           recordEditor(details, key, text, affected);
         }
       }
-      if (result.missing.length) {
-        const details = element('details', undefined, root); details.className = 'missing-readings';
-        element('summary', `${key === 'course' ? 'Course' : 'Venue'} not readable — ${result.missing.length} entry/entries to check`, details);
-        element('p', 'These entries are collected here to keep the list short. Each needs its own reading or choice; an empty cell does not establish a shared course or room.', details);
-        for (const row of result.missing) {
-          const section = element('div', undefined, details); section.className = 'reference-mapping';
-          const index = rows.indexOf(row);
-          element('strong', `${key === 'course' ? 'Course' : 'Venue'} missing in row ${index + 1}`, section);
-          referenceActions(section, key, '', [row]);
-        }
-      }
     }
-    document.getElementById('mapping-status').textContent = groupCount || missingCount
-      ? `${readingCount} different readings arranged into ${groupCount} matching group(s)${groupedCount ? `; ${groupedCount} group(s) combine similar spellings or suggest a likely match` : ''}.${missingCount ? ` ${missingCount} unreadable course/venue fields are listed separately below.` : ''} Confirm each group against the image. These readings come from the timetable, not courses generated from handbooks.`
-      : 'All retained names are matched. Skipped entries are excluded; use the Skipped filter to restore them.';
+    document.getElementById('mapping-status').textContent = groupCount ? `${groupCount} distinct OCR readings need matching. These are readings from the image, not courses generated from handbooks. Inspect uncertain codes before preparing records.` : 'All retained names are matched. Skipped entries are excluded; use the Skipped filter to restore them.';
     preparedBuildings(); proposedRecords();
+    if (levelView.value !== 'all') headings();
   }
-  function correctReadings(key, entries, value) {
-    value = key === 'course' ? codeKey(value) : value.trim();
-    entries.forEach(row => {
-      row['original_' + key + '_text'] ??= row[key + '_text'];
-      row[key + '_text'] = value; row[key] = ''; row.reviewed = false;
-      row[key + '_reading_checked'] = true;
-    });
-  }
-  function referenceActions(section, key, text, affected, suggested = '') {
+  function referenceActions(section, key, text, affected) {
     const locations = element('details', undefined, section);
     element('summary', 'Inspect locations / correct reading / skip', locations);
     element('p', 'Compare each reading with its highlighted image area. A course missing from a handbook may still be valid. Correct an OCR error; skip only an entry you do not want to import.', locations);
     affected.forEach(row => {
       const line = element('div', undefined, locations); line.className = 'mapping-location';
       const index = rows.indexOf(row);
-      element('small', `Read ${key}: ${row[key + '_text'] || '(not detected)'}`, line);
       const show = element('button', `Show row ${index + 1}: ${row.day || '?'} ${clockRange(row)} · ${row.room_text || 'venue unreadable'}`, line); show.type = 'button';
       show.addEventListener('click', () => showPage(row.page, row.box));
       const skip = element('button', 'Skip this entry', line); skip.type = 'button';
@@ -467,12 +439,15 @@
       apply.addEventListener('click', () => {
         const value = key === 'course' ? window.OptispaceCourseSuggestions.codeKey(corrected.value) : corrected.value.trim();
         if (!value || key === 'course' && !/^[A-Z]{2,5}\d{3}$/.test(value)) { error.textContent = 'Enter the complete reading you confirmed in the image.'; return; }
-        correctReadings(key, entries, value);
+        entries.forEach(row => {
+          row['original_' + key + '_text'] ??= row[key + '_text'];
+          row[key + '_text'] = value; row[key] = ''; row.reviewed = false;
+        });
         forgetEditor(editKey);
         invalidate(); mappings(); render();
       });
     }
-    if (affected.length > 1) correction(locations, affected, suggested || text, `Correct ${key} reading for all ${affected.length} entries`);
+    if (affected.length > 1) correction(locations, affected, text, `Correct ${key} reading for all ${affected.length} entries`);
     const skipAll = element('button', 'Skip all these entries', locations); skipAll.type = 'button';
     skipAll.addEventListener('click', () => { affected.forEach(row => { row.skip = true; row.reviewed = false; }); invalidate(); mappings(); headings(); render(); });
     element('p', 'Skipped entries need no course title or venue. Restore them using the Skipped filter below.', locations);
@@ -545,7 +520,7 @@
           saved.forEach(item => {
             const use = element('button', `Use existing ${item.label}`, suggestions); use.type = 'button';
             use.addEventListener('click', () => {
-              affected.forEach(row => { row.course = item.value; row.reviewed = false; });
+              affected.forEach(row => { chooseReference(row, 'course', item.value); row.reviewed = false; });
               forgetEditor(editKey);
               invalidate(); mappings(); render();
             });
@@ -634,7 +609,7 @@
         const existing = refs[kind + 's'].find(item => item.value !== record.key
           && item.identity === (kind === 'course' ? name : roomKey(name)));
         if (existing && !draft) {
-          affected.forEach(row => { row[kind] = existing.value; row.reviewed = false; });
+          affected.forEach(row => { chooseReference(row, kind, existing.value); row.reviewed = false; });
           forgetEditor(editKey); invalidate(); mappings(); render(); return;
         }
         if (existing) {
@@ -665,11 +640,10 @@
       const previous = pending[kind + 's'].findIndex(item => item.key === record.key);
       if (previous >= 0) pending[kind + 's'][previous] = record; else pending[kind + 's'].push(record);
       const list = refs[kind + 's']; const old = list.findIndex(item => item.value === record.key);
-      const choice = { value: record.key, label: `New: ${proposedLabel(record)}`, name: record.name,
-        identity: identity(kind, record), keys: [kind === 'course' ? record.code : record.name] };
+      const choice = { value: record.key, label: `New: ${proposedLabel(record)}`, identity: identity(kind, record), keys: [] };
       if (old >= 0) list[old] = choice; else list.push(choice);
       valid[kind].add(record.key);
-      affected.forEach(row => { row[kind] = record.key; row.reviewed = false; });
+      affected.forEach(row => { chooseReference(row, kind, record.key); row.reviewed = false; });
       rows.filter(row => row[kind] === record.key).forEach(row => { row.reviewed = false; });
       forgetEditor(editKey);
       refreshBuildingChoices(); invalidate(); mappings(); render();
@@ -680,6 +654,11 @@
     const root = document.getElementById('prepared-buildings');
     clearEditors(root);
     for (const building of pending.buildings) {
+      if (levelView.value !== 'all' && !partRows().some(row => {
+        const draft = pending.rooms.find(room => room.key === row.room);
+        const key = draft?.key || normalise(row.room_text) || row.editor_id;
+        return !row.skip && (draft?.building === building.key || editorState[`record:room:${key}:building`] === building.key);
+      })) continue;
       const used = pending.rooms.filter(room => !room.duplicate_of && room.building === building.key).length;
       const details = element('details', undefined, root);
       element('summary', `Prepared building: ${building.name} — ${building.campus_zone} · ${used} prepared room(s)`, details);
@@ -689,7 +668,8 @@
   function proposedRecords() {
     const root = document.getElementById('proposed-records'); clearEditors(root);
     for (const kind of ['course', 'room']) {
-      const duplicates = pending[kind + 's'].filter(record => record.duplicate_of);
+      const duplicates = pending[kind + 's'].filter(record => record.duplicate_of && (levelView.value === 'all'
+        || partRows().some(row => row[kind] === record.key || row[kind] === record.duplicate_of)));
       if (!duplicates.length) continue;
       const details = element('details', undefined, root); details.className = 'duplicate-proposals';
       element('summary', `${duplicates.length} earlier duplicate ${kind} proposal(s) — retained for comparison`, details);
@@ -710,7 +690,7 @@
     }
     for (const kind of ['course', 'room']) for (const draft of pending[kind + 's']) {
       if (draft.duplicate_of) continue;
-      const affected = rows.filter(row => !row.skip && row[kind] === draft.key);
+      const affected = rows.filter(row => inPart(row) && !row.skip && row[kind] === draft.key);
       if (!affected.length) continue;
       const details = element('details', undefined, root);
       element('summary', `Proposed ${kind}: ${proposedLabel(draft)} · ${affected.length} entries`, details);
@@ -765,11 +745,95 @@
   days.slice(1).forEach(day => { const opt = element('option', day, dayFilter); opt.value = day; });
   pageSelect.addEventListener('change', () => showPage(Number(pageSelect.value)));
   showPage(1);
+  function partStatus() {
+    const retained = rows.filter(row => !row.skip);
+    for (const option of levelView.options) {
+      const entries = retained.filter(row => partTool.matches(partInfo(row), option.value));
+      option.textContent = `${option.dataset.label} · ${entries.length} entries`;
+    }
+    const root = document.getElementById('part-department-status'); root.replaceChildren();
+    if (departmentMatch.profiles.length) {
+      element('span', `Parts are matched automatically for ${departmentInput.value.trim()}. Available curricula: ${departmentMatch.profiles.map(profile => profile.programme).join('; ')}.`, root);
+    } else element('span', departmentInput.value.trim()
+      ? `No applicable Part catalogue is available for ${departmentInput.value.trim()}. Use image Part headings or “Check / correct Part” in the row editor; All extracted entries remains available.`
+      : 'Enter the department above to match its available handbook evidence automatically. All extracted entries, image Part headings and manual assignments remain available.', root);
+    if (departmentMatch.profiles.length > 1) element('span', ' Conflicting curriculum Parts remain Unassigned for checking.', root);
+    if (departmentMatch.restricted.length) element('span', ` ${departmentMatch.restricted.map(profile => profile.notes).filter(Boolean).join(' ')}`, root);
+    const current = retained.filter(inPart);
+    const scope = levelView.selectedOptions[0].dataset.label;
+    document.getElementById('part-status').textContent = `${current.length} retained entries in this view; ${current.filter(row => row.reviewed).length} reviewed. Remaining image: ${retained.filter(row => row.reviewed).length} of ${retained.length} retained entries reviewed. Validation imports ${scope} only.`;
+    document.getElementById('import-scope-status').textContent = `Validate and import: ${scope} · ${current.length} weekly entries. ${retained.length - current.length} other entries stay in this draft. Review every retained entry in this selection, including those on other pages.`;
+    document.getElementById('coverage-label').textContent = ` I checked ${scope} against the image for missing entries and confirmed its weekdays and time headings.`;
+    const unknown = retained.filter(row => !partInfo(row).parts.length).length;
+    document.getElementById('part-unassigned').textContent = `${unknown} entries are unassigned or have several possible Parts. Review them in Unassigned, or assign a Part using “Check / correct Part” in the row editor. A shared class can appear in more than one Part's view.`;
+  }
+  function partEditor(parent, row) {
+    const info = partInfo(row);
+    const descriptions = { manual: 'Administrator assignment', heading: 'Image Part heading', handbook: 'Handbook curriculum',
+      uncertain: 'Several possible Parts in the handbook', unknown: 'No verified Part evidence' };
+    element('small', `${info.parts.length ? 'Part ' + info.parts.join(' / ') : 'Unassigned'} · ${descriptions[info.kind]}`, parent);
+    const details = element('details', undefined, parent); details.className = 'part-evidence';
+    element('summary', 'Check / correct Part', details);
+    if (info.conflict) element('p', 'The image Part heading differs from the automatically matched curriculum evidence. Check the department and timetable cohort.', details);
+    for (const entry of info.evidence) {
+      const source = creation.course_sources[entry.source_id];
+      const label = `${entry.code} · ${entry.programme} · Part ${entry.level} · PDF page ${entry.page}: ${entry.heading}`;
+      if (source?.source_url) {
+        const link = element('a', label, details); link.href = `${source.source_url}#page=${entry.page}`; link.target = '_blank'; link.rel = 'noopener';
+      } else element('small', label, details);
+    }
+    element('p', 'Choose the Parts that attend this entry, using the image or the applicable handbook. Leave all unchecked to keep it Unassigned.', details);
+    const code = partTool.code(row, pending);
+    const editKey = `part:${row.editor_id}:${code}`;
+    const checks = [1, 2, 3, 4, 5, 6].map(part => {
+      const label = element('label', undefined, details), input = element('input', undefined, label);
+      input.type = 'checkbox'; input.checked = info.parts.includes(part); label.append(` Part ${part}`);
+      bindEditor(input, `${editKey}:${part}`); return [part, input];
+    });
+    function assign(entries) {
+      const parts = checks.filter(([, input]) => input.checked).map(([part]) => part);
+      entries.forEach(entry => {
+        entry.level_override = [...parts]; entry.level_override_code = code; entry.reviewed = false;
+        forgetEditor(`part:${entry.editor_id}:${code}`);
+      });
+      invalidate(); mappings(); headings(); render();
+    }
+    const apply = element('button', 'Use checked Parts for this entry', details); apply.type = 'button';
+    apply.addEventListener('click', () => assign([row]));
+    const matching = rows.filter(other => !other.skip && code && partTool.code(other, pending) === code);
+    if (matching.length > 1) {
+      element('small', 'If all occurrences of this course attend the same Parts, apply the assignment once across the image. This replaces earlier Part assignments for that code.', details);
+      const all = element('button', `Use checked Parts for all ${matching.length} entries of ${code}`, details); all.type = 'button';
+      all.addEventListener('click', () => assign(matching));
+    }
+    const reset = element('button', 'Use source evidence again', details); reset.type = 'button';
+    reset.addEventListener('click', () => {
+      delete row.level_override; delete row.level_override_code; row.reviewed = false; forgetEditor(editKey);
+      invalidate(); mappings(); headings(); render();
+    });
+  }
+  function partChanged() {
+    captureEditors(); offset = 0;
+    document.getElementById('coverage-checked').checked = false;
+    invalidate(); mappings(); headings(); render();
+  }
+  levelView.addEventListener('change', partChanged);
+  let matchedDepartment = departmentInput.value;
+  const departmentChanged = () => {
+    if (matchedDepartment === departmentInput.value) return;
+    captureEditors(); forgetEditor('part');
+    matchedDepartment = departmentInput.value;
+    departmentMatch = partTool.detect(departmentInput.value, levelProfiles, creation.course_sources, sourceHeading);
+    partChanged();
+  };
+  departmentInput.addEventListener('input', departmentChanged);
+  departmentInput.addEventListener('change', departmentChanged);
   function render() {
     resetBatch();
     tbody.replaceChildren();
     const query = search.value.toLowerCase();
     const filtered = rows.map((row, index) => ({ row, index })).filter(({ row }) => {
+      if (!inPart(row)) return false;
       if (dayFilter.value && row.day !== dayFilter.value || sourceFilter.value && String(row.page) !== sourceFilter.value) return false;
       if (query && ![row.course, row.room, row.course_text, row.room_text, row.source, row.day, row.date].some(value => String(value || '').toLowerCase().includes(query))) return false;
       if (filter.value === 'skipped') return !!row.skip;
@@ -792,6 +856,7 @@
       element('strong', `Row ${index + 1}`, source);
       if (row.page) element('small', `Page ${row.page}`, source);
       if (row.class_group) element('small', `Part / group: ${row.class_group}`, source);
+      partEditor(source, row);
       const raw = element('details', undefined, source);
       element('summary', 'Original text', raw);
       element('small', row.source || 'Manually added entry', raw);
@@ -829,7 +894,7 @@
         const input = element('select', undefined, parent); input.setAttribute('aria-label', `${label}, row ${index + 1}`);
         choices.forEach(item => { const opt = element('option', item.label, input); opt.value = item.value; });
         input.value = row[key] || '';
-        input.addEventListener('change', () => { row[key] = input.value; if (key === 'day') row.day_checked = true; edited(); if (key === 'course' || key === 'room') mappings(); else if (key === 'day') headings(); });
+        input.addEventListener('change', () => { chooseReference(row, key, input.value); if (key === 'day') row.day_checked = true; edited(); if (key === 'course' || key === 'room') mappings(); else if (key === 'day') headings(); if (key === 'course') { headings(); render(); } });
         return input;
       }
       function reference(key, choices, original) {
@@ -889,8 +954,9 @@
   form.querySelector('.document-options').addEventListener('input', invalidate);
   document.getElementById('add-review-row').addEventListener('click', () => {
     if (rows.length >= 300) { window.alert('Review at most 300 rows per document.'); return; }
-    rows.push({ editor_id: crypto.randomUUID(), course: '', room: '', day: '', date: '', start_time: '', end_time: '', reviewed: false, skip: false }); invalidate(); render();
-    filter.value = 'all'; search.value = ''; dayFilter.value = ''; sourceFilter.value = ''; offset = Math.floor((rows.length - 1) / pageSize) * pageSize; render();
+    const assignment = /^[1-6]$/.test(levelView.value) ? { level_override: [Number(levelView.value)], level_override_code: '' } : {};
+    rows.push({ ...assignment, editor_id: crypto.randomUUID(), course: '', room: '', day: '', date: '', start_time: '', end_time: '', reviewed: false, skip: false }); invalidate(); render();
+    filter.value = 'all'; search.value = ''; dayFilter.value = ''; sourceFilter.value = ''; offset = Math.floor((partRows().length - 1) / pageSize) * pageSize; render();
     tbody.lastElementChild?.scrollIntoView({ block: 'nearest' });
   });
   for (const input of [filter, search, dayFilter, sourceFilter]) input.addEventListener('input', () => { offset = 0; render(); });
@@ -913,10 +979,8 @@
   document.getElementById('weekly-checked').addEventListener('change', event => { document.getElementById('weekly-approve').disabled = !event.target.checked; });
   document.getElementById('weekly-approve').addEventListener('click', () => {
     if (!document.getElementById('weekly-checked').checked) return;
-    const kept = rows.map((row, index) => ({ row, index })).filter(({ row }) => !row.skip);
-    rows.forEach((row, index) => {
-      if (row.skip || problems(row).length || row.note || row.confidence != null && Number(row.confidence) < 90) return;
-      if (overlappingRows(row, index, kept).length) return;
+    rows.forEach(row => {
+      if (!inPart(row) || row.skip || problems(row).length || row.note || row.confidence != null && Number(row.confidence) < 90) return;
       row.day_checked = true; row.time_checked = true; row.reviewed = true;
     });
     invalidate(); headings(); render();
@@ -926,7 +990,7 @@
     return { rows: JSON.stringify(rows), pending: JSON.stringify(pending), editor_state: JSON.stringify(editorState),
       teaching_semester: document.getElementById('teaching-semester').value, department: document.getElementById('document-department').value,
       faculty: document.getElementById('document-faculty').value, source_version: document.getElementById('source-version').value,
-      coverage_checked: document.getElementById('coverage-checked').checked ? 'yes' : '' };
+      coverage_checked: document.getElementById('coverage-checked').checked ? 'yes' : '', ...partOptions() };
   }
   function acceptSave(result) {
     document.querySelectorAll('input[name="document_token"]').forEach(el => { el.value = result.token; });
@@ -936,8 +1000,16 @@
     const open = document.getElementById('source-open');
     if (open.href) { const url = new URL(open.href, location.href); url.searchParams.set('token', result.token); open.href = url; }
   }
-  function warnSave(message) {
+  function warnSave(message, error) {
     const warning = document.getElementById('draft-save-error'); warning.textContent = message; warning.hidden = !message;
+    const recovery = document.getElementById('draft-conflict-recovery');
+    if (error?.conflict) {
+      recovery.hidden = false;
+      if (error.latestToken) {
+        const link = document.getElementById('latest-saved-draft');
+        const latest = new URL(link.href, location.href); latest.searchParams.set('review', error.latestToken); link.href = latest;
+      }
+    } else if (!message) recovery.hidden = true;
   }
   if (window.fetch && window.OptispaceDraftAutosave && form.dataset.autosaveUrl) {
     autosave = window.OptispaceDraftAutosave({ snapshot, initialSnapshot: repairedReferences ? storedSnapshot : undefined,
@@ -953,6 +1025,8 @@
       if (!response.ok) {
         const error = new Error(result.error || 'Autosave failed. Keep this page open and use Save draft.');
         error.permanent = response.status >= 400 && response.status < 500 && response.status !== 429;
+        error.conflict = response.status === 409;
+        error.latestToken = result.latest_token;
         throw error;
       }
       if (!result.token) throw new Error('Autosave could not be confirmed. Keep this page open; it will retry.');
@@ -968,7 +1042,8 @@
     event.preventDefault();
     if (submitting) return;
     submitting = true;
-    if (!await autosave.beforeSubmit()) { submitting = false; autosave.resume(); return; }
+    const ready = await autosave.beforeSubmit();
+    if (!ready && event.submitter?.value !== 'recover') { submitting = false; autosave.resume(); return; }
     serialiseForm(event);
     HTMLFormElement.prototype.submit.call(form);
   }

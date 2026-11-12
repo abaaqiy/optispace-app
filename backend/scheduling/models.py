@@ -105,6 +105,7 @@ class TimetableImageImport(models.Model):
     academic_session = models.CharField(max_length=30)
     semester = models.CharField(max_length=20, blank=True)
     source_version = models.CharField(max_length=100, blank=True)
+    review_scope = models.CharField(max_length=10, default='all', editable=False)
     teaching_semester = models.ForeignKey(
         AcademicSemester, on_delete=models.PROTECT, null=True, blank=True, related_name='image_imports',
     )
@@ -117,6 +118,26 @@ class TimetableImageImport(models.Model):
         return " · ".join(filter(None, (
             self.department, self.academic_session, self.semester, self.source_version,
         )))
+
+
+class TimetableImageSubmission(models.Model):
+    """Claim a departmental Part once per session/semester; intentionally no admin category."""
+    department_key = models.CharField(max_length=400)
+    academic_session = models.CharField(max_length=30)
+    semester = models.CharField(max_length=20)
+    # Zero represents Unassigned. A full image claims zero and all six Parts.
+    part = models.PositiveSmallIntegerField()
+    image_import = models.ForeignKey(
+        TimetableImageImport, on_delete=models.SET_NULL, null=True, related_name='submissions',
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['department_key', 'academic_session', 'semester', 'part'],
+                                    name='unique_department_timetable_part'),
+            models.CheckConstraint(condition=models.Q(part__lte=6), name='timetable_submission_part_valid'),
+            models.CheckConstraint(condition=~models.Q(department_key=''), name='timetable_submission_department_required'),
+        ]
 
 
 class TimetableImageDraft(models.Model):
