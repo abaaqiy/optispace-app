@@ -17,8 +17,12 @@ const adminLinks = [
     path: 'scheduling/timetableday/',
   },
   {
-    label: 'Import School Timetable',
+    label: 'Import Timetable CSV',
     path: 'scheduling/timetableday/import/',
+  },
+  {
+    label: 'Import Timetable Image',
+    path: 'scheduling/timetableday/import-document/',
   },
   {
     label: 'Manage Users / Activate Lecturers',
@@ -36,7 +40,7 @@ const AdminDashboard = ({ rooms, onOpenDetails }) => {
 
         <p className="text-sm text-slate-600 mb-4">
           Add rooms, facilities, and lecture times through Django admin.
-          Add classes individually or import a school timetable CSV. Select Cancelled to release a class's time slot.
+          Add classes individually or import a school timetable from CSV or a lecture timetable image. Select Cancelled to release a class's time slot.
           Saved timetables immediately determine room availability.
         </p>
 

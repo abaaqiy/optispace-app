@@ -1,0 +1,15 @@
+{% extends "admin/change_form.html" %}
+{% load static %}
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'scheduling/course_suggestions.css' %}">{% endblock %}
+{% block extrahead %}{{ block.super }}<script src="{% static 'scheduling/course_suggestions.js' %}" defer></script><script src="{% static 'scheduling/course_admin.js' %}" defer></script>{% endblock %}
+{% block after_field_sets %}
+{{ block.super }}
+{% if course_suggestions %}
+{{ course_suggestions|json_script:"manual-course-catalogue" }}
+<section class="module course-suggestions" id="manual-course-suggestions" aria-label="Course title suggestions">
+  <h2>Course title suggestions</h2>
+  <p>Enter a course code above to find matching titles in the supplied OAU handbooks and earlier sources. Confirm the programme and academic session before selecting a title. Existing titles are replaced only when you choose a suggestion.</p>
+  <div id="manual-course-matches" aria-live="polite"></div>
+</section>
+{% endif %}
+{% endblock %}

@@ -86,10 +86,17 @@ class TimetableImportTests(TestCase):
         })
         return change_reservation(booking.reference, self.admin, "approve")
 
-    def test_csv_rejects_approved_booking_overlap(self):
+    def test_csv_and_reviewed_document_reject_approved_booking_overlap(self):
+        from .services.document_review import reviewed_csv
         self.approved_booking()
         with self.assertRaisesMessage(ImportProblem, "approved reservation"):
             preview_import(timetable_csv(self.row()))
+        document_text = reviewed_csv([{
+            "course": self.course.code, "room": self.room.code, "date": "2030-01-15",
+            "start_time": "10:00", "end_time": "12:00", "reviewed": True,
+        }], {"mode": "dated", "academic_session": "2029/2030"})
+        with self.assertRaisesMessage(ImportProblem, "approved reservation"):
+            preview_import(document_text)
         self.assertEqual(TimetableDay.objects.count(), 0)
 
     def test_approval_after_preview_blocks_whole_import_and_cancellation_allows_it(self):
@@ -278,12 +285,30 @@ class TimetableImportTests(TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["id"], str(active.pk))
         self.assertEqual(rows[0]["room"], active.room.code)
+        self.assertEqual((rows[0]['start_time'], rows[0]['end_time']), ('10:00 AM', '12:00 PM'))
         self.assertEqual(self.apply(response.content.decode("utf-8-sig"))["Unchanged"], 1)
         page = self.client.get(reverse("admin:scheduling_timetableday_changelist"), {"is_cancelled__exact": "0"})
         self.assertContains(page, "export/?is_cancelled__exact=0")
         self.assertContains(page, "Import CSV")
         self.assertContains(self.client.get(reverse("admin:scheduling_timetableday_references")), self.room.name)
         self.assertContains(self.client.get(reverse("admin:scheduling_timetableday_references"), {"kind": "courses"}), "CSC101")
+
+    def test_am_pm_csv_keeps_noon_and_afternoon_and_rejects_overlap(self):
+        text = timetable_csv(self.row(start_time='12:00 PM', end_time='1:30 PM'))
+        self.apply(text)
+        entry = TimetableDay.objects.get()
+        self.assertEqual((entry.start_time, entry.end_time), (time(12), time(13, 30)))
+        with self.assertRaisesMessage(ImportProblem, 'overlaps'):
+            preview_import(timetable_csv(self.row(start_time='1:00 PM', end_time='2:00 PM')))
+        midnight = preview_import(timetable_csv(self.row(date='2030-01-16', start_time='12:00 AM', end_time='1:00 AM')))
+        self.assertEqual(midnight.rows[0].values['start_time'], time(0))
+
+    def test_export_preserves_seconds_and_microseconds_when_reimported(self):
+        self.entry(start_time=time(14, 30, 15, 123456), end_time=time(15, 45, 30))
+        response = self.client.get(reverse('admin:scheduling_timetableday_export'))
+        text = response.content.decode('utf-8-sig')
+        self.assertIn('2:30:15.123456 PM', text)
+        self.assertEqual(self.apply(text)['Unchanged'], 1)
 
     def test_csv_structure_encoding_and_limits(self):
         valid = timetable_csv(self.row())
@@ -302,12 +327,13 @@ class TimetableImportTests(TestCase):
         with self.assertRaisesMessage(ImportProblem, "1000 classes"):
             parse_csv(timetable_csv(*[self.row() for _ in range(MAX_ROWS + 1)]))
 
-    def test_name_matching_is_case_insensitive_and_reports_ambiguity(self):
+    def test_name_matching_is_case_insensitive_and_duplicate_codes_are_rejected(self):
         self.apply(timetable_csv(self.row(room=self.room.name.upper(), course="csc101")))
         self.assertEqual(TimetableDay.objects.count(), 1)
-        Course.objects.create(code="csc101", title="Ambiguous", department="Computing")
-        with self.assertRaisesMessage(ImportProblem, "multiple records"):
-            preview_import(timetable_csv(self.row(date="2030-01-16")))
+        with self.assertRaisesMessage(ValidationError, "already exists"):
+            Course.objects.create(code="csc101", title="Ambiguous", department="Computing")
+        self.assertEqual(Course.objects.count(), 1)
+        self.assertEqual(preview_import(timetable_csv(self.row(date="2030-01-16"))).counts['Add'], 1)
 
     def test_preview_escapes_html_and_downloads_neutralise_formulas(self):
         self.course.title = "<script>alert(1)</script>"

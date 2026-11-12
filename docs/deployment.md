@@ -30,8 +30,9 @@ The repository includes a Dockerfile and `render.yaml`. Docker builds the React
 frontend, collects Django static files, and starts Gunicorn with one worker and
 four threads. No Redis service, paid disk, background worker, paid domain or
 additional database is needed.
-This version has no email sending or password-reset service; email delivery is
-disabled in production rather than requiring an SMTP subscription.
+Password resets are handled by superuser administrators through **Users → Reset
+password**. Email delivery remains disabled; no SMTP subscription is required.
+See [account management](account-management.md) for deletion and reset behavior.
 
 ## Keep the total cost at zero
 

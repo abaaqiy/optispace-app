@@ -97,7 +97,7 @@ class RoomIntegrationTests(APITestCase):
         self.assertEqual(row["roomId"], self.room.code)
         self.assertEqual(row["purpose"], self.day.title)
         self.assertEqual(row["organizer"], "Computing")
-        self.assertEqual(row["timeSlot"], "09:00 - 11:00")
+        self.assertEqual(row["timeSlot"], "9:00 AM - 11:00 AM")
         self.assertEqual(row["date"], "2030-05-20")
         self.assertEqual(row["status"], "Scheduled")
         self.assertTrue(row["isApproved"])

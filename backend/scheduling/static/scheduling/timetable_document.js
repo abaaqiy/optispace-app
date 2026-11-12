@@ -1,0 +1,1064 @@
+/* Source data is always rendered as text, never HTML. No external OCR services. */
+(() => {
+  const upload = document.getElementById('document-upload');
+  upload?.addEventListener('submit', () => {
+    upload.querySelector('button').disabled = true;
+    document.getElementById('extraction-status').textContent = 'Reading the lecture timetable image… This can take a minute.';
+  });
+  const form = document.getElementById('document-review');
+  if (!form) return;
+  const clock = window.OptispaceClock;
+  const clockRange = row => `${clock.format(row.start_time) || '?'}–${clock.format(row.end_time) || '?'}`;
+  const rows = JSON.parse(document.getElementById('document-rows').textContent);
+  const refs = JSON.parse(document.getElementById('document-references').textContent);
+  const pages = JSON.parse(document.getElementById('document-pages').textContent);
+  const pending = JSON.parse(document.getElementById('document-pending').textContent);
+  const creation = JSON.parse(document.getElementById('document-creation-choices').textContent);
+  const editorState = JSON.parse(document.getElementById('document-editor-state')?.textContent || '{}');
+  const partTool = window.OptispacePartSelection;
+  const levelProfiles = JSON.parse(document.getElementById('document-level-profiles')?.textContent || '[]');
+  const levelView = document.getElementById('level-view');
+  const departmentInput = document.getElementById('document-department');
+  const sourceHeading = JSON.parse(document.getElementById('document-source-heading')?.textContent || '""');
+  let departmentMatch = partTool.detect(departmentInput.value, levelProfiles, creation.course_sources, sourceHeading);
+  for (const [value, label] of [['all', 'All extracted entries'], ...[1, 2, 3, 4, 5, 6]
+    .map(part => [String(part), `Part ${part} (${part}00 level)`]), ['unassigned', 'Unassigned / uncertain']]) {
+    const option = document.createElement('option'); option.value = value;
+    option.textContent = label; option.dataset.label = label; levelView.append(option);
+  }
+  levelView.value = levelView.dataset.saved || 'all';
+  const partOptions = () => ({ level_view: levelView.value || 'all' });
+  const partInfo = row => partTool.classify(row, departmentMatch.profiles, pending);
+  const inPart = row => partTool.matches(partInfo(row), levelView.value);
+  const partRows = () => rows.filter(inPart);
+  function chooseReference(row, field, value) {
+    // Bind a manually added blank entry's chosen Part to its first course code.
+    if (field === 'course' && Array.isArray(row.level_override) && row.level_override_code === ''
+      && !partTool.code(row, pending)) row.level_override_code = partTool.code({ ...row, course: value }, pending);
+    row[field] = value;
+  }
+  const normalise = value => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const codeKey = window.OptispaceCourseSuggestions.codeKey;
+  function roomKey(value) {
+    const key = normalise(value);
+    const matches = creation.room_names.filter(item => [item.name, ...item.aliases].some(name => normalise(name) === key));
+    return matches.length === 1 ? matches[0].identity || normalise(matches[0].name) : key;
+  }
+  const identity = (kind, record) => kind === 'course' ? codeKey(record.code) : roomKey(record.name);
+  const proposedLabel = draft => `${draft.code || draft.name}${draft.title_pending ? ' — Title awaiting confirmation' : ''}`;
+  for (const kind of ['courses', 'rooms']) pending[kind] ||= [];
+  // Capture the stored payload before upgrading duplicate choices, so autosave
+  // persists the repairs even when the administrator only reopens this draft.
+  const storedSnapshot = snapshot();
+  let repairedReferences = false;
+  function consolidateReferences() {
+    for (const kind of ['course', 'room']) {
+      const byIdentity = new Map(refs[kind + 's'].map(item => {
+        item.identity ||= kind === 'course' ? codeKey(item.value) : roomKey(item.name || item.label.split(' — ')[0]);
+        return [item.identity, item];
+      }));
+      const redirects = new Map();
+      for (const record of pending[kind + 's']) {
+        const key = identity(kind, record);
+        const existing = key && byIdentity.get(key);
+        if (existing) {
+          const target = existing.value;
+          if (record.duplicate_of !== target) { record.duplicate_of = target; repairedReferences = true; }
+          redirects.set(record.key, target);
+        } else {
+          if (record.duplicate_of) { delete record.duplicate_of; repairedReferences = true; }
+          const item = { value: record.key, label: `New: ${proposedLabel(record)}`, identity: key, keys: [] };
+          refs[kind + 's'].push(item);
+          if (key) byIdentity.set(key, item);
+        }
+      }
+      for (const row of rows) if (redirects.has(row[kind])) {
+        row[kind] = redirects.get(row[kind]); row.reviewed = false; repairedReferences = true;
+      }
+      for (const [key, value] of Object.entries(editorState)) if (redirects.has(value)) {
+        editorState[key] = redirects.get(value); repairedReferences = true;
+      }
+    }
+  }
+  consolidateReferences();
+  rows.forEach(row => { row.editor_id ||= crypto.randomUUID(); });
+  let autosave;
+  const editorControls = new Map();
+  function bindEditor(el, key) {
+    const read = () => el.type === 'checkbox' ? el.checked : el.value;
+    if (Object.hasOwn(editorState, key)) {
+      if (el.type === 'checkbox') el.checked = !!editorState[key];
+      else if (typeof editorState[key] === 'string') el.value = editorState[key];
+    }
+    let previous = read();
+    const remember = () => {
+      const value = read();
+      if (value !== previous) { editorState[key] = value; previous = value; invalidate(); return true; }
+      return false;
+    };
+    remember.key = key;
+    editorControls.set(el, remember);
+    el.addEventListener('input', remember); el.addEventListener('change', remember);
+    if (el.tagName === 'SELECT') window.django?.jQuery(el).on('change.editorDraft', remember);
+    return el;
+  }
+  function forgetEditor(prefix) {
+    for (const key of Object.keys(editorState)) if (key.startsWith(prefix + ':')) delete editorState[key];
+    for (const [el, remember] of editorControls) if (remember.key.startsWith(prefix + ':')) editorControls.delete(el);
+  }
+  function captureEditors() {
+    let changed = false;
+    for (const [el, capture] of editorControls) {
+      if (el.isConnected) changed = capture() || changed; else editorControls.delete(el);
+    }
+    return changed;
+  }
+  const days = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const tbody = document.querySelector('#document-table tbody');
+  const pageSelect = document.getElementById('source-page');
+  const image = document.getElementById('source-image');
+  const highlight = document.getElementById('source-highlight');
+  const mode = document.getElementById('document-mode');
+  const filter = document.getElementById('review-filter');
+  const search = document.getElementById('review-search');
+  const dayFilter = document.getElementById('review-day');
+  const sourceFilter = document.getElementById('review-page');
+  const batchChecked = document.getElementById('batch-checked');
+  const batchButton = document.getElementById('review-batch');
+  const valid = Object.fromEntries(['course', 'room'].map(key => [key, new Set(refs[key + 's'].map(item => item.value))]));
+  let offset = 0;
+  let visible = [];
+  let activeBox = null;
+  const pageSize = 25;
+  pending.buildings ||= [];
+  function consolidateBuildings() {
+    const identities = new Map(creation.buildings.map(building => [normalise(building.name),
+      { value: String(building.id), campus_zone: building.campus_zone }]));
+    const redirects = new Map();
+    pending.buildings = pending.buildings.filter(building => {
+      const key = normalise(building.name);
+      const existing = key && identities.get(key);
+      if (existing && existing.campus_zone === building.campus_zone) {
+        redirects.set(building.key, existing.value); repairedReferences = true; return false;
+      }
+      if (key) identities.set(key, { value: building.key, campus_zone: building.campus_zone });
+      return true;
+    });
+    for (const room of pending.rooms) if (redirects.has(room.building)) room.building = redirects.get(room.building);
+    for (const [key, value] of Object.entries(editorState)) if (redirects.has(value)) editorState[key] = redirects.get(value);
+    for (const key of Object.keys(editorState)) {
+      if ([...redirects.keys()].some(recordKey => key.startsWith(`record:building:${recordKey}:`))) delete editorState[key];
+    }
+  }
+  consolidateBuildings();
+  const buildingControls = new Map();
+  function buildingChoices() {
+    return [
+      ...creation.buildings.map(building => ({ value: String(building.id), label: `${building.name} — ${building.campus_zone}` })),
+      ...pending.buildings.map(building => ({ value: building.key, label: `Prepared: ${building.name} — ${building.campus_zone}` })),
+      ...(creation.can_add_building ? [{ value: 'new', label: 'Prepare a new building' }] : []),
+    ];
+  }
+  function refreshBuildingChoices() {
+    const choices = buildingChoices();
+    for (const [select, update] of buildingControls) {
+      if (!select.isConnected) { buildingControls.delete(select); continue; }
+      const value = select.value;
+      select.replaceChildren();
+      [{ value: '', label: 'Choose…' }, ...choices].forEach(item => {
+        const option = element('option', item.label, select); option.value = item.value;
+      });
+      if (value && !choices.some(item => item.value === value)) {
+        const missing = element('option', 'Missing prepared building — choose another', select); missing.value = value;
+      }
+      select.value = value;
+      window.django?.jQuery(select).trigger?.('change.select2');
+      update();
+    }
+  }
+  function prepareBuilding(name, zone, key = null) {
+    name = String(name || '').trim(); zone = String(zone || '').trim();
+    if (!name || name.length > 200 || !zone || zone.length > 150) throw new Error('Enter the building name and campus area once before preparing it.');
+    const saved = creation.buildings.find(building => normalise(building.name) === normalise(name));
+    if (saved) {
+      if (key || saved.campus_zone !== zone) throw new Error(`Building ${saved.name} already exists in ${saved.campus_zone}. Select its saved record or edit it in Buildings.`);
+      return String(saved.id);
+    }
+    const existing = pending.buildings.find(building => building.key !== key && normalise(building.name) === normalise(name));
+    if (existing) {
+      if (key || existing.campus_zone !== zone) throw new Error(`Building ${existing.name} is already prepared in ${existing.campus_zone}. Select that building to reuse it.`);
+      return existing.key;
+    }
+    const record = { key: key || `draft-building-${crypto.randomUUID()}`, name, campus_zone: zone };
+    const index = pending.buildings.findIndex(building => building.key === record.key);
+    if (index >= 0) pending.buildings[index] = record; else pending.buildings.push(record);
+    return record.key;
+  }
+  // Upgrade old per-room proposals in memory; the next save preserves the shared choice.
+  for (const room of pending.rooms) {
+    if (room.building !== 'new' || !room.building_name || !room.campus_zone) continue;
+    try {
+      room.building = prepareBuilding(room.building_name, room.campus_zone);
+      delete room.building_name; delete room.campus_zone;
+    } catch { /* Keep conflicting legacy values for explicit correction. */ }
+  }
+  function clearEditors(root) {
+    root.dispatchEvent(new CustomEvent('room-catalog:remove', { bubbles: true }));
+    root.replaceChildren();
+  }
+  function problems(row) {
+    const errors = [];
+    for (const key of ['course', 'room']) if (!valid[key].has(row[key])) errors.push(`Match or prepare a ${key}`);
+    if (!/^\d{2}:\d{2}$/.test(row.start_time || '') || !/^\d{2}:\d{2}$/.test(row.end_time || '') || row.start_time >= row.end_time || [row.start_time, row.end_time].some(value => value && (Number(value.slice(0, 2)) > 23 || Number(value.slice(3)) > 59))) errors.push('Correct the start/end times');
+    if (mode.value === 'weekly') {
+      if (!days.slice(1).includes(row.day)) errors.push('Choose a weekday');
+    } else {
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(row.date || '') ? new Date(`${row.date}T12:00:00Z`) : null;
+      if (!date || Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== row.date) errors.push('Choose a valid date');
+      else if (row.day && row.day !== days[(date.getUTCDay() + 6) % 7 + 1]) errors.push('Weekday does not match the date');
+    }
+    return errors;
+  }
+  function warnings(row) {
+    return [...(row.note ? [row.note] : []), ...(row.confidence != null && Number(row.confidence) < 90 ? ['Uncertain reading; compare with the image'] : []), ...(row.day_group && !row.day_checked ? ['Check the shared weekday heading'] : []), ...(row.time_group && !row.time_checked ? ['Check the shared time heading'] : [])];
+  }
+  function ready(row) { return !row.skip && !row.reviewed && !problems(row).length && !warnings(row).length; }
+  function resetBatch() { batchChecked.checked = false; batchButton.disabled = true; }
+  function batchStatus() {
+    const eligible = visible.filter(({ row }) => ready(row)).length;
+    document.getElementById('batch-status').textContent = `${eligible} visible rows eligible; warnings and missing fields require individual attention.`;
+    batchButton.disabled = !batchChecked.checked || !eligible;
+  }
+  function element(tag, text, parent) {
+    const el = document.createElement(tag);
+    if (text !== undefined) el.textContent = text;
+    if (parent) parent.append(el);
+    return el;
+  }
+  function invalidate() {
+    document.getElementById('document-final-preview')?.setAttribute('hidden', ''); resetBatch();
+    document.getElementById('weekly-checked').checked = false;
+    document.getElementById('weekly-approve').disabled = true;
+    autosave?.changed();
+    queueMicrotask(() => { captureEditors(); autosave?.changed(); });
+  }
+  function status() {
+    partStatus();
+    const current = partRows();
+    const kept = current.filter(r => !r.skip);
+    document.getElementById('review-status').textContent = `${kept.filter(r => r.reviewed).length} of ${kept.length} retained rows reviewed; ${kept.filter(r => problems(r).length).length} with missing/invalid fields; ${kept.filter(ready).length} ready for batch review; ${current.length - kept.length} skipped.`;
+    batchStatus();
+    readyGroups();
+    weeklyPreview();
+  }
+  function weeklyPreview() {
+    const root = document.getElementById('weekly-preview'); root.replaceChildren();
+    const kept = rows.map((row, index) => ({ row, index })).filter(({ row }) => inPart(row) && !row.skip);
+    const times = [...new Set(kept.map(({ row }) => `${row.start_time || '?'}–${row.end_time || '?'}`))].sort();
+    const table = element('table', undefined, root); table.className = 'weekly-grid';
+    const header = element('tr', undefined, element('thead', undefined, table));
+    const shownDays = days.slice(1).filter(day => kept.some(({ row }) => row.day === day));
+    if (kept.some(({ row }) => !days.includes(row.day) || !row.day)) shownDays.push('Needs weekday');
+    ['Time', ...shownDays].forEach(label => { const th = element('th', label, header); th.scope = 'col'; });
+    const body = element('tbody', undefined, table);
+    let flagged = 0;
+    for (const time of times) {
+      const tr = element('tr', undefined, body); const th = element('th', time.split('–').map(clock.format).join('–'), tr); th.scope = 'row';
+      for (const day of shownDays) {
+        const td = element('td', undefined, tr);
+        kept.filter(({ row }) => `${row.start_time || '?'}–${row.end_time || '?'}` === time && (row.day === day || day === 'Needs weekday' && (!row.day || !days.includes(row.day)))).forEach(({ row, index }) => {
+          const issue = problems(row).length || (!row.reviewed && (row.note || row.confidence != null && Number(row.confidence) < 90));
+          const overlap = rows.some((other, i) => !other.skip && i !== index && row.room && row.room === other.room && row.day === other.day && row.start_time < other.end_time && row.end_time > other.start_time);
+          const button = element('button', undefined, td); button.type = 'button'; button.className = `weekly-card${issue || overlap ? ' weekly-issue' : ''}`;
+          if (issue || overlap) flagged++;
+          element('strong', refs.courses.find(item => item.value === row.course)?.label || row.course_text || 'Course missing', button);
+          element('span', refs.rooms.find(item => item.value === row.room)?.label || row.room_text || 'Venue missing', button);
+          element('small', `Row ${index + 1}${overlap ? ' · Overlap — check' : issue ? ' · Needs attention' : row.reviewed ? ' · Reviewed' : ''}`, button);
+          if (row.class_group) element('small', `Part / group: ${row.class_group}`, button);
+          button.addEventListener('click', () => {
+            filter.value = 'all'; search.value = ''; dayFilter.value = ''; sourceFilter.value = '';
+            const position = partRows().indexOf(row);
+            offset = Math.floor(position / pageSize) * pageSize; render();
+            showPage(row.page, row.box);
+            tbody.children[position % pageSize]?.scrollIntoView({ block: 'center' });
+          });
+        });
+      }
+    }
+    document.getElementById('weekly-status').textContent = `${kept.length} weekly entries; ${flagged} need attention. Saved timetable/reservation conflicts are checked during validation.`;
+  }
+  function headings() {
+    captureEditors();
+    const root = document.getElementById('heading-mappings');
+    root.replaceChildren();
+    for (const kind of ['day', 'time']) {
+      const groups = new Map();
+      rows.forEach(row => {
+        if (!inPart(row) || row.skip || !row[kind + '_group']) return;
+        const key = row[kind + '_group'];
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(row);
+      });
+      for (const affected of groups.values()) {
+        const first = affected[0];
+        const editKey = `heading:${kind}:${first[kind + '_group']}` + (levelView.value === 'all' ? '' : `:part-${levelView.value}`);
+        const section = element('div', undefined, root); section.className = 'heading-mapping';
+        const label = kind === 'day' ? 'Weekday' : 'Time';
+        element('strong', `${label}: “${first[kind + '_text'] || 'not readable'}” · ${affected.length} entries`, section);
+        const show = element('button', 'Show heading', section); show.type = 'button';
+        show.addEventListener('click', () => showPage(first.page, first[kind + '_box']));
+        const inputs = [];
+        if (kind === 'day') {
+          const select = element('select', undefined, section); select.setAttribute('aria-label', `Weekday heading ${first.day_group}`);
+          days.forEach(day => { const option = element('option', day || 'Choose weekday', select); option.value = day; });
+          select.value = first.day || ''; bindEditor(select, editKey + ':day'); inputs.push(select);
+        } else {
+          for (const [key, label] of [['start_time', 'Start'], ['end_time', 'End']]) {
+            const input = clock.input(element('input', undefined, section), first[key] || '', `${label} heading ${first.time_group}`); bindEditor(input, editKey + ':' + key); inputs.push(input);
+          }
+        }
+        if (first[kind + '_note']) element('small', first[kind + '_note'], section);
+        const sameValues = affected.every(row => kind === 'day' ? row.day === first.day : row.start_time === first.start_time && row.end_time === first.end_time);
+        if (!sameValues) element('small', 'Some entries have individual corrections. Confirming here replaces those values for this heading.', section);
+        const apply = element('button', affected.every(row => row[kind + '_checked']) ? 'Heading checked' : 'Confirm heading for these entries', section); apply.type = 'button';
+        inputs.forEach(input => input.addEventListener('input', () => { apply.textContent = 'Confirm corrected heading'; }));
+        apply.addEventListener('click', () => {
+          const start = kind === 'time' ? clock.parse(inputs[0].value) : '';
+          const end = kind === 'time' ? clock.parse(inputs[1].value) : '';
+          if (kind === 'day' && !days.slice(1).includes(inputs[0].value) || kind === 'time' && (!start || !end || start >= end)) { window.alert('Choose a valid heading before confirming it. Use AM/PM for times.'); return; }
+          affected.forEach(row => {
+            if (row.skip) return;
+            const changed = kind === 'day' ? row.day !== inputs[0].value : row.start_time !== start || row.end_time !== end;
+            if (kind === 'day') row.day = inputs[0].value;
+            else { row.start_time = start; row.end_time = end; delete row.start_time_input; delete row.end_time_input; }
+            row[kind + '_checked'] = true;
+            if (changed) row.reviewed = false;
+          });
+          forgetEditor(editKey);
+          invalidate(); headings(); render();
+        });
+      }
+    }
+    if (!root.children.length) element('p', 'No shared headings need confirmation for these entries.', root);
+  }
+  function readyGroups() {
+    const root = document.getElementById('ready-groups');
+    const open = new Set([...root.querySelectorAll('details[open]')].map(el => el.dataset.day));
+    root.replaceChildren();
+    for (const day of days.slice(1)) {
+      const group = rows.map((row, index) => ({ row, index })).filter(({ row }) => inPart(row) && row.day === day && ready(row));
+      if (!group.length) continue;
+      const details = element('details', undefined, root); details.dataset.day = day; details.open = open.has(day);
+      element('summary', `${day}: ${group.length} clear entries to check`, details);
+      const table = element('table', undefined, details); table.className = 'compact-review';
+      const head = element('tr', undefined, element('thead', undefined, table)); ['Time', 'Course', 'Room', 'Source'].forEach(title => element('th', title, head));
+      const body = element('tbody', undefined, table);
+      group.sort((a, b) => a.row.start_time.localeCompare(b.row.start_time)).forEach(({ row, index }) => {
+        const tr = element('tr', undefined, body);
+        element('td', `${clockRange(row)}`, tr);
+        element('td', row.course, tr);
+        element('td', refs.rooms.find(item => item.value === row.room)?.label || row.room, tr);
+        const td = element('td', undefined, tr);
+        const show = element('button', `Row ${index + 1}`, td); show.type = 'button'; show.addEventListener('click', () => showPage(row.page, row.box));
+      });
+      const label = element('label', undefined, details); const checked = element('input', undefined, label); checked.type = 'checkbox'; label.append(document.createTextNode(` I compared this ${day} group with the image.`));
+      const approve = element('button', `Mark ${day} group reviewed`, details); approve.type = 'button'; approve.disabled = true;
+      checked.addEventListener('change', () => { approve.disabled = !checked.checked; });
+      approve.addEventListener('click', () => { if (!checked.checked) return; group.forEach(({ row }) => { if (ready(row)) row.reviewed = true; }); invalidate(); render(); });
+    }
+    if (!root.children.length) element('p', 'No clear unreviewed groups yet. Resolve names and shared headings, or correct the flagged entries below.', root);
+  }
+  function mappings() {
+    captureEditors();
+    const root = document.getElementById('reference-mappings');
+    clearEditors(root);
+    let groupCount = 0;
+    for (const key of ['course', 'room']) {
+      const groups = new Map();
+      rows.forEach((row, index) => {
+        if (!inPart(row) || row.skip || valid[key].has(row[key])) return;
+        const text = row[key + '_text'] || '';
+        const group = normalise(text) || `missing-${index}`;
+        if (!groups.has(group)) groups.set(group, { text, rows: [] });
+        groups.get(group).rows.push(row);
+      });
+      for (const { text, rows: affected } of groups.values()) {
+        groupCount++;
+        const section = element('div', undefined, root); section.className = 'reference-mapping';
+        element('strong', `${key === 'course' ? 'Course' : 'Room'} “${text}” — ${affected.length} row(s)`, section);
+        referenceActions(section, key, text, affected);
+        const choice = element('select', undefined, section); choice.id = `map-${key}-${crypto.randomUUID()}`;
+        const label = element('label', `Select correct ${key}`, section); label.htmlFor = choice.id; choice.before(label);
+        choice.className = 'room-catalog-select'; choice.setAttribute('aria-label', `Map ${key} ${text}`);
+        [{ value: '', label: `Select correct ${key}…` }, ...refs[key + 's']].forEach(item => {
+          const opt = element('option', item.label, choice); opt.value = item.value;
+          opt.dataset.searchAliases = (item.keys || []).join(' ');
+        });
+        const editKey = `mapping:${key}:${normalise(text) || affected[0].editor_id}`;
+        bindEditor(choice, editKey + ':choice');
+        const apply = element('button', 'Use for all matching unresolved rows', section); apply.type = 'button'; apply.disabled = !choice.value;
+        const selected = () => { apply.disabled = !choice.value; };
+        choice.addEventListener('change', selected); window.django.jQuery(choice).on('change.referenceChoice', selected);
+        choice.dispatchEvent(new CustomEvent('room-catalog:added', { bubbles: true }));
+        apply.addEventListener('click', () => {
+          affected.filter(row => !row.skip && !valid[key].has(row[key])).forEach(row => { chooseReference(row, key, choice.value); row.reviewed = false; });
+          forgetEditor(editKey);
+          invalidate(); offset = 0; mappings(); render();
+        });
+        if (creation['can_add_' + key]) {
+          const details = element('details', undefined, section);
+          element('summary', `Prepare a new ${key} here`, details);
+          recordEditor(details, key, text, affected);
+        }
+      }
+    }
+    document.getElementById('mapping-status').textContent = groupCount ? `${groupCount} distinct OCR readings need matching. These are readings from the image, not courses generated from handbooks. Inspect uncertain codes before preparing records.` : 'All retained names are matched. Skipped entries are excluded; use the Skipped filter to restore them.';
+    preparedBuildings(); proposedRecords();
+    if (levelView.value !== 'all') headings();
+  }
+  function referenceActions(section, key, text, affected) {
+    const locations = element('details', undefined, section);
+    element('summary', 'Inspect locations / correct reading / skip', locations);
+    element('p', 'Compare each reading with its highlighted image area. A course missing from a handbook may still be valid. Correct an OCR error; skip only an entry you do not want to import.', locations);
+    affected.forEach(row => {
+      const line = element('div', undefined, locations); line.className = 'mapping-location';
+      const index = rows.indexOf(row);
+      const show = element('button', `Show row ${index + 1}: ${row.day || '?'} ${clockRange(row)} · ${row.room_text || 'venue unreadable'}`, line); show.type = 'button';
+      show.addEventListener('click', () => showPage(row.page, row.box));
+      const skip = element('button', 'Skip this entry', line); skip.type = 'button';
+      skip.addEventListener('click', () => { row.skip = true; row.reviewed = false; invalidate(); mappings(); headings(); render(); });
+      correction(line, [row], row[key + '_text'] || '', `Correct ${key} reading in row ${index + 1}`);
+    });
+    function correction(parent, entries, initial, labelText) {
+      const label = element('label', labelText, parent);
+      const corrected = element('input', undefined, label); corrected.type = 'text'; corrected.value = initial; corrected.maxLength = key === 'course' ? 30 : 200;
+      const editKey = `correction:${key}:${entries[0].editor_id}:${entries.length}`;
+      bindEditor(corrected, editKey + ':text');
+      const apply = element('button', 'Apply corrected reading', parent); apply.type = 'button';
+      const error = element('p', undefined, parent); error.className = 'review-note'; error.setAttribute('role', 'alert');
+      apply.addEventListener('click', () => {
+        const value = key === 'course' ? window.OptispaceCourseSuggestions.codeKey(corrected.value) : corrected.value.trim();
+        if (!value || key === 'course' && !/^[A-Z]{2,5}\d{3}$/.test(value)) { error.textContent = 'Enter the complete reading you confirmed in the image.'; return; }
+        entries.forEach(row => {
+          row['original_' + key + '_text'] ??= row[key + '_text'];
+          row[key + '_text'] = value; row[key] = ''; row.reviewed = false;
+        });
+        forgetEditor(editKey);
+        invalidate(); mappings(); render();
+      });
+    }
+    if (affected.length > 1) correction(locations, affected, text, `Correct ${key} reading for all ${affected.length} entries`);
+    const skipAll = element('button', 'Skip all these entries', locations); skipAll.type = 'button';
+    skipAll.addEventListener('click', () => { affected.forEach(row => { row.skip = true; row.reviewed = false; }); invalidate(); mappings(); headings(); render(); });
+    element('p', 'Skipped entries need no course title or venue. Restore them using the Skipped filter below.', locations);
+  }
+  function recordEditor(parent, kind, detected, affected, draft = null) {
+    const fields = {};
+    const prefix = draft?.key || `edit-${crypto.randomUUID()}`;
+    const editKey = `record:${kind}:${draft?.key || normalise(detected) || affected[0]?.editor_id}`;
+    const initial = key => Object.hasOwn(editorState, editKey + ':' + key) ? editorState[editKey + ':' + key] : draft?.[key];
+    const wrap = element('div', undefined, parent); wrap.className = 'record-editor';
+    function input(key, label, value = '', { type = 'text', options = null, required = true, max = 200 } = {}) {
+      const row = element('div', undefined, wrap);
+      const labelEl = element('label', label, row); labelEl.htmlFor = `${prefix}-${key}`;
+      const el = element(options ? 'select' : 'input', undefined, row); el.id = labelEl.htmlFor;
+      if (options) {
+        [{ value: '', label: 'Choose…' }, ...options].forEach(item => { const option = element('option', item.label, el); option.value = item.value; });
+      } else { el.type = type; el.maxLength = max; if (type === 'number') el.min = '1'; }
+      el.value = initial(key) ?? value; fields[key] = { el, required, label };
+      el.addEventListener('input', invalidate);
+      return el;
+    }
+    function catalogueInput(key, label, value, choices, max, required = true) {
+      const select = input(key, label, value, { options: choices });
+      const holder = element('div'); holder.className = 'room-name-widget'; holder.dataset.optionalEditor = 'true';
+      select.parentElement.append(holder); holder.append(select);
+      select.className = 'room-catalog-select';
+      for (const option of select.options) option.dataset.searchAliases = choices.find(item => item.value === option.value)?.aliases?.join(' ') || '';
+      const other = element('option', `Others — enter a ${label.toLowerCase()}`, select); other.value = '__other__';
+      const custom = element('div', undefined, holder); custom.className = 'room-custom-name';
+      const customLabel = element('label', `Custom ${label.toLowerCase()}`, custom); customLabel.htmlFor = `${prefix}-${key}-custom`;
+      const text = element('input', undefined, custom); text.id = customLabel.htmlFor; text.maxLength = max;
+      const valueBeforeEdit = String(draft?.[key] ?? value);
+      const listed = choices.some(item => item.value === valueBeforeEdit);
+      select.value = valueBeforeEdit ? (listed ? valueBeforeEdit : '__other__') : '';
+      text.value = listed ? '' : valueBeforeEdit;
+      fields[key] = { label, required, el: select,
+        container: select.closest('.room-name-widget').parentElement,
+        read: () => select.value === '__other__' ? text.value.trim() : select.value,
+        control: () => select.value === '__other__' ? text : select };
+      text.addEventListener('input', invalidate);
+      bindEditor(text, editKey + ':' + key + '-custom');
+      bindEditor(select, editKey + ':' + key);
+      window.django.jQuery(select).on('change', invalidate);
+      holder.dispatchEvent(new CustomEvent('room-catalog:added', { bubbles: true }));
+      return select;
+    }
+    if (kind === 'course') {
+      const code = input('code', 'Course code', detected.replace(/\s/g, '').toUpperCase(), { max: 30 });
+      const title = input('title', 'Course title');
+      const pendingLabel = element('label', undefined, wrap);
+      const pendingTitle = element('input', undefined, pendingLabel); pendingTitle.type = 'checkbox'; pendingTitle.checked = !!initial('title_pending');
+      bindEditor(pendingTitle, editKey + ':title_pending');
+      pendingLabel.append(document.createTextNode(' I confirmed this course code in the image; its title is awaiting confirmation.'));
+      fields.title_pending = { read: () => pendingTitle.checked };
+      fields.title.read = () => pendingTitle.checked ? '' : title.value.trim();
+      function titleMode() { title.disabled = pendingTitle.checked; fields.title.required = !pendingTitle.checked; }
+      pendingTitle.addEventListener('change', () => { source = null; titleMode(); invalidate(); });
+      titleMode();
+      element('p', 'If the title is unknown, use the checkbox after checking the code. The class still affects room availability. Complete the title later in Courses → Title awaiting confirmation.', wrap);
+      const department = input('department', 'Department', document.getElementById('document-department').value, { max: 150 });
+      const suggestions = element('div', undefined, wrap); suggestions.className = 'course-suggestions'; suggestions.setAttribute('aria-live', 'polite');
+      let selectedCode = draft?.title_source?.code || '', source = draft?.title_source || null;
+      fields.title_source = { read: () => !pendingTitle.checked && source && source.code === window.OptispaceCourseSuggestions.codeKey(code.value) && source.title === title.value ? source : null };
+      function showSuggestions() {
+        suggestions.replaceChildren();
+        const key = window.OptispaceCourseSuggestions.codeKey(code.value);
+        const saved = refs.courses.filter(item => item.value !== draft?.key && item.identity === key);
+        if (saved.length) {
+          element('p', 'This course is already saved or prepared. Reuse its existing record.', suggestions);
+          saved.forEach(item => {
+            const use = element('button', `Use existing ${item.label}`, suggestions); use.type = 'button';
+            use.addEventListener('click', () => {
+              affected.forEach(row => { chooseReference(row, 'course', item.value); row.reviewed = false; });
+              forgetEditor(editKey);
+              invalidate(); mappings(); render();
+            });
+          });
+          return;
+        }
+        const matches = window.OptispaceCourseSuggestions.lookup(code.value, creation.course_catalogue, creation.course_sources);
+        if (selectedCode && selectedCode !== key && title.value) element('p', 'The code changed. Check the existing title before using this record.', suggestions).className = 'review-note';
+        if (!matches.length) {
+          element('p', 'No verified title for this exact code in the current source catalogue. Check the code in the image, then enter a known title or mark it as awaiting confirmation. A missing suggestion does not mean the course is invalid.', suggestions);
+          return;
+        }
+        window.OptispaceCourseSuggestions.renderCandidates(suggestions, matches, title.value, item => {
+          title.value = item.title;
+          pendingTitle.checked = false; titleMode();
+          if (item.department) department.value = item.department;
+          selectedCode = key;
+          source = { code: item.code, title: item.title, source_id: item.source_id, source_url: item.source_url, page: item.page, edition: item.edition, programme: item.programme,
+            evidence: item.evidence.map(({ source_id, source_url, page, edition }) => ({ source_id, source_url, page, edition })) };
+          invalidate(); showSuggestions();
+        });
+      }
+      code.addEventListener('input', () => { pendingTitle.checked = false; titleMode(); showSuggestions(); });
+      title.addEventListener('input', () => { source = null; showSuggestions(); });
+      showSuggestions();
+    } else if (kind === 'building') {
+      catalogueInput('name', 'Building name', '', creation.building_names.map(value => ({ value, label: value })), 200);
+      input('campus_zone', 'Campus area', '', { options: creation.faculties.map(value => ({ value, label: value })), max: 150 });
+      element('p', 'Changing this building updates its name and campus area for every room using it in this draft.', wrap);
+    } else {
+      const matches = creation.room_names.filter(entry => [entry.name, ...entry.aliases].some(value => normalise(value) === normalise(detected)));
+      catalogueInput('name', 'Room name', matches.length === 1 ? matches[0].name : normalise(detected) ? detected : '',
+        creation.room_names.map(item => ({ value: item.name, label: item.name, aliases: item.aliases })), 200);
+      const building = input('building', 'Building', '', { options: buildingChoices() });
+      building.className = 'room-catalog-select';
+      catalogueInput('building_name', 'New building name', '', creation.building_names.map(value => ({ value, label: value })), 200, false);
+      const zone = input('campus_zone', 'New building campus area', '', { required: false, options: creation.faculties.map(value => ({ value, label: value })) });
+      const prepare = element('button', 'Prepare building and reuse it', wrap); prepare.type = 'button';
+      const buildingSummary = element('p', undefined, wrap); buildingSummary.className = 'help';
+      const buildingError = element('p', undefined, wrap); buildingError.className = 'review-note'; buildingError.setAttribute('role', 'alert');
+      function buildingMode() {
+        fields.building_name.container.hidden = zone.parentElement.hidden = prepare.hidden = building.value !== 'new';
+        const selected = pending.buildings.find(record => record.key === building.value) || creation.buildings.find(record => String(record.id) === building.value);
+        buildingSummary.textContent = selected ? `Campus area: ${selected.campus_zone}. This building can be selected for other rooms.` : '';
+      }
+      buildingControls.set(building, buildingMode);
+      building.addEventListener('change', buildingMode);
+      window.django.jQuery(building).on('change.buildingMode', buildingMode);
+      bindEditor(building, editKey + ':building'); buildingMode();
+      building.dispatchEvent(new CustomEvent('room-catalog:added', { bubbles: true }));
+      prepare.addEventListener('click', () => {
+        captureEditors();
+        try {
+          const value = prepareBuilding(fields.building_name.read(), zone.value);
+          refreshBuildingChoices(); building.value = value;
+          building.dispatchEvent(new Event('change', { bubbles: true }));
+          window.django.jQuery(building).trigger?.('change.select2');
+          buildingError.textContent = ''; preparedBuildings(); invalidate();
+        } catch (error) { buildingError.textContent = error.message; }
+      });
+      catalogueInput('room_type', 'Room type', '', creation.room_types.map(value => ({ value, label: value })), 100);
+      input('room_number', 'Room number (optional)', '', { required: false, max: 50 });
+      input('capacity', 'Capacity', '', { type: 'number' });
+      input('size_category', 'Size category', '', { options: [{ value: 'small', label: 'Small' }, { value: 'large', label: 'Large' }] });
+      const facilities = element('fieldset', undefined, wrap); element('legend', 'Known facilities (optional)', facilities);
+      creation.facilities.forEach(item => {
+        const label = element('label', undefined, facilities); const el = element('input', undefined, label); el.type = 'checkbox'; el.value = item.value;
+        el.checked = (draft?.facilities || []).map(String).includes(String(item.value)); label.append(document.createTextNode(item.label));
+        bindEditor(el, editKey + ':facility-' + item.value);
+      });
+      fields.facilities = { read: () => [...facilities.querySelectorAll('input:checked')].map(el => el.value) };
+      element('p', 'Choose the actual building and known capacity. The timetable faculty does not establish a room’s location or access.', wrap);
+    }
+    for (const [key, field] of Object.entries(fields)) {
+      if (field.el && !editorControls.has(field.el)) bindEditor(field.el, editKey + ':' + key);
+    }
+    const error = element('p', undefined, wrap); error.className = 'review-note'; error.setAttribute('role', 'alert');
+    const button = element('button', kind === 'building' ? 'Update prepared building' : draft ? 'Update proposed record' : 'Use new record for matching entries', wrap); button.type = 'button';
+    button.addEventListener('click', () => {
+      captureEditors();
+      const record = { key: draft?.key || `draft-${kind}-${crypto.randomUUID()}` };
+      // An existing name/code is reused before validating new-record fields;
+      // matching a saved room must not require re-entering capacity/building.
+      if (kind !== 'building') {
+        const name = kind === 'course' ? codeKey(fields.code.el.value) : fields.name.read();
+        const existing = refs[kind + 's'].find(item => item.value !== record.key
+          && item.identity === (kind === 'course' ? name : roomKey(name)));
+        if (existing && !draft) {
+          affected.forEach(row => { chooseReference(row, kind, existing.value); row.reviewed = false; });
+          forgetEditor(editKey); invalidate(); mappings(); render(); return;
+        }
+        if (existing) {
+          error.textContent = `This ${kind} already exists. Select its existing record; edit that record to change its details.`;
+          return;
+        }
+      }
+      for (const [key, field] of Object.entries(fields)) {
+        if (kind === 'room' && ['building_name', 'campus_zone'].includes(key) && fields.building.el.value !== 'new') continue;
+        record[key] = field.read ? field.read() : field.el.value.trim();
+        const control = field.control ? field.control() : field.el;
+        if (field.required && !record[key] || control && !control.checkValidity()) { error.textContent = `Check ${field.label.toLowerCase()}.`; control.focus(); return; }
+      }
+      if (kind === 'room' && record.building === 'new' && (!record.building_name || !record.campus_zone)) { error.textContent = 'Enter the new building name and campus area.'; return; }
+      try {
+        if (kind === 'building') {
+          prepareBuilding(record.name, record.campus_zone, record.key);
+          const affectedRooms = new Set(pending.rooms.filter(room => room.building === record.key).map(room => room.key));
+          rows.filter(row => affectedRooms.has(row.room)).forEach(row => { row.reviewed = false; });
+          forgetEditor(editKey); refreshBuildingChoices(); preparedBuildings(); invalidate(); render(); return;
+        }
+        if (kind === 'room' && record.building === 'new') {
+          record.building = prepareBuilding(record.building_name, record.campus_zone);
+          delete record.building_name; delete record.campus_zone;
+        }
+      } catch (problem) { error.textContent = problem.message; return; }
+      if (kind === 'course') record.code = record.code.replace(/\s/g, '').toUpperCase();
+      const previous = pending[kind + 's'].findIndex(item => item.key === record.key);
+      if (previous >= 0) pending[kind + 's'][previous] = record; else pending[kind + 's'].push(record);
+      const list = refs[kind + 's']; const old = list.findIndex(item => item.value === record.key);
+      const choice = { value: record.key, label: `New: ${proposedLabel(record)}`, identity: identity(kind, record), keys: [] };
+      if (old >= 0) list[old] = choice; else list.push(choice);
+      valid[kind].add(record.key);
+      affected.forEach(row => { chooseReference(row, kind, record.key); row.reviewed = false; });
+      rows.filter(row => row[kind] === record.key).forEach(row => { row.reviewed = false; });
+      forgetEditor(editKey);
+      refreshBuildingChoices(); invalidate(); mappings(); render();
+    });
+  }
+  function preparedBuildings() {
+    captureEditors();
+    const root = document.getElementById('prepared-buildings');
+    clearEditors(root);
+    for (const building of pending.buildings) {
+      if (levelView.value !== 'all' && !partRows().some(row => {
+        const draft = pending.rooms.find(room => room.key === row.room);
+        const key = draft?.key || normalise(row.room_text) || row.editor_id;
+        return !row.skip && (draft?.building === building.key || editorState[`record:room:${key}:building`] === building.key);
+      })) continue;
+      const used = pending.rooms.filter(room => !room.duplicate_of && room.building === building.key).length;
+      const details = element('details', undefined, root);
+      element('summary', `Prepared building: ${building.name} — ${building.campus_zone} · ${used} prepared room(s)`, details);
+      recordEditor(details, 'building', '', [], building);
+    }
+  }
+  function proposedRecords() {
+    const root = document.getElementById('proposed-records'); clearEditors(root);
+    for (const kind of ['course', 'room']) {
+      const duplicates = pending[kind + 's'].filter(record => record.duplicate_of && (levelView.value === 'all'
+        || partRows().some(row => row[kind] === record.key || row[kind] === record.duplicate_of)));
+      if (!duplicates.length) continue;
+      const details = element('details', undefined, root); details.className = 'duplicate-proposals';
+      element('summary', `${duplicates.length} earlier duplicate ${kind} proposal(s) — retained for comparison`, details);
+      element('p', 'Their timetable rows now use the existing record. These earlier field values are kept here for comparison and will not create extra records. Check any different details before reviewing those rows.', details);
+      for (const record of duplicates) {
+        const item = element('details', undefined, details);
+        element('summary', `${proposedLabel(record)} → ${refs[kind + 's'].find(choice => choice.value === record.duplicate_of)?.label || 'existing record'}`, item);
+        const values = element('dl', undefined, item);
+        const names = kind === 'course' ? [['title', 'Earlier title'], ['department', 'Earlier department']]
+          : [['building', 'Earlier building'], ['room_number', 'Earlier room number'], ['room_type', 'Earlier room type'], ['capacity', 'Earlier capacity'], ['size_category', 'Earlier size category'], ['facilities', 'Earlier facilities']];
+        for (const [field, label] of names) {
+          let value = record[field];
+          if (field === 'building') value = pending.buildings.find(building => building.key === value)?.name
+            || creation.buildings.find(building => String(building.id) === String(value))?.name || record.building_name || value;
+          element('dt', label, values); element('dd', Array.isArray(value) ? value.join(', ') || 'None' : String(value || 'Not entered'), values);
+        }
+      }
+    }
+    for (const kind of ['course', 'room']) for (const draft of pending[kind + 's']) {
+      if (draft.duplicate_of) continue;
+      const affected = rows.filter(row => inPart(row) && !row.skip && row[kind] === draft.key);
+      if (!affected.length) continue;
+      const details = element('details', undefined, root);
+      element('summary', `Proposed ${kind}: ${proposedLabel(draft)} · ${affected.length} entries`, details);
+      referenceActions(details, kind, affected[0][kind + '_text'] || '', affected);
+      recordEditor(details, kind, '', affected, draft);
+      const remove = element('button', 'Remove proposed record', details); remove.type = 'button';
+      remove.addEventListener('click', () => {
+        pending[kind + 's'] = pending[kind + 's'].filter(item => item.key !== draft.key);
+        refs[kind + 's'] = refs[kind + 's'].filter(item => item.value !== draft.key); valid[kind].delete(draft.key);
+        rows.filter(row => row[kind] === draft.key).forEach(row => { row[kind] = ''; row.reviewed = false; });
+        forgetEditor(`record:${kind}:${draft.key}`);
+        invalidate(); mappings(); render();
+      });
+    }
+  }
+  function showPage(number, box) {
+    const page = pages[number - 1];
+    if (!page) return;
+    pageSelect.value = String(number);
+    image.src = page.url;
+    activeBox = box || null;
+    image.alt = `Uploaded timetable, page ${number}`;
+    document.getElementById('source-open').href = page.url;
+    highlight.hidden = !box;
+    if (box) {
+      highlight.style.left = `${box[0] / page.width * 100}%`;
+      highlight.style.top = `${box[1] / page.height * 100}%`;
+      highlight.style.width = `${(box[2] - box[0]) / page.width * 100}%`;
+      highlight.style.height = `${(box[3] - box[1]) / page.height * 100}%`;
+    }
+    drawCrop();
+    if (box) {
+      const source = document.querySelector('.document-source');
+      const bounds = source.getBoundingClientRect();
+      if (bounds.top < 0 || bounds.bottom > window.innerHeight) source.scrollIntoView({ block: 'start' });
+    }
+  }
+  function drawCrop() {
+    const canvas = document.getElementById('source-crop');
+    canvas.hidden = !activeBox || !image.complete;
+    if (canvas.hidden || !image.naturalWidth) return;
+    const [left, top, right, bottom] = activeBox;
+    const width = Math.max(1, right - left), height = Math.max(1, bottom - top);
+    const scale = Math.min(3, 900 / width, 300 / height);
+    canvas.width = Math.round(width * scale); canvas.height = Math.round(height * scale);
+    canvas.getContext('2d').drawImage(image, left, top, width, height, 0, 0, canvas.width, canvas.height);
+  }
+  image.addEventListener('load', drawCrop);
+  document.getElementById('source-zoom').addEventListener('input', event => { document.querySelector('.source-canvas').style.width = `${event.target.value}%`; });
+  pages.forEach((_, i) => { const opt = element('option', String(i + 1), pageSelect); opt.value = String(i + 1); });
+  pages.forEach((_, i) => { const opt = element('option', String(i + 1), sourceFilter); opt.value = String(i + 1); });
+  days.slice(1).forEach(day => { const opt = element('option', day, dayFilter); opt.value = day; });
+  pageSelect.addEventListener('change', () => showPage(Number(pageSelect.value)));
+  showPage(1);
+  function partStatus() {
+    const retained = rows.filter(row => !row.skip);
+    for (const option of levelView.options) {
+      const entries = retained.filter(row => partTool.matches(partInfo(row), option.value));
+      option.textContent = `${option.dataset.label} · ${entries.length} entries`;
+    }
+    const root = document.getElementById('part-department-status'); root.replaceChildren();
+    if (departmentMatch.profiles.length) {
+      element('span', `Parts are matched automatically for ${departmentInput.value.trim()}. Available curricula: ${departmentMatch.profiles.map(profile => profile.programme).join('; ')}.`, root);
+    } else element('span', departmentInput.value.trim()
+      ? `No applicable Part catalogue is available for ${departmentInput.value.trim()}. Use image Part headings or “Check / correct Part” in the row editor; All extracted entries remains available.`
+      : 'Enter the department above to match its available handbook evidence automatically. All extracted entries, image Part headings and manual assignments remain available.', root);
+    if (departmentMatch.profiles.length > 1) element('span', ' Conflicting curriculum Parts remain Unassigned for checking.', root);
+    if (departmentMatch.restricted.length) element('span', ` ${departmentMatch.restricted.map(profile => profile.notes).filter(Boolean).join(' ')}`, root);
+    const current = retained.filter(inPart);
+    const scope = levelView.selectedOptions[0].dataset.label;
+    document.getElementById('part-status').textContent = `${current.length} retained entries in this view; ${current.filter(row => row.reviewed).length} reviewed. Remaining image: ${retained.filter(row => row.reviewed).length} of ${retained.length} retained entries reviewed. Validation imports ${scope} only.`;
+    document.getElementById('import-scope-status').textContent = `Validate and import: ${scope} · ${current.length} weekly entries. ${retained.length - current.length} other entries stay in this draft. Review every retained entry in this selection, including those on other pages.`;
+    document.getElementById('coverage-label').textContent = ` I checked ${scope} against the image for missing entries and confirmed its weekdays and time headings.`;
+    const unknown = retained.filter(row => !partInfo(row).parts.length).length;
+    document.getElementById('part-unassigned').textContent = `${unknown} entries are unassigned or have several possible Parts. Review them in Unassigned, or assign a Part using “Check / correct Part” in the row editor. A shared class can appear in more than one Part's view.`;
+  }
+  function partEditor(parent, row) {
+    const info = partInfo(row);
+    const descriptions = { manual: 'Administrator assignment', heading: 'Image Part heading', handbook: 'Handbook curriculum',
+      uncertain: 'Several possible Parts in the handbook', unknown: 'No verified Part evidence' };
+    element('small', `${info.parts.length ? 'Part ' + info.parts.join(' / ') : 'Unassigned'} · ${descriptions[info.kind]}`, parent);
+    const details = element('details', undefined, parent); details.className = 'part-evidence';
+    element('summary', 'Check / correct Part', details);
+    if (info.conflict) element('p', 'The image Part heading differs from the automatically matched curriculum evidence. Check the department and timetable cohort.', details);
+    for (const entry of info.evidence) {
+      const source = creation.course_sources[entry.source_id];
+      const label = `${entry.code} · ${entry.programme} · Part ${entry.level} · PDF page ${entry.page}: ${entry.heading}`;
+      if (source?.source_url) {
+        const link = element('a', label, details); link.href = `${source.source_url}#page=${entry.page}`; link.target = '_blank'; link.rel = 'noopener';
+      } else element('small', label, details);
+    }
+    element('p', 'Choose the Parts that attend this entry, using the image or the applicable handbook. Leave all unchecked to keep it Unassigned.', details);
+    const code = partTool.code(row, pending);
+    const editKey = `part:${row.editor_id}:${code}`;
+    const checks = [1, 2, 3, 4, 5, 6].map(part => {
+      const label = element('label', undefined, details), input = element('input', undefined, label);
+      input.type = 'checkbox'; input.checked = info.parts.includes(part); label.append(` Part ${part}`);
+      bindEditor(input, `${editKey}:${part}`); return [part, input];
+    });
+    function assign(entries) {
+      const parts = checks.filter(([, input]) => input.checked).map(([part]) => part);
+      entries.forEach(entry => {
+        entry.level_override = [...parts]; entry.level_override_code = code; entry.reviewed = false;
+        forgetEditor(`part:${entry.editor_id}:${code}`);
+      });
+      invalidate(); mappings(); headings(); render();
+    }
+    const apply = element('button', 'Use checked Parts for this entry', details); apply.type = 'button';
+    apply.addEventListener('click', () => assign([row]));
+    const matching = rows.filter(other => !other.skip && code && partTool.code(other, pending) === code);
+    if (matching.length > 1) {
+      element('small', 'If all occurrences of this course attend the same Parts, apply the assignment once across the image. This replaces earlier Part assignments for that code.', details);
+      const all = element('button', `Use checked Parts for all ${matching.length} entries of ${code}`, details); all.type = 'button';
+      all.addEventListener('click', () => assign(matching));
+    }
+    const reset = element('button', 'Use source evidence again', details); reset.type = 'button';
+    reset.addEventListener('click', () => {
+      delete row.level_override; delete row.level_override_code; row.reviewed = false; forgetEditor(editKey);
+      invalidate(); mappings(); headings(); render();
+    });
+  }
+  function partChanged() {
+    captureEditors(); offset = 0;
+    document.getElementById('coverage-checked').checked = false;
+    invalidate(); mappings(); headings(); render();
+  }
+  levelView.addEventListener('change', partChanged);
+  let matchedDepartment = departmentInput.value;
+  const departmentChanged = () => {
+    if (matchedDepartment === departmentInput.value) return;
+    captureEditors(); forgetEditor('part');
+    matchedDepartment = departmentInput.value;
+    departmentMatch = partTool.detect(departmentInput.value, levelProfiles, creation.course_sources, sourceHeading);
+    partChanged();
+  };
+  departmentInput.addEventListener('input', departmentChanged);
+  departmentInput.addEventListener('change', departmentChanged);
+  function render() {
+    resetBatch();
+    tbody.replaceChildren();
+    const query = search.value.toLowerCase();
+    const filtered = rows.map((row, index) => ({ row, index })).filter(({ row }) => {
+      if (!inPart(row)) return false;
+      if (dayFilter.value && row.day !== dayFilter.value || sourceFilter.value && String(row.page) !== sourceFilter.value) return false;
+      if (query && ![row.course, row.room, row.course_text, row.room_text, row.source, row.day, row.date].some(value => String(value || '').toLowerCase().includes(query))) return false;
+      if (filter.value === 'skipped') return !!row.skip;
+      if (filter.value === 'all') return true;
+      if (row.skip) return false;
+      if (filter.value === 'reviewed') return !!row.reviewed;
+      if (filter.value === 'issues') return !row.reviewed && (problems(row).length || warnings(row).length);
+      if (filter.value === 'ready') return ready(row);
+      return !row.reviewed || problems(row).length;
+    });
+    offset = Math.min(offset, Math.max(0, Math.floor((filtered.length - 1) / pageSize) * pageSize));
+    visible = filtered.slice(offset, offset + pageSize);
+    document.getElementById('review-page-status').textContent = filtered.length ? `${offset + 1}–${Math.min(offset + pageSize, filtered.length)} of ${filtered.length} matching entries` : 'No entries match this view.';
+    document.getElementById('review-previous').disabled = offset === 0;
+    document.getElementById('review-next').disabled = offset + pageSize >= filtered.length;
+    visible.forEach(({row, index}) => {
+      const tr = element('tr', undefined, tbody);
+      tr.classList.toggle('skipped', !!row.skip);
+      const source = element('td', undefined, tr);
+      element('strong', `Row ${index + 1}`, source);
+      if (row.page) element('small', `Page ${row.page}`, source);
+      if (row.class_group) element('small', `Part / group: ${row.class_group}`, source);
+      partEditor(source, row);
+      const raw = element('details', undefined, source);
+      element('summary', 'Original text', raw);
+      element('small', row.source || 'Manually added entry', raw);
+      const validation = element('small', undefined, source); validation.className = 'review-note row-validation';
+      const alerts = element('small', undefined, source); alerts.className = 'review-note';
+      if (row.confidence != null) element('small', `Recognition score: ${Math.round(Number(row.confidence))}/100`, source);
+      const actions = element('div', undefined, source); actions.className = 'row-actions';
+      if (row.page) {
+        const show = element('button', 'Show source', actions); show.type = 'button';
+        show.addEventListener('click', () => showPage(row.page, row.box));
+      }
+      const duplicate = element('button', 'Duplicate', actions); duplicate.type = 'button';
+      duplicate.addEventListener('click', () => {
+        if (rows.length >= 300) { window.alert('Review at most 300 rows per document.'); return; }
+        rows.splice(index + 1, 0, { ...row, editor_id: crypto.randomUUID(), room: '', reviewed: false, skip: false }); invalidate(); mappings(); headings(); render();
+      });
+      let checked;
+      function updateRow() {
+        const errors = problems(row);
+        const notes = warnings(row);
+        alerts.textContent = notes.join('; '); alerts.hidden = !notes.length;
+        validation.textContent = errors.join('; ');
+        validation.hidden = !errors.length;
+        tr.classList.toggle('has-issues', !!errors.length);
+        tr.classList.toggle('skipped', !!row.skip);
+        if (checked) {
+          checked.checked = !!row.reviewed;
+          checked.disabled = !!errors.length;
+          if (errors.length) checked.title = 'Choose valid course, room, day/date and times first.';
+          else checked.removeAttribute('title');
+        }
+      }
+      function edited() { row.reviewed = false; updateRow(); invalidate(); status(); }
+      function select(parent, key, choices, label) {
+        const input = element('select', undefined, parent); input.setAttribute('aria-label', `${label}, row ${index + 1}`);
+        choices.forEach(item => { const opt = element('option', item.label, input); opt.value = item.value; });
+        input.value = row[key] || '';
+        input.addEventListener('change', () => { chooseReference(row, key, input.value); if (key === 'day') row.day_checked = true; edited(); if (key === 'course' || key === 'room') mappings(); else if (key === 'day') headings(); if (key === 'course') { headings(); render(); } });
+        return input;
+      }
+      function reference(key, choices, original) {
+        const td = element('td', undefined, tr);
+        element('small', `Read: ${original || '(not detected)'}`, td);
+        const search = element('input', undefined, td); search.type = 'search'; search.placeholder = `Search ${key}s`;
+        search.setAttribute('aria-label', `Search ${key}s, row ${index + 1}`);
+        const list = [{ value: '', label: `Select ${key}…` }, ...choices];
+        const input = select(td, key, list, key);
+        search.addEventListener('input', () => {
+          const query = search.value.toLowerCase();
+          for (const opt of input.options) opt.hidden = !!opt.value && opt.value !== input.value && !opt.text.toLowerCase().includes(query);
+        });
+      }
+      reference('course', refs.courses, row.course_text);
+      reference('room', refs.rooms, row.room_text);
+      const when = element('td', undefined, tr);
+      select(when, 'day', days.map(day => ({ value: day, label: day || 'Choose weekday…' })), 'Weekday');
+      const date = element('input', undefined, when); date.type = 'date'; date.value = row.date || '';
+      date.setAttribute('aria-label', `Date, row ${index + 1}`); date.hidden = mode.value === 'weekly';
+      date.addEventListener('input', () => { row.date = date.value; edited(); });
+      const time = element('td', undefined, tr);
+      for (const [key, label] of [['start_time', 'Start'], ['end_time', 'End']]) {
+        const wrap = element('label', `${label} `, time); const input = element('input', undefined, wrap);
+        clock.input(input, row[key] || '', `${label} time, row ${index + 1}`);
+        input.value = row[key + '_input'] ?? input.value;
+        input.addEventListener('input', () => { row[key + '_input'] = input.value; row[key] = clock.parse(input.value); edited(); });
+        input.addEventListener('change', () => { row.time_checked = !problems(row).includes('Correct the start/end times'); updateRow(); headings(); status(); autosave?.changed(); });
+      }
+      const check = element('td', undefined, tr);
+      for (const [key, label] of [['reviewed', 'Reviewed'], ['skip', 'Skip row']]) {
+        const wrap = element('label', undefined, check); const input = element('input', undefined, wrap); input.type = 'checkbox'; input.checked = !!row[key];
+        wrap.append(document.createTextNode(` ${label}`));
+        if (key === 'reviewed') checked = input;
+        input.addEventListener('change', () => {
+          row[key] = input.checked;
+          if (key === 'reviewed' && input.checked) { row.day_checked = true; row.time_checked = true; }
+          updateRow(); invalidate(); status();
+          if (key === 'skip') mappings();
+          headings();
+        });
+      }
+      updateRow();
+    });
+    status();
+  }
+  const teachingSemester = document.getElementById('teaching-semester');
+  function semesterSummary() {
+    const option = teachingSemester.selectedOptions[0];
+    document.getElementById('semester-dates-summary').textContent = option?.value
+      ? `Weekly lectures: ${option.dataset.period}. ${option.dataset.breaks ? `Break / holiday dates: ${option.dataset.breaks}.` : 'No break dates configured.'}`
+      : 'Select a saved session and semester. Set its teaching dates once in Semester settings.';
+  }
+  const semesterChanged = () => { semesterSummary(); invalidate(); };
+  teachingSemester.addEventListener('change', semesterChanged);
+  window.django?.jQuery(teachingSemester).on('change.semester', semesterChanged);
+  form.querySelector('.document-options').addEventListener('input', invalidate);
+  document.getElementById('add-review-row').addEventListener('click', () => {
+    if (rows.length >= 300) { window.alert('Review at most 300 rows per document.'); return; }
+    const assignment = /^[1-6]$/.test(levelView.value) ? { level_override: [Number(levelView.value)], level_override_code: '' } : {};
+    rows.push({ ...assignment, editor_id: crypto.randomUUID(), course: '', room: '', day: '', date: '', start_time: '', end_time: '', reviewed: false, skip: false }); invalidate(); render();
+    filter.value = 'all'; search.value = ''; dayFilter.value = ''; sourceFilter.value = ''; offset = Math.floor((partRows().length - 1) / pageSize) * pageSize; render();
+    tbody.lastElementChild?.scrollIntoView({ block: 'nearest' });
+  });
+  for (const input of [filter, search, dayFilter, sourceFilter]) input.addEventListener('input', () => { offset = 0; render(); });
+  document.getElementById('review-previous').addEventListener('click', () => { offset -= pageSize; render(); });
+  document.getElementById('review-next').addEventListener('click', () => { offset += pageSize; render(); });
+  batchChecked.addEventListener('change', batchStatus);
+  batchButton.addEventListener('click', () => {
+    if (!batchChecked.checked) return;
+    visible.forEach(({ row }) => { if (ready(row)) row.reviewed = true; });
+    invalidate(); render();
+  });
+  function serialiseForm(event) {
+    // Keep exactly one action value; a hidden default and clicked button otherwise duplicate it.
+    form.querySelector('input[name="action"]').value = event.submitter?.value || 'review';
+    if (event.submitter?.name === 'action') event.submitter.removeAttribute('name');
+    document.getElementById('review-rows').value = JSON.stringify(rows);
+    document.getElementById('pending-records').value = JSON.stringify(pending);
+    document.getElementById('editor-state').value = JSON.stringify(editorState);
+  }
+  document.getElementById('weekly-checked').addEventListener('change', event => { document.getElementById('weekly-approve').disabled = !event.target.checked; });
+  document.getElementById('weekly-approve').addEventListener('click', () => {
+    if (!document.getElementById('weekly-checked').checked) return;
+    rows.forEach(row => {
+      if (!inPart(row) || row.skip || problems(row).length || row.note || row.confidence != null && Number(row.confidence) < 90) return;
+      row.day_checked = true; row.time_checked = true; row.reviewed = true;
+    });
+    invalidate(); headings(); render();
+  });
+  semesterSummary(); mappings(); headings(); render();
+  function snapshot() {
+    return { rows: JSON.stringify(rows), pending: JSON.stringify(pending), editor_state: JSON.stringify(editorState),
+      teaching_semester: document.getElementById('teaching-semester').value, department: document.getElementById('document-department').value,
+      faculty: document.getElementById('document-faculty').value, source_version: document.getElementById('source-version').value,
+      coverage_checked: document.getElementById('coverage-checked').checked ? 'yes' : '', ...partOptions() };
+  }
+  function acceptSave(result) {
+    document.querySelectorAll('input[name="document_token"]').forEach(el => { el.value = result.token; });
+    const link = document.getElementById('resume-draft');
+    const resume = new URL(link.href, location.href); resume.searchParams.set('review', result.token); link.href = resume;
+    for (const page of pages) { const url = new URL(page.url, location.href); url.searchParams.set('token', result.token); page.url = url.href; }
+    const open = document.getElementById('source-open');
+    if (open.href) { const url = new URL(open.href, location.href); url.searchParams.set('token', result.token); open.href = url; }
+  }
+  function warnSave(message, error) {
+    const warning = document.getElementById('draft-save-error'); warning.textContent = message; warning.hidden = !message;
+    const recovery = document.getElementById('draft-conflict-recovery');
+    if (error?.conflict) {
+      recovery.hidden = false;
+      if (error.latestToken) {
+        const link = document.getElementById('latest-saved-draft');
+        const latest = new URL(link.href, location.href); latest.searchParams.set('review', error.latestToken); link.href = latest;
+      }
+    } else if (!message) recovery.hidden = true;
+  }
+  if (window.fetch && window.OptispaceDraftAutosave && form.dataset.autosaveUrl) {
+    autosave = window.OptispaceDraftAutosave({ snapshot, initialSnapshot: repairedReferences ? storedSnapshot : undefined,
+      accept: acceptSave, warn: warnSave, async send(state) {
+      const body = new URLSearchParams({ ...state, document_token: form.querySelector('[name="document_token"]').value,
+        csrfmiddlewaretoken: form.querySelector('[name="csrfmiddlewaretoken"]').value });
+      const response = await fetch(form.dataset.autosaveUrl, { method: 'POST', body, credentials: 'same-origin', redirect: 'follow',
+        signal: AbortSignal.timeout(15000) });
+      if (response.redirected || response.status === 403) {
+        throw Object.assign(new Error('Your sign-in expired or saving is not permitted. Keep this page open, sign in again in another tab, then reload after copying unsaved edits.'), { permanent: true });
+      }
+      const result = await response.json();
+      if (!response.ok) {
+        const error = new Error(result.error || 'Autosave failed. Keep this page open and use Save draft.');
+        error.permanent = response.status >= 400 && response.status < 500 && response.status !== 429;
+        error.conflict = response.status === 409;
+        error.latestToken = result.latest_token;
+        throw error;
+      }
+      if (!result.token) throw new Error('Autosave could not be confirmed. Keep this page open; it will retry.');
+      return result;
+    } });
+    if (repairedReferences) { invalidate(); autosave.changed(); }
+  }
+  document.getElementById('coverage-checked').addEventListener('change', invalidate);
+  let submitting = false;
+  async function submitReview(event) {
+    captureEditors();
+    if (!autosave) { serialiseForm(event); return; }
+    event.preventDefault();
+    if (submitting) return;
+    submitting = true;
+    const ready = await autosave.beforeSubmit();
+    if (!ready && event.submitter?.value !== 'recover') { submitting = false; autosave.resume(); return; }
+    serialiseForm(event);
+    HTMLFormElement.prototype.submit.call(form);
+  }
+  form.addEventListener('submit', submitReview);
+  document.querySelector('#document-final-preview form')?.addEventListener('submit', async event => {
+    if (!autosave) return;
+    event.preventDefault();
+    if (autosave.dirty()) { warnSave('Edits have changed. Validate reviewed entries again before importing.'); return; }
+    if (await autosave.beforeSubmit()) { submitting = true; HTMLFormElement.prototype.submit.call(event.target); }
+  });
+  window.addEventListener('online', () => autosave?.flush());
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { captureEditors(); autosave?.flush(); } });
+  window.addEventListener('beforeunload', event => {
+    if (!submitting && autosave?.dirty()) { autosave.flush(); event.preventDefault(); event.returnValue = ''; }
+  });
+  window.addEventListener('pagehide', () => autosave?.stop());
+  window.addEventListener('pageshow', () => { submitting = false; autosave?.resume(); });
+})();

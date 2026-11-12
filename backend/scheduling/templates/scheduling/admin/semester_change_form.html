@@ -1,0 +1,7 @@
+{% extends "admin/change_form.html" %}
+
+{% block form_top %}
+<p>These dates are shared by every image import that selects this session and semester. Set the actual teaching period from the university calendar.</p>
+<p>Changes apply to subsequent image imports. Already imported classes keep their saved dates; adjust those classes in Timetables when needed.</p>
+{{ block.super }}
+{% endblock %}

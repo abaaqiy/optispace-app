@@ -1,0 +1,7 @@
+#manual-course-suggestions { padding: 16px; }
+#manual-course-suggestions h2 { margin: -16px -16px 16px; }
+.course-suggestions { color: var(--body-fg); background: var(--darkened-bg); overflow-wrap: anywhere; }
+.course-suggestions > div > div { border-top: 1px solid var(--hairline-color); padding: 12px 0; }
+.course-suggestions button { display: block; margin-top: 10px; }
+.course-suggestions label { display: block; }
+.course-suggestions .review-note { color: var(--error-fg); }

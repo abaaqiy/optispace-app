@@ -1,0 +1,145 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% block extrastyle %}
+{{ block.super }}
+{{ catalog_media.css }}
+<link rel="stylesheet" href="{% static 'admin/css/forms.css' %}">
+<link rel="stylesheet" href="{% static 'scheduling/timetable_import.css' %}">
+<link rel="stylesheet" href="{% static 'scheduling/timetable_document.css' %}">
+{% endblock %}
+{% block extrahead %}{{ block.super }}{{ catalog_media.js }}<script src="{% static 'scheduling/clock.js' %}" defer></script><script src="{% static 'scheduling/course_suggestions.js' %}" defer></script><script src="{% static 'scheduling/draft_autosave.js' %}" defer></script><script src="{% static 'scheduling/part_selection.js' %}" defer></script><script src="{% static 'scheduling/timetable_document.js' %}" defer></script>{% endblock %}
+{% block breadcrumbs %}
+<ol class="breadcrumbs"><li><a href="{% url 'admin:index' %}">Home</a></li><li><a href="{% url 'admin:scheduling_timetableday_changelist' %}">Timetables</a></li><li aria-current="page">Import Image</li></ol>
+{% endblock %}
+{% block content %}
+<div id="content-main" class="timetable-import document-import">
+  <p>Upload an image → confirm shared details → resolve missing records once → check the weekly preview → import. Courses, buildings, rooms and classes are saved together only when you choose <strong>Confirm and import</strong>.</p>
+  <p>Use clear, upright pages with their headings. <a href="{% url 'admin:scheduling_timetableday_import' %}">Import a CSV instead</a>.</p>
+  {% if can_manage_semesters %}<p><a href="{% url 'admin:scheduling_academicsemester_changelist' %}" target="_blank" rel="noopener">Semester settings</a> — set teaching dates and breaks once, then reuse them for every image import.</p>{% endif %}
+  <details class="module document-mappings">
+    <summary>Course-title suggestions: {{ course_coverage.codes }} course codes across {{ course_coverage.handbooks }} supplied handbooks and earlier web sources</summary>
+    <p>When preparing a new course, suggestions appear for its exact code. Check the programme, handbook edition and linked PDF page, then choose <strong>Use this title</strong>. This fills the title for every matching entry when you use the new record. It does not change existing courses.</p>
+    <p>Coverage includes {{ course_coverage.faculties|join:", " }}. Some departments and courses are still missing. Older curricula and conflicting titles need your confirmation; the Pharmacy handbook is B.Pharm, not verified for PharmD.</p>
+  </details>
+  <section class="module document-mappings" aria-label="Your saved image drafts">
+    <h2>Your saved image drafts</h2>
+    <p>Return to <strong>Timetables → Import Image</strong> and select a draft below. Edits save automatically in the background. Saved drafts are private to your administrator account and survive app or computer restarts. Each save extends expiry to 24 hours; time while the computer is off still counts. Save draft is also available.</p>
+    {% if saved_drafts %}<ul>{% for draft in saved_drafts %}<li><a href="?review={{ draft.token|urlencode }}">{{ draft.filename }}</a> — saved {{ draft.saved_at|date:"j M, g:i A" }}; expires {{ draft.expires_at|date:"j M, g:i A" }} (Lagos)</li>{% endfor %}</ul>
+    {% else %}<p>No active drafts. Upload an image to begin.</p>{% endif %}
+  </section>
+  {% if errors %}<div class="errornote" role="alert"><p><strong>Nothing was imported.</strong> Correct these issues and validate again.</p><ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
+  <form method="post" enctype="multipart/form-data" class="csv-upload" id="document-upload">
+    {% csrf_token %}{{ form.as_p }}<input type="hidden" name="action" value="extract">
+    <button type="submit" class="button default">Upload and extract</button>
+    <span id="extraction-status" role="status"></span>
+  </form>
+  {% if document %}
+    <div class="document-notices"><h2>Reading complete</h2><ul>{% for note in document.notices %}<li>{{ note }}</li>{% endfor %}</ul>
+    {% if document.imported_batches %}<p>Previously imported from this image: {% for batch in document.imported_batches %}{% if not forloop.first %}; {% endif %}{% if batch.view == 'all' %}All extracted entries{% elif batch.view == 'unassigned' %}Unassigned entries{% else %}Part {{ batch.view }}{% endif %} ({{ batch.entries }} weekly entries){% endfor %}. The entries below remain in the draft.</p>{% endif %}
+    <p>Check entries in batches beside the source. Repeated course and venue names can be matched once for all affected rows. Skip unwanted entries and add any entries the reader missed.</p><p>Drafts save automatically after edits and last 24 hours from the latest save. <strong>Save draft</strong> remains available.</p></div>
+    {{ rows|json_script:"document-rows" }}{{ references|json_script:"document-references" }}{{ pages|json_script:"document-pages" }}
+    {{ pending|json_script:"document-pending" }}{{ creation_choices|json_script:"document-creation-choices" }}
+    {{ editor_state|json_script:"document-editor-state" }}
+    {{ level_profiles|json_script:"document-level-profiles" }}
+    {{ document.metadata.heading_text|default:""|json_script:"document-source-heading" }}
+    <noscript><p class="errornote">Enable JavaScript to review this document, or use the CSV importer.</p></noscript>
+    <p id="draft-save-error" class="errornote" role="alert" hidden></p>
+    <div id="draft-conflict-recovery" class="module document-mappings" {% if not draft_conflict %}hidden{% endif %}>
+      <p>Your edits are still on this page. Save them as a new draft to continue without replacing the newer saved version.</p>
+      <button type="submit" form="document-review" name="action" value="recover" formnovalidate class="button">Save my edits as a new draft</button>
+      <a id="latest-saved-draft" href="?review={{ latest_document_token|urlencode }}" target="_blank" rel="noopener">Open the latest saved draft in another tab</a>
+    </div>
+    <form method="post" id="document-review" data-autosave-url="{% url 'admin:scheduling_timetableday_autosave' %}">
+      {% csrf_token %}<input type="hidden" name="action" value="review"><input type="hidden" name="document_token" value="{{ document_token }}"><input type="hidden" name="rows" id="review-rows"><input type="hidden" name="pending" id="pending-records">
+      <input type="hidden" name="editor_state" id="editor-state">
+      <fieldset class="module aligned document-options"><h2>1. Confirm shared details</h2>
+        <p>Read from the heading where possible. Correct these once for the whole upload. Faculty identifies this timetable; it does not assign locations to its rooms.</p>
+        <div class="form-row"><label for="document-faculty">Faculty:</label><input id="document-faculty" name="faculty" value="{{ options.faculty }}" maxlength="150"></div>
+        <div class="form-row"><label for="document-department">Department:</label><input id="document-department" name="department" value="{{ options.department }}" maxlength="150" required></div>
+        <div class="form-row"><label for="teaching-semester">Teaching semester:</label><select id="teaching-semester" name="teaching_semester" class="room-catalog-select" required>
+          <option value="">Select a saved session and semester…</option>
+          {% for semester in teaching_semesters %}<option value="{{ semester.pk }}" data-period="{{ semester.first_date|date:'j M Y' }} – {{ semester.last_date|date:'j M Y' }}" data-breaks="{{ semester.exclude_dates }}" {% if semester.pk|stringformat:'s' == options.teaching_semester %}selected{% endif %}>{{ semester }} · {{ semester.first_date|date:'j M Y' }} – {{ semester.last_date|date:'j M Y' }}</option>{% endfor %}
+        </select><p id="semester-dates-summary" class="help" role="status">Weekly lectures use the saved semester's teaching dates and breaks. Select the semester that applies to this image.</p>
+        {% if not teaching_semesters %}<p>No semesters are configured yet. {% if can_manage_semesters %}Open <a href="{% url 'admin:scheduling_academicsemester_add' %}" target="_blank" rel="noopener">Semester settings</a> to add one, then save and reopen this draft.{% else %}Ask an administrator to add the teaching dates. You can save this draft meanwhile.{% endif %}</p>{% endif %}
+        {% if document.metadata.academic_session or document.metadata.semester %}<p class="help">Read from the image: {{ document.metadata.academic_session }} {{ document.metadata.semester }}. Check this against your selection.</p>{% endif %}</div>
+        <div class="form-row"><label for="source-version">Source version:</label><input id="source-version" name="source_version" value="{{ options.source_version }}" maxlength="100"><p class="help">For example, First Draft or Revised. Only import a version you intend to use.</p></div>
+        {% if document.metadata.heading_text %}<details><summary>Text read from the heading</summary><pre class="heading-text">{{ document.metadata.heading_text }}</pre></details>{% endif %}
+        <input id="document-mode" name="mode" type="hidden" value="weekly"><p>Weekly lectures repeat only within the selected semester's teaching dates, excluding its saved breaks. CSV remains available for specific dates. Times use Africa/Lagos.</p>
+        <div class="part-selection" aria-label="Select the department's Part for review">
+          <h3>Select a level / Part to review</h3>
+          <p id="part-department-status" class="help" role="status"></p>
+          <label for="level-view">Level / Part:</label>
+          <select id="level-view" name="level_view" data-saved="{{ options.level_view }}" aria-describedby="part-department-status part-status part-unassigned"></select>
+          <p id="part-status" class="help" role="status"></p>
+          <p id="part-unassigned" class="help" role="status"></p>
+          {% if submitted_parts %}<p class="help">Already submitted for {{ submission_department }} — {{ submission_semester }}: {% for part in submitted_parts %}{% if not forloop.first %}, {% endif %}{% if part == 0 %}Unassigned{% else %}Part {{ part }}{% endif %}{% endfor %}. Those Parts cannot be imported again. Choose another Part; All extracted entries is blocked once any Part is submitted. Use Timetables to edit or cancel saved classes.</p>{% endif %}
+          <p class="help">Available handbook evidence is matched automatically from the Department field above. Choose a Part to show its courses, venues, days and times in sections 2 and 3, shared-heading review, day groups and extracted entries. Choose All extracted entries to review every level together. Switch views to continue reviewing; edits remain saved. Handbooks have partial coverage. Uncertain or missing course assignments stay in Unassigned for checking. The first digit of a course code does not determine its Part.</p>
+          <p class="help">Validation and import use the selected Level / Part. Other levels remain in the saved draft for later. Choose All extracted entries to import the complete timetable before any Part has been submitted; after importing a Part, continue with the other Parts individually.</p>
+        </div>
+      </fieldset>
+      <div class="document-workspace">
+        <section class="document-source" aria-label="Original timetable">
+          <h2>Source image</h2><label for="source-page">Page:</label> <select id="source-page"></select>
+          <a id="source-open" target="_blank" rel="noopener noreferrer">Open full-size page</a>
+          <label for="source-zoom">Image zoom</label> <input type="range" id="source-zoom" min="100" max="300" step="25" value="100"><div class="source-scroll"><div class="source-canvas"><img id="source-image" alt="Uploaded timetable"><div id="source-highlight" hidden></div></div></div><canvas id="source-crop" hidden></canvas>
+          <p class="help">Select “Show source” to highlight and enlarge the original cell. Adjust zoom or open the full image for small text.</p>
+        </section>
+        <section class="document-editor" aria-label="Editable extracted timetable">
+          <section class="module document-mappings" aria-label="Resolve missing course and room choices">
+            <h2>2. Resolve missing courses and venues once</h2>
+            <p id="mapping-status" role="status"></p>
+            <p>Choose the correct saved course or room for each name below. The choice fills all unresolved rows with that same detected name. Check their days and times before marking them reviewed.</p>
+            <p>If a record is missing, prepare it here. Detected codes and names are filled in; provide only the remaining details. Preparing a record applies it to every matching unresolved entry, but saves nothing yet.</p>
+            <p>Prepare a building once and reuse it from the Building dropdown in every other room. Its campus area is shared. Buildings are saved with the rooms when you confirm the import.</p>
+            <p class="help">With a Part selected, matching and correction actions apply to the entries in that Part. Prepared courses, rooms and buildings remain reusable when you switch Parts.</p>
+            <div id="prepared-buildings"></div>
+            <div id="reference-mappings"></div>
+            <div id="proposed-records"></div>
+            <button type="submit" name="action" value="refresh" formnovalidate class="button">Refresh course and room choices</button>
+          </section>
+          <section class="module document-mappings" aria-label="Weekly timetable preview">
+            <h2>3. Compare the weekly preview with the image</h2>
+            <p>Each card keeps its course, room and time together. Select a card to see its source or correct that entry. Check for missing cells as well as highlighted issues.</p>
+            <div id="weekly-preview" class="weekly-scroll" tabindex="0"></div>
+            <p id="weekly-status" role="status"></p>
+            <label><input type="checkbox" id="weekly-checked"> I compared this weekly preview and its headings with the source image.</label>
+            <button type="button" class="button" id="weekly-approve" disabled>Confirm clear entries together</button>
+          </section>
+          <section class="module document-mappings" aria-label="Shared weekday and time headings">
+            <h2>Check shared headings once</h2>
+            <p>Verify each detected weekday and time against the image. One correction updates every entry that uses that heading.</p>
+            <div id="heading-mappings"></div>
+          </section>
+          <section class="module document-mappings" aria-label="Review clear entries by day">
+            <h2>Review clear entries by day</h2>
+            <p>Open a group to compare its compact list with the image, then mark the group reviewed. Entries with missing fields, uncertain text or unchecked headings remain below for individual correction.</p>
+            <div id="ready-groups"></div>
+          </section>
+          <div class="review-toolbar">
+            <label for="review-filter">Show <select id="review-filter"><option value="issues">Needs correction</option><option value="unreviewed">All unreviewed</option><option value="ready">Ready for batch review</option><option value="reviewed">Reviewed</option><option value="skipped">Skipped</option><option value="all">All entries</option></select></label>
+            <label for="review-search">Search <input id="review-search" type="search" placeholder="Course, room or original text"></label>
+            <label for="review-day">Day <select id="review-day"><option value="">All days</option></select></label>
+            <label for="review-page">Source page <select id="review-page"><option value="">All pages</option></select></label>
+            <button type="submit" name="action" value="save" formnovalidate class="button">Save draft</button>
+            <a id="resume-draft" href="?review={{ document_token|urlencode }}">Resume saved draft</a><span class="help">Changes save automatically while you edit. Reopen from Your saved image drafts or this link. Drafts expire 24 hours after the latest save.</span>
+          </div>
+          <h2>Review extracted entries</h2><p id="review-status" role="status"></p>
+          <p class="help">“Ready” means fields are complete with no detected warning; it is not a guarantee of correct reading. Check the source for the visible batch, including any omitted cells.</p>
+          <div class="review-batch"><label><input id="batch-checked" type="checkbox"> I checked the source for this visible batch.</label><button id="review-batch" type="button" class="button" disabled>Mark visible ready rows reviewed</button><span id="batch-status" role="status"></span></div>
+          <div class="csv-preview" tabindex="0" role="region" aria-label="Editable timetable rows"><table id="document-table"><thead><tr><th scope="col">Source / actions</th><th scope="col">Course</th><th scope="col">Room</th><th scope="col">Day</th><th scope="col">Time</th><th scope="col">Check</th></tr></thead><tbody></tbody></table></div>
+          <button type="button" id="add-review-row" class="button">Add missing entry</button>
+          <div class="review-pagination"><button id="review-previous" type="button" class="button">Previous 25</button><span id="review-page-status" role="status"></span><button id="review-next" type="button" class="button">Next 25</button></div>
+        </section>
+      </div>
+      <div class="csv-confirm"><label><input type="checkbox" id="coverage-checked" name="coverage_checked" value="yes" required {% if coverage_checked %}checked{% endif %}><span id="coverage-label"> I checked the selected Level / Part against the image for missing entries and confirmed its weekdays and time headings.</span></label><p id="import-scope-status" role="status">Validation and import cover {{ import_scope_label }}. Other levels remain in the draft. Every retained entry in this selection must be reviewed, including those on other pages.</p><button type="submit" name="action" value="review" class="button default">Validate reviewed entries</button></div>
+    </form>
+    {% if plan %}
+    <section id="document-final-preview"><h2>{{ import_scope_label }} validated: {{ plan.rows|length }} dated entries</h2><p>{{ selected_entry_count }} weekly entries selected; {{ plan.counts.Add }} dated classes to add; {{ plan.counts.Unchanged }} unchanged. {% if other_entry_count %}{{ other_entry_count }} other weekly entries will remain in the saved draft.{% endif %} Check the expanded dates before applying.</p>
+      <details><summary>Show all expanded dates ({{ plan.rows|length }} entries)</summary><div class="csv-preview" role="region" aria-label="Validated dated entries" tabindex="0"><table><thead><tr><th>Entry</th><th>Action</th><th>Course</th><th>Room</th><th>Day / date</th><th>Time</th><th>Session</th></tr></thead><tbody>{% for row in plan.rows %}<tr><td>{{ row.line }}</td><td>{{ row.action }}</td><td>{{ row.course }}</td><td>{{ row.room.name }}</td><td>{{ row.values.date|date:"l, Y-m-d" }}</td><td>{{ row.values.start_time|time:"g:i A" }}–{{ row.values.end_time|time:"g:i A" }}</td><td>{{ row.values.academic_session }}</td></tr>{% endfor %}</tbody></table></div></details>
+      <p>New records to create with these classes:</p><ul>{% for kind, values in document.preview_records.items %}<li>{{ kind|capfirst }}: {{ values|length }}{% if values %}<details><summary>Show {{ kind }}</summary><ul>{% for value in values %}<li>{{ value }}</li>{% endfor %}</ul></details>{% endif %}</li>{% endfor %}</ul>
+      <form method="post" class="csv-confirm">{% csrf_token %}<input type="hidden" name="action" value="confirm"><input type="hidden" name="document_token" value="{{ document_token }}"><input type="hidden" name="preview" value="{{ preview_token }}"><p>Only {{ import_scope_label }} and its required new records will be saved together. Other levels remain in the draft. Existing cancellations are preserved.</p><button type="submit" class="button default">Confirm and import</button></form>
+    </section>
+    {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

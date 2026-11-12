@@ -17,8 +17,9 @@
 
 {% block content %}
 <div id="content-main" class="timetable-import">
+  <p>Have a lecture timetable image? <a href="{% url 'admin:scheduling_timetableday_document' %}">Import Image with editable review</a>.</p>
   <p>Upload the school's timetable from a spreadsheet. Review the classes below before saving.</p>
-  <p>Use one row per class and date. Dates use <strong>YYYY-MM-DD</strong>; times use <strong>HH:MM</strong> in Lagos time.</p>
+  <p>Use one row per class and date. Dates use <strong>YYYY-MM-DD</strong>; times use <strong>2:30 PM</strong> in Lagos time. Existing 24-hour CSV times are also accepted.</p>
   <ul>
     <li>Room names or room codes and course codes must match saved records. Add missing rooms and courses first.</li>
     <li>Leave <strong>id</strong> blank for a new class. To edit or cancel a saved class, export it from Timetables and keep its ID.</li>
@@ -57,7 +58,7 @@
           <tr>
             <td>{{ row.line }}</td><td>{{ row.action }}{% if row.existing %} (#{{ row.existing.pk }}){% endif %}</td>
             <td>{{ row.room.name }}</td><td>{{ row.course }}</td><td>{{ row.values.date|date:"Y-m-d" }}</td>
-            <td>{{ row.values.start_time|time:"H:i:s" }}–{{ row.values.end_time|time:"H:i:s" }}</td>
+            <td>{{ row.values.start_time|time:"g:i:s A" }}–{{ row.values.end_time|time:"g:i:s A" }}</td>
             <td>{{ row.values.academic_session }}</td><td>{% if row.values.is_cancelled %}Cancelled{% else %}Scheduled{% endif %}</td>
           </tr>
           {% endfor %}

@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from config.clocks import clock_label
 
 from .models import TimetableDay
 
@@ -29,7 +30,7 @@ class ScheduleSerializer(serializers.ModelSerializer):
         return f"TIMETABLE-{obj.pk}"
 
     def get_timeSlot(self, obj):
-        return f"{obj.start_time:%H:%M} - {obj.end_time:%H:%M}"
+        return f"{clock_label(obj.start_time)} - {clock_label(obj.end_time)}"
 
     def get_organizer(self, obj):
         return obj.course.department if obj.course else "Timetable"

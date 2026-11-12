@@ -118,7 +118,7 @@ class ReservationTests(APITestCase):
         self.assertEqual(booking.purpose, "Group study")
         self.assertIsNone(booking.reviewed_by)
         data = self.client.get("/api/reservations/").data[0]
-        self.assertEqual(data["timeSlot"], "10:00 - 12:00")
+        self.assertEqual(data["timeSlot"], "10:00 AM - 12:00 PM")
         self.assertEqual(data["status"], "Pending")
         self.assertTrue(data["canCancel"])
         self.assertFalse(data["canReview"])
@@ -373,7 +373,7 @@ class ReservationTests(APITestCase):
                 slots = current["hourlySchedule"]
                 self.assertEqual(
                     [slot["time"] for slot in slots if slot["reserved"]],
-                    ["10:00 - 12:00"],
+                    ["10:00 AM - 12:00 PM"],
                 )
                 self.assertEqual(
                     [slot["status"] for slot in slots],

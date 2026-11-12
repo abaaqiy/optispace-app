@@ -33,10 +33,23 @@ class BuildingAdminTests(TestCase):
         self.assertEqual(len(BUILDING_NAMES), len(set(BUILDING_NAMES)))
         field = BuildingAdminForm().fields["name"]
         choices = list(field.widget.widgets[0].choices)
-        self.assertEqual(len(choices), len(BUILDING_NAMES) + 2)  # Prompt and Others.
+        self.assertEqual(len(choices), len(BUILDING_NAMES) + 3)  # Saved custom name, prompt and Others.
         self.assertEqual(choices[-1][0], OTHER_BUILDING)
         self.assertIn("Mathematics Building Complex (Yellow House)", BUILDING_NAMES)
         self.assertNotIn(OTHER_BUILDING, dict(BuildingAdminForm().fields["campus_zone"].choices))
+
+    def test_teaching_catalog_excludes_residences_but_preserves_legacy_records(self):
+        for residence in ('Moremi Hall', 'Angola Hall', 'Obafemi Awolowo Hall', 'Alumni Hall', 'Mozambique Hall'):
+            self.assertNotIn(residence, BUILDING_NAMES)
+        self.assertNotIn('Halls of Residence', CAMPUS_ZONES)
+        self.assertIn('College of Health Sciences Block Y', BUILDING_NAMES)
+        self.assertIn('Renewed Hope-NITDA Innovation Hub', BUILDING_NAMES)
+        legacy = Building.objects.create(name='Moremi Hall', campus_zone='Halls of Residence')
+        form = BuildingAdminForm(instance=legacy, data=self.data(
+            name_0=OTHER_BUILDING, name_1=legacy.name, campus_zone=legacy.campus_zone,
+        ))
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.save().pk, legacy.pk)
 
     def test_building_add_renders_search_widgets_without_duplicate_libraries(self):
         response = self.client.get(reverse("admin:rooms_building_add"))
@@ -54,7 +67,7 @@ class BuildingAdminTests(TestCase):
 
     def test_custom_name_and_old_zone_round_trip(self):
         form = BuildingAdminForm(instance=self.building)
-        self.assertEqual(form.fields["name"].widget.decompress(self.building.name), [OTHER_BUILDING, self.building.name])
+        self.assertEqual(form.fields["name"].widget.decompress(self.building.name), [self.building.name, ''])
         self.assertIn(self.building.campus_zone, dict(form.fields["campus_zone"].choices))
         form = BuildingAdminForm(instance=self.building, data=self.data(
             name_0=OTHER_BUILDING, name_1="  Renovated custom building  ", campus_zone=self.building.campus_zone,

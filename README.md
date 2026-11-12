@@ -93,9 +93,13 @@ continue to receive the generic invalid-email-or-password message (HTTP 401).
    by name or nickname. Choose its campus area from the searchable dropdown.
    See [building sources and migration behaviour](docs/building-catalog.md).
    Suggestions do not insert database records automatically.
-2. Add a room using the searchable **Room name** dropdown (50 documented OAU
-   suggestions plus **Others** for a custom name). The permanent internal code is
-   generated automatically. Select its room type, capacity, size category and
+2. Add a room using the searchable **Room name** dropdown (134 documented OAU
+   teaching and study spaces, followed by **Others**). Both room name and the
+   14 room-type suggestions offer **Others** to enter a value that is not listed.
+   Existing custom values reopen under Others for editing. Search also recognises documented
+   abbreviations such as `ODLT1`. This catalogue is not a verified complete current
+   campus inventory. The permanent internal code is generated automatically.
+   Select its room type, capacity, size category and
    facilities. A building is required; the room uses that building's campus area.
    There is no separate room-zone field to fill in.
    See [catalogue sources and editing behaviour](docs/room-catalog.md).
@@ -216,8 +220,12 @@ room-status update is needed.
 ## Milestone 3: importing the school timetable
 
 Administrators can now import a school timetable from **CSV UTF-8** through
-**Import School Timetable** on the dashboard, or **Manage Timetables → Import CSV**.
+**Import Timetable CSV** on the dashboard, or **Manage Timetables → Import CSV**.
 
+**Timetables → Import Image** reads PNG/JPEG lecture timetables with local OCR,
+shared heading/name corrections and compact review by weekday. PDF and examination
+uploads are excluded. CSV import/export remains available.
+See [image import and isolated testing](docs/timetable-import.md#lecture-timetable-image-import).
 Download the template and saved room/course reference lists, enter one row per
 class/date, and choose **Preview CSV**. The preview reports additions, updates,
 unchanged rows and conflicts. **Apply import** saves the reviewed entries together.
@@ -230,8 +238,7 @@ be uploaded again. Imports use the same room locks and availability API as manua
 editing, so the existing frontend picks up imported changes automatically.
 
 See the [CSV format and step-by-step guide](docs/timetable-import.md) for examples,
-limits and validation rules. This milestone requires no new dependencies or database
-migrations. Real school timetable data must be supplied by an administrator.
+limits and validation rules. Image OCR uses free local dependencies; no database migration is needed. Real school timetable data must be supplied by an administrator.
 
 ## Restored Milestone 2: reservations
 
@@ -245,7 +252,7 @@ rows as archived without deleting them. They remain visible as read-only history
 in Django admin, and do not affect availability. New requests are not archived.
 Apply this migration before running the restored version against a database.
 
-Timetable saves and CSV imports share room locks with approvals and
+Timetable saves and CSV/image imports share room locks with approvals and
 reject overlapping active classes or approved reservations. Supported writes use
 Django admin, the reservation API or model/service save paths; direct SQL and bulk
 updates bypass these checks.

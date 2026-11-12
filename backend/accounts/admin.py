@@ -1,8 +1,11 @@
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import Group
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.urls import reverse
+from django.utils.html import format_html
 
+from .forms import AccountPasswordResetForm
 from .models import User
 
 
@@ -13,6 +16,12 @@ admin.site.unregister(Group)
 
 @admin.register(User)
 class OptispaceUserAdmin(UserAdmin):
+    change_password_form = AccountPasswordResetForm
+    change_user_password_template = "accounts/admin/reset_password.html"
+    change_form_template = "accounts/admin/change_form.html"
+    delete_confirmation_template = "accounts/admin/delete_confirmation.html"
+    delete_selected_confirmation_template = "accounts/admin/delete_selected_confirmation.html"
+
     list_display = (
         "email",
         "first_name",
@@ -71,6 +80,38 @@ class OptispaceUserAdmin(UserAdmin):
 
     actions = ["approve_lecturers"]
     filter_horizontal = ("user_permissions",)
+
+    def get_list_display(self, request):
+        fields = super().get_list_display(request)
+        if request.user.is_active and request.user.is_superuser:
+            return (*fields, "reset_password_link")
+        return fields
+
+    @admin.display(description="Password")
+    def reset_password_link(self, obj):
+        return format_html(
+            '<a href="{}">Reset password</a>',
+            reverse(f"{self.admin_site.name}:auth_user_password_change", args=[obj.pk]),
+        )
+
+    def user_change_password(self, request, id, form_url=""):
+        if not request.user.is_active or not request.user.is_superuser:
+            raise PermissionDenied
+        response = super().user_change_password(request, id, form_url)
+        if hasattr(response, "context_data"):
+            account = response.context_data["original"]
+            response.context_data["title"] = f"Reset password: {account.email}"
+        return response
+
+    def get_deleted_objects(self, objs, request):
+        objects, counts, permissions, protected = super().get_deleted_objects(objs, request)
+        if request.user.is_active and request.user.is_superuser:
+            # Reservation deletion stays unavailable as a standalone action.
+            # A superuser's confirmed account deletion includes its reservations.
+            from bookings.models import Reservation
+
+            permissions.discard(Reservation._meta.verbose_name)
+        return objects, counts, permissions, protected
 
     def formfield_for_manytomany(self, db_field, request, **kwargs):
         if db_field.name == "user_permissions":

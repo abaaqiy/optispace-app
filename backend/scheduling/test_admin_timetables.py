@@ -1,6 +1,5 @@
 from datetime import date, time
 
-from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
@@ -26,7 +25,9 @@ class TimetableAdminTests(TestCase):
         return self.client.post(url, data)
 
     def test_only_two_categories_and_timetable_cancellation_field(self):
-        self.assertEqual({m.__name__ for m in admin.site._registry if m._meta.app_label == "scheduling"}, {"Course", "TimetableDay"})
+        index = self.client.get(reverse('admin:index'))
+        app = next(app for app in index.context['app_list'] if app['app_label'] == 'scheduling')
+        self.assertEqual({model['object_name'] for model in app['models']}, {'Course', 'TimetableDay'})
         response = self.client.get(reverse("admin:scheduling_timetableday_add"))
         self.assertEqual(set(response.context["adminform"].form.fields), {"room", "date", "start_time", "end_time", "course", "academic_session", "is_cancelled"})
         self.assertEqual(response.context["inline_admin_formsets"], [])
@@ -44,7 +45,17 @@ class TimetableAdminTests(TestCase):
         self.assertIsNone(data["reservedSeconds"])
         schedule = self.client.get("/api/schedules/", {"date": "2030-01-15"}).json()
         self.assertEqual(schedule[0]["purpose"], "CSC101 — Computing")
-        self.assertEqual(schedule[0]["timeSlot"], "10:00 - 12:00")
+        self.assertEqual(schedule[0]["timeSlot"], "10:00 AM - 12:00 PM")
+
+    def test_admin_am_pm_inputs_preserve_afternoon_times_and_editing(self):
+        response = self.post_entry(start_time='2:30 PM', end_time='3:45 PM')
+        self.assertEqual(response.status_code, 302)
+        entry = TimetableDay.objects.get()
+        self.assertEqual((entry.start_time, entry.end_time), (time(14, 30), time(15, 45)))
+        page = self.client.get(reverse('admin:scheduling_timetableday_change', args=[entry.pk]))
+        self.assertContains(page, '02:30:00 PM')
+        schedule = self.client.get('/api/schedules/', {'date': '2030-01-15'}).json()
+        self.assertEqual(schedule[0]['timeSlot'], '2:30 PM - 3:45 PM')
 
     def test_course_session_and_valid_times_required(self):
         for extra in ({"course": ""}, {"academic_session": ""}, {"end_time": "09:00"}, {"course": 999999}):

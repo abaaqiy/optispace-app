@@ -29,6 +29,10 @@ load_dotenv(BASE_DIR / '.env', override=False)
 # Production fails startup if its secret or allowed hosts are missing.
 globals().update(runtime_from_environment(os.environ))
 
+# Optional, local-only source references for reviewed course-title suggestions.
+# Complete handbooks are not copied into the repository or served in production.
+COURSE_HANDBOOK_DIRECTORY = os.environ.get('OPTISPACE_HANDBOOK_DIR', '')
+
 
 # Application definition
 
@@ -110,6 +114,7 @@ AUTH_PASSWORD_VALIDATORS = [
 # https://docs.djangoproject.com/en/6.1/topics/i18n/
 
 LANGUAGE_CODE = 'en-us'
+FORMAT_MODULE_PATH = 'config.formats'
 
 TIME_ZONE = "Africa/Lagos"
 
@@ -148,7 +153,7 @@ REST_FRAMEWORK = {
 
 MAILERS = {
     'default': {
-        # This version has no outgoing email or password-reset feature.
+        # Administrator password resets do not need outgoing email.
         'BACKEND': (
             'django.core.mail.backends.console.EmailBackend' if DEBUG
             else 'django.core.mail.backends.dummy.EmailBackend'

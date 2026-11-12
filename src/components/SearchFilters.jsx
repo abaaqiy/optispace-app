@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { getLagosDateTime } from '../api';
+import ClockInput from './ClockInput';
 
 const SearchFilters = ({ onApply, onReset, activeCategory = 'all', zones = [] }) => {
   const [zone, setZone] = useState('all');
@@ -69,9 +70,9 @@ const SearchFilters = ({ onApply, onReset, activeCategory = 'all', zones = [] })
               className="w-full bg-slate-50 border border-slate-300 text-xs rounded-lg px-3 py-2.5 disabled:opacity-50" />
           </div>
           <div>
-            <label htmlFor="room-search-time" className="block text-xs font-bold text-slate-700 mb-1">Time (Lagos)</label>
-            <input id="room-search-time" type="time" required disabled={useCurrentTime} value={moment.time}
-              onChange={event => setMoment({ ...moment, time: event.target.value })}
+            <label htmlFor="room-search-time" className="block text-xs font-bold text-slate-700 mb-1">Time (Lagos, AM/PM)</label>
+            <ClockInput id="room-search-time" required disabled={useCurrentTime} value={moment.time}
+              onChange={time => setMoment({ ...moment, time })}
               className="w-full bg-slate-50 border border-slate-300 text-xs rounded-lg px-3 py-2.5 disabled:opacity-50" />
           </div>
           <div>

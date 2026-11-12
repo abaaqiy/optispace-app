@@ -1,6 +1,17 @@
+import re
+
 from django import forms
 
-from .models import TimetableDay
+from .models import Course, TimetableDay
+
+
+class CourseAdminForm(forms.ModelForm):
+    class Meta:
+        model = Course
+        fields = ('code', 'title', 'department', 'title_pending')
+
+    def clean_code(self):
+        return re.sub(r'\s+', '', self.cleaned_data['code']).upper()
 
 
 class TimetableUploadForm(forms.Form):
@@ -26,3 +37,5 @@ class TimetableAdminForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["course"].required = True
         self.fields["academic_session"].required = True
+        for key in ('start_time', 'end_time'):
+            self.fields[key].widget.attrs.update(size=14, placeholder='02:30 PM')

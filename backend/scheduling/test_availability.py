@@ -60,8 +60,8 @@ class AvailabilityAPITests(APITestCase):
         self.assertIsNone(data["reservedSeconds"])
         self.assertIsNone(data["reservedUntil"])
         self.assertIsNone(data["currentSchedule"])
-        self.assertIn("available until 14:00", data["statusText"])
-        self.assertEqual(data["nextSchedule"], "14:00 - CSC201 — Programming")
+        self.assertIn("available until 2:00 PM", data["statusText"])
+        self.assertEqual(data["nextSchedule"], "2:00 PM - CSC201 — Programming")
 
     def test_missing_timetable_is_unknown(self):
         response = self.client.get(
@@ -77,11 +77,11 @@ class AvailabilityAPITests(APITestCase):
         self.assertEqual(
             [slot["time"] for slot in slots],
             [
-                "00:00 - 08:00",
-                "08:00 - 10:00",
-                "10:00 - 14:00",
-                "14:00 - 16:00",
-                "16:00 - 00:00",
+                "12:00 AM - 8:00 AM",
+                "8:00 AM - 10:00 AM",
+                "10:00 AM - 2:00 PM",
+                "2:00 PM - 4:00 PM",
+                "4:00 PM - 12:00 AM",
             ],
         )
         self.assertEqual(

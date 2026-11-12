@@ -17,7 +17,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 COPY requirements.txt ./
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir -r requirements.txt
+COPY scripts/install-image-model.py ./install-image-model.py
+RUN python install-image-model.py --directory /app/ocr-models
+COPY docs/ocr-model.md docs/licenses/ocr-model-Apache-2.0.txt ./ocr-licences/
+ENV OPTISPACE_IMAGE_MODEL=/app/ocr-models/english.onnx
 COPY backend ./backend
 COPY --from=frontend /app/dist ./dist
 COPY --chmod=755 scripts/start-production.sh ./start-production.sh
