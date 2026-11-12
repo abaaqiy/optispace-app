@@ -740,7 +740,10 @@
     if (departmentMatch.profiles.length > 1) element('span', ' Conflicting curriculum Parts remain Unassigned for checking.', root);
     if (departmentMatch.restricted.length) element('span', ` ${departmentMatch.restricted.map(profile => profile.notes).filter(Boolean).join(' ')}`, root);
     const current = retained.filter(inPart);
-    document.getElementById('part-status').textContent = `${current.length} retained entries in this view; ${current.filter(row => row.reviewed).length} reviewed. Full image: ${retained.filter(row => row.reviewed).length} of ${retained.length} retained entries reviewed. Final validation checks every Part.`;
+    const scope = levelView.selectedOptions[0].dataset.label;
+    document.getElementById('part-status').textContent = `${current.length} retained entries in this view; ${current.filter(row => row.reviewed).length} reviewed. Remaining image: ${retained.filter(row => row.reviewed).length} of ${retained.length} retained entries reviewed. Validation imports ${scope} only.`;
+    document.getElementById('import-scope-status').textContent = `Validate and import: ${scope} · ${current.length} weekly entries. ${retained.length - current.length} other entries stay in this draft. Review every retained entry in this selection, including those on other pages.`;
+    document.getElementById('coverage-label').textContent = ` I checked ${scope} against the image for missing entries and confirmed its weekdays and time headings.`;
     const unknown = retained.filter(row => !partInfo(row).parts.length).length;
     document.getElementById('part-unassigned').textContent = `${unknown} entries are unassigned or have several possible Parts. Review them in Unassigned, or assign a Part using “Check / correct Part” in the row editor. A shared class can appear in more than one Part's view.`;
   }
@@ -790,7 +793,9 @@
     });
   }
   function partChanged() {
-    captureEditors(); offset = 0; invalidate(); mappings(); headings(); render();
+    captureEditors(); offset = 0;
+    document.getElementById('coverage-checked').checked = false;
+    invalidate(); mappings(); headings(); render();
   }
   levelView.addEventListener('change', partChanged);
   let matchedDepartment = departmentInput.value;

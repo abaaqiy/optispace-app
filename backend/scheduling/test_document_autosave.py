@@ -73,7 +73,8 @@ class DocumentAutosaveTests(TestCase):
             first_date='2030-01-07', last_date='2030-01-07')
         state = {**self.state, 'teaching_semester': str(semester.pk), 'coverage_checked': 'yes',
                  'level_view': '3', 'rows': json.dumps([{'course': 'CSC201', 'room': room.code,
-                     'day': 'Monday', 'start_time': '08:00', 'end_time': '09:00', 'reviewed': True}])}
+                     'day': 'Monday', 'start_time': '08:00', 'end_time': '09:00', 'reviewed': True,
+                     'class_group_kind': 'part', 'class_group': 'III'}])}
         saved = self.save(**state)
         self.assertEqual(saved.status_code, 200)
         # The database saved these edits, but the page still has its older token.

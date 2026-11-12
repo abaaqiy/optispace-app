@@ -35,6 +35,7 @@
   </form>
   {% if document %}
     <div class="document-notices"><h2>Reading complete</h2><ul>{% for note in document.notices %}<li>{{ note }}</li>{% endfor %}</ul>
+    {% if document.imported_batches %}<p>Previously imported from this image: {% for batch in document.imported_batches %}{% if not forloop.first %}; {% endif %}{% if batch.view == 'all' %}All extracted entries{% elif batch.view == 'unassigned' %}Unassigned entries{% else %}Part {{ batch.view }}{% endif %} ({{ batch.entries }} weekly entries){% endfor %}. The entries below remain in the draft.</p>{% endif %}
     <p>Check entries in batches beside the source. Repeated course and venue names can be matched once for all affected rows. Skip unwanted entries and add any entries the reader missed.</p><p>Drafts save automatically after edits and last 24 hours from the latest save. <strong>Save draft</strong> remains available.</p></div>
     {{ rows|json_script:"document-rows" }}{{ references|json_script:"document-references" }}{{ pages|json_script:"document-pages" }}
     {{ pending|json_script:"document-pending" }}{{ creation_choices|json_script:"document-creation-choices" }}
@@ -72,7 +73,7 @@
           <p id="part-status" class="help" role="status"></p>
           <p id="part-unassigned" class="help" role="status"></p>
           <p class="help">Available handbook evidence is matched automatically from the Department field above. Choose a Part to show its courses, venues, days and times in sections 2 and 3, shared-heading review, day groups and extracted entries. Choose All extracted entries to review every level together. Switch views to continue reviewing; edits remain saved. Handbooks have partial coverage. Uncertain or missing course assignments stay in Unassigned for checking. The first digit of a course code does not determine its Part.</p>
-          <p class="help">Final validation and import still check the full retained image. Selecting a Part changes your review view; it does not skip or discard other Parts.</p>
+          <p class="help">Validation and import use the selected Level / Part. Other levels remain in the saved draft for later. Choose All extracted entries to review and import every remaining level together.</p>
         </div>
       </fieldset>
       <div class="document-workspace">
@@ -129,13 +130,13 @@
           <div class="review-pagination"><button id="review-previous" type="button" class="button">Previous 25</button><span id="review-page-status" role="status"></span><button id="review-next" type="button" class="button">Next 25</button></div>
         </section>
       </div>
-      <div class="csv-confirm"><label><input type="checkbox" id="coverage-checked" name="coverage_checked" value="yes" required {% if coverage_checked %}checked{% endif %}> I checked the full image for missing entries and confirmed the weekdays and time headings.</label><p>Review rows individually or in checked batches. Rows with warnings need individual review. Editing a row clears its review tick. Validation and import cover the complete retained timetable across all Parts, including entries outside the selected Part or current page.</p><button type="submit" name="action" value="review" class="button default">Validate reviewed entries</button></div>
+      <div class="csv-confirm"><label><input type="checkbox" id="coverage-checked" name="coverage_checked" value="yes" required {% if coverage_checked %}checked{% endif %}><span id="coverage-label"> I checked the selected Level / Part against the image for missing entries and confirmed its weekdays and time headings.</span></label><p id="import-scope-status" role="status">Validation and import cover {{ import_scope_label }}. Other levels remain in the draft. Every retained entry in this selection must be reviewed, including those on other pages.</p><button type="submit" name="action" value="review" class="button default">Validate reviewed entries</button></div>
     </form>
     {% if plan %}
-    <section id="document-final-preview"><h2>Complete timetable validated: {{ plan.rows|length }} dated entries</h2><p>{{ plan.counts.Add }} to add; {{ plan.counts.Unchanged }} unchanged. All retained Parts are included. Check the expanded dates before applying.</p>
+    <section id="document-final-preview"><h2>{{ import_scope_label }} validated: {{ plan.rows|length }} dated entries</h2><p>{{ selected_entry_count }} weekly entries selected; {{ plan.counts.Add }} dated classes to add; {{ plan.counts.Unchanged }} unchanged. {% if other_entry_count %}{{ other_entry_count }} other weekly entries will remain in the saved draft.{% endif %} Check the expanded dates before applying.</p>
       <details><summary>Show all expanded dates ({{ plan.rows|length }} entries)</summary><div class="csv-preview" role="region" aria-label="Validated dated entries" tabindex="0"><table><thead><tr><th>Entry</th><th>Action</th><th>Course</th><th>Room</th><th>Day / date</th><th>Time</th><th>Session</th></tr></thead><tbody>{% for row in plan.rows %}<tr><td>{{ row.line }}</td><td>{{ row.action }}</td><td>{{ row.course }}</td><td>{{ row.room.name }}</td><td>{{ row.values.date|date:"l, Y-m-d" }}</td><td>{{ row.values.start_time|time:"g:i A" }}–{{ row.values.end_time|time:"g:i A" }}</td><td>{{ row.values.academic_session }}</td></tr>{% endfor %}</tbody></table></div></details>
       <p>New records to create with these classes:</p><ul>{% for kind, values in document.preview_records.items %}<li>{{ kind|capfirst }}: {{ values|length }}{% if values %}<details><summary>Show {{ kind }}</summary><ul>{% for value in values %}<li>{{ value }}</li>{% endfor %}</ul></details>{% endif %}</li>{% endfor %}</ul>
-      <form method="post" class="csv-confirm">{% csrf_token %}<input type="hidden" name="action" value="confirm"><input type="hidden" name="document_token" value="{{ document_token }}"><input type="hidden" name="preview" value="{{ preview_token }}"><p>The confirmed records and classes will be saved together. Existing cancellations are preserved; omitted classes are kept.</p><button type="submit" class="button default">Confirm and import</button></form>
+      <form method="post" class="csv-confirm">{% csrf_token %}<input type="hidden" name="action" value="confirm"><input type="hidden" name="document_token" value="{{ document_token }}"><input type="hidden" name="preview" value="{{ preview_token }}"><p>Only {{ import_scope_label }} and its required new records will be saved together. Other levels remain in the draft. Existing cancellations are preserved.</p><button type="submit" class="button default">Confirm and import</button></form>
     </section>
     {% endif %}
   {% endif %}

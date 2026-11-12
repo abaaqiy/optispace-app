@@ -115,7 +115,7 @@ test('background save captures partially typed forms, selections and rows withou
   assert.equal(requests.length, 1, 'Search-only actions do not trigger writes');
 });
 
-test('Validate waits for autosave and submits the latest token with every retained Part', { timeout: 5000 }, async t => {
+test('Validate waits for autosave and sends selected scope plus all draft rows for preservation', { timeout: 5000 }, async t => {
   let finishFirst, finishSubmit;
   const firstResponse = new Promise(resolve => { finishFirst = resolve; });
   const submitted = new Promise(resolve => { finishSubmit = resolve; });
@@ -153,6 +153,30 @@ test('Validate waits for autosave and submits the latest token with every retain
   assert.equal(data.get('level_view'), '3');
   assert.deepEqual(JSON.parse(data.get('rows')).map(row => row.class_group), ['3', '4']);
   assert.equal(e.saver.dirty(), false);
+});
+
+test('import scope text follows Part selection and resets coverage confirmation without removing other levels', t => {
+  const rows = [1, 2].map(part => ({ ...row('CSC201'), course: 'CSC201',
+    class_group_kind: 'part', class_group: String(part), reviewed: part === 1, day: part === 1 ? 'Monday' : 'Tuesday' }));
+  const e = editor(t, rows, undefined, { references: {
+    courses: [{ value: 'CSC201', label: 'CSC201', keys: [] }], rooms: [{ value: 'step-a', label: 'STEP A', keys: [] }],
+  } });
+  const coverage = e.document.getElementById('coverage-checked');
+  e.change(coverage, true);
+  e.change(e.document.getElementById('level-view'), '1');
+  assert.equal(coverage.checked, false);
+  assert.match(e.document.getElementById('part-status').textContent, /Validation imports Part 1 \(100 level\) only/);
+  assert.match(e.document.getElementById('import-scope-status').textContent, /1 other entries stay in this draft/);
+  assert.match(e.document.getElementById('coverage-label').textContent, /Part 1 \(100 level\)/);
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 1);
+  assert.deepEqual(e.payload().rows.map(row => row.reviewed), [true, false]);
+  e.change(coverage, true);
+  e.change(e.document.getElementById('document-department'), 'Chemistry');
+  assert.equal(coverage.checked, false, 'Changing departmental classification needs a fresh coverage check');
+  e.change(e.document.getElementById('level-view'), 'all');
+  assert.match(e.document.getElementById('import-scope-status').textContent, /All extracted entries · 2 weekly entries/);
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 2);
+  assert.equal(e.payload().rows.length, 2);
 });
 
 test('a genuine draft conflict lets an administrator preserve unsaved edits in a separate draft', { timeout: 5000 }, async t => {

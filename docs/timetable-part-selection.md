@@ -22,10 +22,24 @@ This local feature adds a department/Part view directly to commit `312fbd1` on
 4. Review each Part using the existing sections. Switching Parts keeps all rows,
    prepared records, corrections, skipped entries, unfinished fields and review
    ticks in the full draft. Autosave and the Save draft button work as before.
-5. Finish the Parts and Unassigned entries, check the full source for omissions,
-   then use the existing **Validate reviewed entries → Confirm and import** steps.
-   Validation still requires every retained row to be reviewed, including hidden
-   Parts. Import still saves the full retained timetable in one transaction.
+5. Check the selected Part against the image for omissions and correct its
+   weekdays/time headings, then use **Validate reviewed entries → Confirm and
+   import**. Only the selected Part's retained rows and required new records are
+   validated and imported. Unreviewed rows and incomplete proposals from other
+   Parts do not block this batch. Every retained row in the selection must still
+   be reviewed, including those hidden by pagination or search.
+   **All extracted entries** validates and imports every remaining retained row;
+   **Unassigned / uncertain** validates and imports the retained unassigned rows.
+6. After a Part is imported, the page returns to the same saved draft with the
+   other entries, their corrections, unfinished editor fields and original image
+   intact. Imported rows are removed from the remaining review and listed in its
+   import history. Shared courses, rooms and buildings created by that batch
+   become saved choices in the remaining Parts. A shared class assigned to several
+   Parts is imported once and removed from each remaining view. Partial import
+   saves the remaining draft for another 24 hours and clears its coverage check;
+   the view returns to **All extracted entries** so the remaining work is visible.
+   Choose another Part to continue. The draft closes after its final batch.
+7. Saving and validation still protect edits from competing tabs.
    Save/Validate waits for background saving and submits the latest draft token.
    If an autosave response was lost but the submitted edits exactly match the
    saved draft, validation can continue. Different edits from a stale tab remain
@@ -48,7 +62,7 @@ This local feature adds a department/Part view directly to commit `312fbd1` on
 | Review extracted entries | Part III rows with their original source positions, choices and times. Search, day/page filters and pagination operate within the selected Part. |
 | Source image | The complete original image, with existing zoom and source-cell highlighting. |
 | Your saved image drafts | The complete draft, including its current Part view and all edits, with the existing 24-hour expiry after each save. |
-| Final validation/import | The complete retained timetable, using the original duplicate, permissions and overlap checks. |
+| Final validation/import | Only the selected Part and its required records, using the original duplicate, permission and saved timetable/reservation overlap checks. Other Parts remain in the draft. All extracted entries includes every remaining level. |
 
 With a Part selected, mapping/correction actions in section 2 affect its visible
 entries. The course/room/building catalogue remains shared across the draft; once
@@ -92,7 +106,24 @@ clearing affected review ticks as in the original editor.
   Part checkbox choices while preserving saved assignments and class review ticks.
 - A jointly attended entry may appear in several Part views but remains a single
   extracted row. The original import planner continues to reject duplicate rows
-  and overlapping saved classes/reservations.
+  and overlapping saved classes/reservations within the imported batch.
+
+## Independent import batches
+
+The server recomputes Part membership from the same departmental evidence,
+explicit image headings and saved manual assignments used by the editor. The
+preview signs the selected Part and its row indices along with the existing
+draft/version/fingerprint. Changing the saved selection or edits invalidates the
+preview; confirmation cannot widen the batch using posted rows or indices.
+Successful imports and preservation of the remaining draft commit together in
+one transaction. The original image remains available until all retained entries
+are imported, or the remaining draft expires.
+
+For example, after reviewing only Chemistry Part 1, **Validate reviewed entries**
+previews that Part's weekly slots expanded through the saved semester dates.
+**Confirm and import** saves those classes. Parts 2–4 and uncertain entries keep
+their edits and remain unimported. Selecting **All extracted entries** later
+requires those remaining entries to be reviewed before their own import.
 
 ## Handbook coverage and maintenance
 
@@ -133,6 +164,8 @@ Tests check the original 18 review-editor cases and new section filtering,
 programme evidence, unknown/multiple Parts, pagination/source navigation,
 manual choices, shared headings, Part-specific bulk actions, draft reopening,
 department edits, combined department names, historical programme restrictions,
-permission checks and full-image validation/import. Retired programme/confirmation
-fields in older drafts are ignored and removed on their next save. All work is local; pushing
-or deploying this branch is a separate action.
+permission checks, agreement between browser and server classification, selected
+Part validation/import, shared-record reuse, remaining draft preservation,
+replayed/stale previews and full-image validation/import in All mode. Retired
+programme/confirmation fields in older drafts are ignored and removed on their
+next save. All work is local; pushing or deploying this branch is a separate action.

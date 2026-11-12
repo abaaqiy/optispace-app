@@ -30,7 +30,8 @@ from .services.document_plan import image_plan, apply_image
 from .services.course_catalog import catalogue_coverage, catalogue_payload, handbook_file
 from .services.semesters import suggested_semester
 from .services.document_state import read_review_state
-from .services.part_catalogue import LEVEL_PROFILES
+from .services.part_catalogue import LEVEL_PROFILES, import_selection, part_label
+from .services.document_parts import continue_after_import
 
 from .services.document_drafts import (
     DOCUMENT_SALT, DOCUMENT_TTL, get_draft, load_document, save_document, saved_drafts, unpack_document,
@@ -185,6 +186,7 @@ class TimetableDocumentAdminMixin:
                     coverage_checked = document.get("coverage_checked", False)
                     pending = document.get("pending", pending)
                     if action == "confirm":
+                        remaining_token = None
                         with transaction.atomic():
                             draft = get_draft(token, request.user, lock=True)
                             document = unpack_document(draft)
@@ -203,6 +205,11 @@ class TimetableDocumentAdminMixin:
                                     != document.get("preview_version")
                                 ):
                                     raise signing.BadSignature
+                                selected_rows, selected_pending, scope = import_selection(
+                                    document['review_rows'], options, pending, document.get('metadata'),
+                                )
+                                if confirmed.get('scope') != scope or document.get('preview_scope') != scope:
+                                    raise signing.BadSignature
                             except (signing.BadSignature, KeyError, TypeError) as error:
                                 raise ImportProblem(
                                     "This preview is invalid or expired. Validate the reviewed rows again."
@@ -216,15 +223,20 @@ class TimetableDocumentAdminMixin:
                                 )
 
                             counts = apply_image(
-                                document["review_rows"], options, pending,
+                                selected_rows, options, selected_pending,
                                 confirmed["fingerprint"], request.user, document.get("filename", "Timetable image"), log,
                             )
-                            draft.delete()
+                            remaining_token = continue_after_import(draft, document, scope, counts['resolved'])
                         self.message_user(
                             request,
-                            f"Timetable import complete: {counts['Add']} added, {counts['Unchanged']} unchanged; {counts['courses']} courses and {counts['rooms']} rooms created. Room availability will update automatically.",
+                            f"{part_label(scope['view'])} imported: {counts['Add']} added, {counts['Unchanged']} unchanged; {counts['courses']} courses and {counts['rooms']} rooms created. Room availability will update automatically."
+                            + (' Other entries remain in this draft for review.' if remaining_token else ''),
                             messages.SUCCESS,
                         )
+                        if remaining_token:
+                            return HttpResponseRedirect(reverse(
+                                f'{self.admin_site.name}:scheduling_timetableday_document'
+                            ) + '?' + urlencode({'review': remaining_token}))
                         return HttpResponseRedirect(
                             reverse(
                                 f"{self.admin_site.name}:scheduling_timetableday_changelist"
@@ -270,9 +282,13 @@ class TimetableDocumentAdminMixin:
                     else:
                         if not coverage_checked:
                             raise ImportProblem(
-                                "Check the full image for omitted entries and confirm the weekday/time headings before validation."
+                                "Check the selected Level / Part against the image for omitted entries and confirm its weekday/time headings before validation."
                             )
-                        plan, staged, text, fingerprint = image_plan(rows, options, pending, request.user)
+                        selected_rows, selected_pending, scope = import_selection(
+                            rows, options, pending, document.get('metadata'),
+                        )
+                        plan, staged, text, fingerprint = image_plan(selected_rows, options, selected_pending, request.user)
+                        document['preview_scope'] = scope
                         document["preview_records"] = {
                             key: [str(obj) for _, obj, _ in values] for key, values in staged.items()
                         }
@@ -283,6 +299,7 @@ class TimetableDocumentAdminMixin:
                                 "user": request.user.pk,
                                 "document": payload["key"],
                                 "version": document["preview_version"],
+                                "scope": scope,
                             },
                             salt=DOCUMENT_SALT + ".apply",
                             compress=True,
@@ -335,6 +352,10 @@ class TimetableDocumentAdminMixin:
             "coverage_checked": coverage_checked,
             "plan": plan,
             "preview_token": preview,
+            "import_scope_label": part_label(options.get('level_view') or 'all'),
+            "selected_entry_count": len(document.get('preview_scope', {}).get('indices', [])) if plan else 0,
+            "other_entry_count": sum(not row.get('skip') for row in rows)
+            - len(document.get('preview_scope', {}).get('indices', [])) if plan else 0,
         }
         if document:
             context["pages"] = [

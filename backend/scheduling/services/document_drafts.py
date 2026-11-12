@@ -60,6 +60,7 @@ def recover_review_document(token, user, state):
     document['filename'] = f"Recovered edits — {document.get('filename', 'Timetable image')}"[:255]
     document['preview_version'] = secrets.token_urlsafe(16)
     document.pop('preview_records', None)
+    document.pop('preview_scope', None)
     return save_document(document, user)
 
 
@@ -132,6 +133,7 @@ def save_review_document(token, user, state):
         document.update(state)
         document['preview_version'] = secrets.token_urlsafe(16)
         document.pop('preview_records', None)
+        document.pop('preview_scope', None)
         fresh = save_document(document, user, token=draft_token(draft))
         return fresh, document
 
@@ -148,6 +150,7 @@ def autosave_document(token, user, state):
             draft.document.update(state)
             draft.document['preview_version'] = secrets.token_urlsafe(16)
             draft.document.pop('preview_records', None)
+            draft.document.pop('preview_scope', None)
             draft.saved_at = timezone.now()
             draft.expires_at = draft.saved_at + timedelta(seconds=DOCUMENT_TTL)
             draft.save(update_fields=['document', 'saved_at', 'expires_at'])

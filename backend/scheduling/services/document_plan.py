@@ -1,4 +1,4 @@
-"""Stage missing references without writes; confirm the whole image atomically."""
+"""Stage missing references without writes; confirm reviewed classes atomically."""
 import hashlib
 import json
 import re
@@ -247,6 +247,17 @@ def apply_image(rows, options, pending, expected, user, filename, log):
                     entry = TimetableDay(**row.values, image_import=source)
                     entry.save()
                     log(entry, "Add")
-                return {**final.counts, **{key: len(value) for key, value in staged.items()}}
+                resolved = {
+                    kind: {key: str(obj.pk) if kind == 'buildings' else obj.code for key, obj, _ in values}
+                    for kind, values in staged.items()
+                }
+                # Staged buildings use their normalised name as the deduplication
+                # key. Remaining Parts refer to the original draft identifiers.
+                resolved['buildings'] = {
+                    record['key']: resolved['buildings'][normalise(record.get('name', ''))]
+                    for record in pending.get('buildings', [])
+                    if normalise(record.get('name', '')) in resolved['buildings']
+                }
+                return {**final.counts, **{key: len(value) for key, value in staged.items()}, 'resolved': resolved}
     except (ValidationError, IntegrityError) as error:
         raise ImportProblem("A record changed or is invalid. Nothing was imported. Validate the draft again.") from error

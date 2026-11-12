@@ -508,7 +508,7 @@ class DocumentWorkflowTests(TestCase):
         response = self.review(token, mode="dated")
         self.assertEqual(response.context["options"]["mode"], "weekly")
         blocked = self.review(token, coverage_checked="")
-        self.assertContains(blocked, "Check the full image")
+        self.assertIn("Check the selected Level / Part", ' '.join(blocked.context['errors']))
         self.assertFalse(blocked.context["preview_token"])
         self.assertFalse(TimetableDay.objects.exists())
 
@@ -519,11 +519,11 @@ class DocumentWorkflowTests(TestCase):
             ([{**self.row, "room": ""}], "select an existing course and room"),
             ([{**self.row, "end_time": ""}], "both start and end"),
             ([self.row, self.row], "duplicates"),
-            ([{**self.row, "skip": True}], "No classes remain"),
+            ([{**self.row, "skip": True}], "No retained entries remain"),
         ]:
             with self.subTest(message=message):
                 response = self.review(token, rows)
-                self.assertContains(response, message)
+                self.assertIn(message, ' '.join(response.context['errors']))
                 self.assertFalse(response.context["preview_token"])
                 self.assertFalse(TimetableDay.objects.exists())
 
