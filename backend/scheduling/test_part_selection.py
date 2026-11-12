@@ -65,19 +65,23 @@ class PartCatalogueTests(SimpleTestCase):
         self.assertTrue(all(row['class_group_kind'] == 'group' for row in parse_table(table)[0]))
 
     def test_review_state_validates_only_new_part_fields_and_keeps_old_drafts_compatible(self):
-        self.assertEqual(part_options({}), {'level_view': 'all', 'level_profile': '', 'level_profile_confirmed': ''})
-        for changes in ({'level_view': '7'}, {'level_view': []}, {'level_profile': 'unknown'},
-                        {'level_profile_confirmed': 'true'}):
+        self.assertEqual(part_options({}), {'level_view': 'all'})
+        for changes in ({'level_view': '7'}, {'level_view': []}):
             with self.assertRaises(ImportProblem):
                 part_options(changes)
+        self.assertEqual(part_options({'level_view': '3', 'level_profile': 'industrial-chemistry-2023',
+                                       'level_profile_confirmed': ''}), {'level_view': '3'})
         for parts in ([True], [7], ['3'], [3, 3], 'III', None):
             with self.assertRaises(ImportProblem):
                 read_review_state({'rows': json.dumps([{'level_override': parts, 'level_override_code': 'CSC201'}])})
         rows = [{'course_text': 'CSC201', 'level_override': [3], 'level_override_code': 'CSC201', 'reviewed': True}]
-        state = read_review_state({'rows': json.dumps(rows), 'level_view': '3', 'level_profile': 'chemistry-2023',
-                                   'level_profile_confirmed': 'yes'})
+        state = read_review_state({'rows': json.dumps(rows), 'level_view': '3', 'department': 'Chemistry',
+                                   'level_profile': 'chemistry-2023', 'level_profile_confirmed': 'yes'})
         self.assertEqual(state['review_rows'], rows)
         self.assertEqual(state['review_options']['level_view'], '3')
+        self.assertEqual(state['review_options']['department'], 'Chemistry')
+        self.assertNotIn('level_profile', state['review_options'])
+        self.assertNotIn('level_profile_confirmed', state['review_options'])
 
 
 class PartViewWorkflowTests(TestCase):
@@ -95,8 +99,7 @@ class PartViewWorkflowTests(TestCase):
                 'reviewed': True, 'skip': False}
         self.rows = [{**base, 'course': 'CSC201', 'course_text': 'CSC201', 'editor_id':'row-3'},
                      {**base, 'course': 'MAC201', 'course_text': 'MAC201', 'day':'Tuesday', 'editor_id':'row-4'}]
-        self.options = {'teaching_semester': str(semester.pk), 'level_view':'3', 'level_profile':'chemistry-2023',
-                        'level_profile_confirmed':'yes'}
+        self.options = {'teaching_semester': str(semester.pk), 'level_view':'3', 'department':'Chemistry'}
         document = {'filename':'part-selection.jpg', 'rows':self.rows, 'notices':[],
             'review_options':self.options, 'pages':[{'image':b'private-test-image', 'width':100, 'height':100}]}
         self.token = save_document(document, self.admin)
@@ -113,12 +116,16 @@ class PartViewWorkflowTests(TestCase):
         reopened = self.client.get(self.url, {'review':response.json()['token']})
         self.assertEqual(reopened.context['rows'], self.rows)
         self.assertEqual(reopened.context['options']['level_view'], '4')
+        self.assertEqual(reopened.context['options']['department'], 'Chemistry')
         self.assertEqual(reopened.context['editor_state'], {'part:row-4:MAC201:4':True})
         self.assertEqual(reopened.context['level_profiles'], LEVEL_PROFILES)
         for text in ('1. Confirm shared details', '2. Resolve missing courses and venues once',
                      '3. Compare the weekly preview with the image', 'Check shared headings once',
-                     'Review clear entries by day', 'Review extracted entries'):
+                     'Review clear entries by day', 'Review extracted entries',
+                     'Level / Part:', 'All extracted entries'):
             self.assertContains(reopened, text)
+        self.assertNotContains(reopened, 'id="level-profile"')
+        self.assertNotContains(reopened, 'id="level-profile-confirmed"')
         self.assertFalse(TimetableDay.objects.exists())
         self.assertEqual(bytes(TimetableImageDraft.objects.get().image), b'private-test-image')
 
@@ -138,10 +145,28 @@ class PartViewWorkflowTests(TestCase):
         self.assertFalse(TimetableImageDraft.objects.exists())
 
     def test_invalid_part_selection_does_not_save_and_other_accounts_cannot_access_it(self):
-        self.assertEqual(self.client.post(self.autosave, self.payload(level_profile='injected-profile')).status_code, 400)
+        self.assertEqual(self.client.post(self.autosave, self.payload(level_view='injected-view')).status_code, 400)
         self.assertNotIn('review_rows', TimetableImageDraft.objects.get().document)
         other = get_user_model().objects.create_superuser('other-part', 'other-part@oauife.edu.ng', 'local-part-test')
         self.client.force_login(other)
         self.assertEqual(self.client.post(self.autosave, self.payload()).status_code, 400)
         self.client.logout()
         self.assertEqual(self.client.get(self.url, {'review':self.token}).status_code, 302)
+
+    def test_older_saved_profile_and_unchecked_confirmation_do_not_block_department_based_review(self):
+        draft = TimetableImageDraft.objects.get()
+        draft.document['review_options'].update(level_profile='industrial-chemistry-2023', level_profile_confirmed='')
+        draft.save(update_fields=['document'])
+        reopened = self.client.get(self.url, {'review':self.token})
+        self.assertEqual(reopened.status_code, 200)
+        self.assertEqual(reopened.context['rows'], self.rows)
+        self.assertEqual(reopened.context['options']['department'], 'Chemistry')
+        self.assertNotContains(reopened, 'id="level-profile"')
+        self.assertNotContains(reopened, 'id="level-profile-confirmed"')
+        response = self.client.post(self.autosave, self.payload())
+        self.assertEqual(response.status_code, 200)
+        draft.refresh_from_db()
+        self.assertEqual(draft.document['review_rows'], self.rows)
+        self.assertEqual(draft.document['review_options']['level_view'], '3')
+        self.assertNotIn('level_profile', draft.document['review_options'])
+        self.assertNotIn('level_profile_confirmed', draft.document['review_options'])

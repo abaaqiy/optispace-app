@@ -1,6 +1,6 @@
 # Part selection added to the 312fbd1 image review
 
-This local feature adds a programme/Part view directly to commit `312fbd1` on
+This local feature adds a department/Part view directly to commit `312fbd1` on
 `feature/part-selection`. The original commit is preserved on `compare/312fbd1`;
 `a48306b` is preserved on `feature/backend`, and `c105c40` on
 `feature/level-review`. This branch adds the selector to the existing sections.
@@ -9,14 +9,13 @@ This local feature adds a programme/Part view directly to commit `312fbd1` on
 
 1. Upload the full lecture timetable image or reopen an existing saved draft.
    Extraction runs for the whole image as before.
-2. In **1. Confirm shared details**, select **Programme and handbook**. Use the
-   edition for the department/programme and cohort on this timetable, then confirm
-   the applicability checkbox. For example, Chemistry and Industrial Chemistry
-   have separate curriculum profiles even though they are in the same department.
-   Until the checkbox is ticked, Part options show **awaiting handbook
-   confirmation** rather than misleading zero counts. Any image-heading or manual
-   assignments remain available and are counted separately while confirmation is
-   pending. Checking the box updates the counts immediately.
+2. In **1. Confirm shared details**, check the **Department** field, suggested
+   from the image heading where possible. Matching handbook evidence is used
+   automatically; there is no programme selector or applicability checkbox.
+   Department names match regardless of case, `Department of`, or `&` versus
+   `and`. Combined headings such as `Chemistry / Industrial Chemistry` are
+   recognised when all their named components are known. Partial names and course
+   digits are not used to guess a department or Part.
 3. Choose **Level / Part**. Part 1–6 and **Unassigned / uncertain** are available;
    **All extracted entries** restores the complete review view. Each option shows
    its retained-entry count. The page also shows overall review progress.
@@ -32,7 +31,7 @@ This local feature adds a programme/Part view directly to commit `312fbd1` on
 
 | Existing section | Display after choosing Part III |
 | --- | --- |
-| Confirm shared details | The existing faculty, department, semester and source details, with the selected programme/handbook and Part III. |
+| Confirm shared details | The existing faculty, department, semester and source details, with automatically matched departmental evidence and Part III. |
 | Resolve missing courses and venues once | Unresolved Part III courses and the venues actually attached to those courses, including shared teaching spaces. Proposed records/buildings linked to this Part are shown; saved choices remain reusable. |
 | Compare the weekly preview with the image | Part III course/venue/day/time cards in the existing weekly grid. Clicking one opens its source cell and correct editor page. Overlap warnings still check all retained Parts. |
 | Check shared headings once | Weekday/time headings used by Part III entries. A heading correction affects this Part's entries, preserving other Parts' individual values. |
@@ -53,9 +52,19 @@ clearing affected review ticks as in the original editor.
 - An explicitly detected PART column supplies the timetable's Part evidence.
   Arbitrary CLASS/group labels are not automatically treated as Parts. Old drafts
   lacking explicit Part metadata can use the handbook or a manual assignment.
-- After the administrator confirms an applicable handbook, exact course codes
-  are checked in that programme's reviewed curriculum tables. A code associated
-  with one Part is shown in that Part. Course digits are never used as a shortcut.
+- The Department field automatically selects the available reviewed curriculum
+  tables. Exact course codes associated with one Part across those tables appear
+  in that Part. Course digits are never used as a shortcut. Each row's evidence
+  still identifies its programme and handbook page for checking.
+- The supplied Chemistry timetable includes both CHM and ICH courses. A
+  `Chemistry` or combined `Chemistry / Industrial Chemistry` department matches
+  both profiles from the shared handbook. Where those profiles disagree, such as
+  CHM304 (Chemistry Part III; Industrial Chemistry Part IV) and MAC201 (Parts IV
+  and II respectively), the entry stays Unassigned. Their presence in one
+  timetable alone does not establish which cohort attends a particular session.
+- If there is no matching Part catalogue, all extracted rows remain accessible.
+  Explicit image Part headings and manual assignments continue to work; there is
+  no fallback to an unrelated department's handbook.
 - A code listed in several curriculum Parts remains Unassigned until the actual
   attending Part(s) are confirmed. This can arise from electives, direct-entry
   requirements or jointly taught classes; it does not prove all cohorts attend
@@ -69,8 +78,9 @@ clearing affected review ticks as in the original editor.
   to all its entries. Leaving all Parts unchecked keeps it Unassigned.
 - Unfinished Part checkboxes autosave but are not applied until the administrator
   chooses the assignment button. A manual assignment belongs to the exact code;
-  changing that code stops using the old assignment. Switching the handbook
-  clears unfinished Part checkbox choices, while preserving class review ticks.
+  changing that code stops using the old assignment. Editing the Department field
+  recalculates counts and all review sections immediately, clearing unfinished
+  Part checkbox choices while preserving saved assignments and class review ticks.
 - A jointly attended entry may appear in several Part views but remains a single
   extracted row. The original import planner continues to reject duplicate rows
   and overlapping saved classes/reservations.
@@ -80,8 +90,10 @@ clearing affected review ticks as in the original editor.
 The initial catalogue reuses the reviewed evidence from `c105c40`: **19 programme
 profiles from 17 supplied handbook sources**, with 1,518 evidence entries. It is
 partial and separate from the broader course-title catalogue. Historical B.Pharm
-is explicitly not verified for PharmD. No accuracy percentage or complete OAU
-curriculum coverage is claimed.
+is automatically used only when the department/image heading identifies B.Pharm
+and does not identify PharmD. An unspecified Pharmacy or a PharmD timetable keeps
+image/manual Part assignment available instead. No accuracy percentage or
+complete OAU curriculum coverage is claimed.
 
 `backend/scheduling/data/level_curricula.json` pins programme curriculum page spans
 and column layouts to sources/checksums in `handbook_sources.json`.
@@ -111,5 +123,7 @@ only explicit Part/group metadata needed for the selector.
 Tests check the original 18 review-editor cases and new section filtering,
 programme evidence, unknown/multiple Parts, pagination/source navigation,
 manual choices, shared headings, Part-specific bulk actions, draft reopening,
-permission checks and full-image validation/import. All work is local; pushing
+department edits, combined department names, historical programme restrictions,
+permission checks and full-image validation/import. Retired programme/confirmation
+fields in older drafts are ignored and removed on their next save. All work is local; pushing
 or deploying this branch is a separate action.

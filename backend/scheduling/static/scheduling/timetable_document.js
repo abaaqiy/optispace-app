@@ -18,24 +18,17 @@
   const partTool = window.OptispacePartSelection;
   const levelProfiles = JSON.parse(document.getElementById('document-level-profiles')?.textContent || '[]');
   const levelView = document.getElementById('level-view');
-  const levelProfile = document.getElementById('level-profile');
-  const levelConfirmed = document.getElementById('level-profile-confirmed');
-  for (const profile of levelProfiles) {
-    const source = creation.course_sources[profile.source_id] || {};
-    const option = document.createElement('option'); option.value = profile.id;
-    option.textContent = `${profile.programme} · ${source.edition || 'edition unspecified'}`;
-    levelProfile.append(option);
-  }
-  levelProfile.value = levelProfile.dataset.saved || '';
+  const departmentInput = document.getElementById('document-department');
+  const sourceHeading = JSON.parse(document.getElementById('document-source-heading')?.textContent || '""');
+  let departmentMatch = partTool.detect(departmentInput.value, levelProfiles, creation.course_sources, sourceHeading);
   for (const [value, label] of [['all', 'All extracted entries'], ...[1, 2, 3, 4, 5, 6]
     .map(part => [String(part), `Part ${part} (${part}00 level)`]), ['unassigned', 'Unassigned / uncertain']]) {
     const option = document.createElement('option'); option.value = value;
     option.textContent = label; option.dataset.label = label; levelView.append(option);
   }
   levelView.value = levelView.dataset.saved || 'all';
-  const partOptions = () => ({ level_view: levelView.value || 'all', level_profile: levelProfile.value,
-    level_profile_confirmed: levelConfirmed.checked ? 'yes' : '' });
-  const partInfo = row => partTool.classify(row, partOptions(), pending, levelProfiles);
+  const partOptions = () => ({ level_view: levelView.value || 'all' });
+  const partInfo = row => partTool.classify(row, departmentMatch.profiles, pending);
   const inPart = row => partTool.matches(partInfo(row), levelView.value);
   const partRows = () => rows.filter(inPart);
   function chooseReference(row, field, value) {
@@ -734,35 +727,22 @@
   showPage(1);
   function partStatus() {
     const retained = rows.filter(row => !row.skip);
-    const profile = levelProfiles.find(item => item.id === levelProfile.value);
-    const confirmationPending = !!profile && !levelConfirmed.checked;
     for (const option of levelView.options) {
       const entries = retained.filter(row => partTool.matches(partInfo(row), option.value));
-      const part = /^[1-6]$/.test(option.value);
-      option.textContent = confirmationPending && part
-        ? `${option.dataset.label} · ${entries.length ? `${entries.length} image/manual entries; handbook pending` : 'awaiting handbook confirmation'}`
-        : `${option.dataset.label} · ${entries.length} entries`;
+      option.textContent = `${option.dataset.label} · ${entries.length} entries`;
     }
-    document.getElementById('level-profile-confirmation').textContent = confirmationPending
-      ? 'Confirm this handbook using the checkbox above to calculate Part counts from its courses. Until then, only image Part headings and manual assignments are used.'
-      : profile
-        ? 'Handbook confirmed. Part counts include matching course codes. Courses with no clear Part evidence remain Unassigned.'
-        : 'Select an applicable handbook to assign Parts by course code. Image Part headings and manual assignments work without a handbook.';
+    const root = document.getElementById('part-department-status'); root.replaceChildren();
+    if (departmentMatch.profiles.length) {
+      element('span', `Parts are matched automatically for ${departmentInput.value.trim()}. Available curricula: ${departmentMatch.profiles.map(profile => profile.programme).join('; ')}.`, root);
+    } else element('span', departmentInput.value.trim()
+      ? `No applicable Part catalogue is available for ${departmentInput.value.trim()}. Use image Part headings or “Check / correct Part” in the row editor; All extracted entries remains available.`
+      : 'Enter the department above to match its available handbook evidence automatically. All extracted entries, image Part headings and manual assignments remain available.', root);
+    if (departmentMatch.profiles.length > 1) element('span', ' Conflicting curriculum Parts remain Unassigned for checking.', root);
+    if (departmentMatch.restricted.length) element('span', ` ${departmentMatch.restricted.map(profile => profile.notes).filter(Boolean).join(' ')}`, root);
     const current = retained.filter(inPart);
     document.getElementById('part-status').textContent = `${current.length} retained entries in this view; ${current.filter(row => row.reviewed).length} reviewed. Full image: ${retained.filter(row => row.reviewed).length} of ${retained.length} retained entries reviewed. Final validation checks every Part.`;
     const unknown = retained.filter(row => !partInfo(row).parts.length).length;
-    document.getElementById('part-unassigned').textContent = confirmationPending
-      ? `${unknown} entries currently have no assigned Part. Confirm the selected handbook above before checking for missing or uncertain course assignments.`
-      : `${unknown} entries are unassigned or have several possible Parts. Review them in Unassigned, or assign a Part using “Check / correct Part” in the row editor. A shared class can appear in more than one Part's view.`;
-    const root = document.getElementById('level-profile-source'); root.replaceChildren();
-    levelConfirmed.disabled = !profile;
-    if (profile) {
-      const source = creation.course_sources[profile.source_id] || {};
-      element('span', `${source.source_title || profile.programme}. ${profile.notes || ''} ${source.notes || ''}`, root);
-      if (source.source_url) {
-        const link = element('a', ' Open handbook', root); link.href = source.source_url; link.target = '_blank'; link.rel = 'noopener';
-      }
-    } else element('span', 'No handbook selected. Explicit Part headings and manual assignments remain available.', root);
+    document.getElementById('part-unassigned').textContent = `${unknown} entries are unassigned or have several possible Parts. Review them in Unassigned, or assign a Part using “Check / correct Part” in the row editor. A shared class can appear in more than one Part's view.`;
   }
   function partEditor(parent, row) {
     const info = partInfo(row);
@@ -771,11 +751,10 @@
     element('small', `${info.parts.length ? 'Part ' + info.parts.join(' / ') : 'Unassigned'} · ${descriptions[info.kind]}`, parent);
     const details = element('details', undefined, parent); details.className = 'part-evidence';
     element('summary', 'Check / correct Part', details);
-    if (info.conflict) element('p', 'The image Part heading differs from the selected handbook. Check the programme and timetable cohort.', details);
-    const profile = levelProfiles.find(item => item.id === levelProfile.value);
-    const source = creation.course_sources[profile?.source_id];
+    if (info.conflict) element('p', 'The image Part heading differs from the automatically matched curriculum evidence. Check the department and timetable cohort.', details);
     for (const entry of info.evidence) {
-      const label = `${entry.code} · Part ${entry.level} · PDF page ${entry.page}: ${entry.heading}`;
+      const source = creation.course_sources[entry.source_id];
+      const label = `${entry.code} · ${entry.programme} · Part ${entry.level} · PDF page ${entry.page}: ${entry.heading}`;
       if (source?.source_url) {
         const link = element('a', label, details); link.href = `${source.source_url}#page=${entry.page}`; link.target = '_blank'; link.rel = 'noopener';
       } else element('small', label, details);
@@ -814,15 +793,16 @@
     captureEditors(); offset = 0; invalidate(); mappings(); headings(); render();
   }
   levelView.addEventListener('change', partChanged);
-  let selectedProfile = levelProfile.value;
-  const profileChanged = () => {
-    if (selectedProfile === levelProfile.value) return;
+  let matchedDepartment = departmentInput.value;
+  const departmentChanged = () => {
+    if (matchedDepartment === departmentInput.value) return;
     captureEditors(); forgetEditor('part');
-    selectedProfile = levelProfile.value; levelConfirmed.checked = false; partChanged();
+    matchedDepartment = departmentInput.value;
+    departmentMatch = partTool.detect(departmentInput.value, levelProfiles, creation.course_sources, sourceHeading);
+    partChanged();
   };
-  levelProfile.addEventListener('change', profileChanged);
-  window.django?.jQuery(levelProfile).on('change.partProfile', profileChanged);
-  levelConfirmed.addEventListener('change', () => { captureEditors(); forgetEditor('part'); partChanged(); });
+  departmentInput.addEventListener('input', departmentChanged);
+  departmentInput.addEventListener('change', departmentChanged);
   function render() {
     resetBatch();
     tbody.replaceChildren();

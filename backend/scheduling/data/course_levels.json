@@ -593,7 +593,20 @@
     "id": "pharmacy-bpharm-2019",
     "source_id": "hb-a61c3f60e6e01549",
     "programme": "B.Pharm (historical; not PharmD)",
-    "notes": "This handbook is for B.Pharm. Do not apply it to a PharmD timetable.",
+    "notes": "Only historical B.Pharm Part evidence is available. Use it when the timetable heading identifies B.Pharm; it does not apply to PharmD.",
+    "department_aliases": [
+      "Pharmacy",
+      "B.Pharm",
+      "Bachelor of Pharmacy"
+    ],
+    "required_programmes": [
+      "bpharm",
+      "bachelorofpharmacy"
+    ],
+    "excluded_programmes": [
+      "pharmd",
+      "doctorofpharmacy"
+    ],
     "entries": [
       {
         "code": "BOT101",
