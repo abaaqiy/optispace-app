@@ -51,7 +51,7 @@ class RoomAdminFormTests(TestCase):
         self.assertEqual(len(ROOM_NAMES), len(set(ROOM_NAMES)))
         self.assertTrue(all(row["source"] and row["location"] for row in ROOM_CATALOGUE))
         choices = list(form.fields["name"].widget.widgets[0].choices)
-        self.assertEqual(set(dict(choices)) - {"", OTHER_CHOICE}, set(ROOM_NAMES))
+        self.assertEqual(set(dict(choices)) - {"", OTHER_CHOICE}, set(ROOM_NAMES) | {self.room.name})
         self.assertEqual(choices[-1][0], OTHER_CHOICE)
         self.assertNotIn("zone", form.fields)
         self.assertTrue(form.fields["building"].required)
@@ -160,11 +160,11 @@ class RoomAdminFormTests(TestCase):
         self.assertEqual(payload["name"], room.name)
         self.assertEqual(payload["type"], room.room_type)
 
-    def test_existing_custom_name_and_type_reopen_under_others_and_remain_editable(self):
+    def test_existing_custom_name_and_type_reopen_as_saved_choices_and_remain_editable(self):
         form = RoomAdminForm(instance=self.room)
         for field in ("name", "room_type"):
             value = getattr(self.room, field)
-            self.assertEqual(form.fields[field].widget.decompress(value), [OTHER_CHOICE, value])
+            self.assertEqual(form.fields[field].widget.decompress(value), [value, ''])
         form = RoomAdminForm(instance=self.room, data=self.data(
             name_0=OTHER_CHOICE, name_1=self.room.name,
             room_type_0=OTHER_CHOICE, room_type_1=self.room.room_type, capacity=70,
@@ -252,5 +252,5 @@ class RoomAdminFormTests(TestCase):
 
     def test_type_choices_are_available_without_typing(self):
         choices = list(RoomAdminForm().fields["room_type"].widget.widgets[0].choices)
-        self.assertEqual(set(dict(choices)) - {"", OTHER_CHOICE}, set(ROOM_TYPES))
+        self.assertEqual(set(dict(choices)) - {"", OTHER_CHOICE}, set(ROOM_TYPES) | {self.room.room_type})
         self.assertEqual(choices[-1][0], OTHER_CHOICE)

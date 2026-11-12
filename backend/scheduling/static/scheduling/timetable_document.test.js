@@ -179,6 +179,47 @@ test('import scope text follows Part selection and resets coverage confirmation 
   assert.equal(e.payload().rows.length, 2);
 });
 
+test('saved building from a different import replaces a prepared duplicate and remains selectable for unfinished rooms', async t => {
+  const bkey = 'draft-building-12345678';
+  const pending = {courses: [], buildings: [{key: bkey, name: 'Shared-Teaching-Block', campus_zone: 'Faculty of Computing Science and Engineering'}],
+    rooms: [{key: 'draft-room-12345678', name: 'STEP A', building: bkey, room_type: 'Classroom', capacity: '45', size_category: 'small'}]};
+  const requests = [];
+  const e = editor(t, [{...row('CSC201'), course: 'CSC201', room: 'draft-room-12345678'},
+    {...row('CSC202'), room: '', room_text: 'STEP B', day: 'Tuesday'}], pending, {
+      references: {courses: [{value: 'CSC201', label: 'CSC201', keys: []}], rooms: []},
+      creation: {buildings: [{id: 42, name: 'Shared Teaching Block', campus_zone: 'Faculty of Computing Science and Engineering'}]},
+      editorState: {'record:room:stepb:building': bkey, 'record:room:stepb:capacity': '40'},
+      fetch: async (_, init) => {requests.push(new URLSearchParams(init.body.toString())); return {ok: true, json: async () => ({token: 'shared-record-token'})};},
+    });
+  const building = e.field(e.mapping('STEP B').querySelector('.record-editor'), 'Building');
+  assert.equal(building.value, '42');
+  assert.equal([...building.options].filter(option => /Shared Teaching Block/.test(option.textContent)).length, 1);
+  await Promise.resolve(); await e.saver.flush();
+  assert.equal(requests.length, 1);
+  const saved = JSON.parse(requests[0].get('pending'));
+  assert.equal(saved.buildings.length, 0);
+  assert.equal(saved.rooms[0].building, '42');
+  assert.equal(JSON.parse(requests[0].get('editor_state'))['record:room:stepb:building'], '42');
+  assert.equal(JSON.parse(requests[0].get('editor_state'))['record:room:stepb:capacity'], '40');
+});
+
+test('saved room spelling keeps its documented identity and reuses proposals without duplicate menu options', t => {
+  const rows = [{...row('CSC201'), course: 'CSC201', room: 'draft-room-12345678'}];
+  const e = editor(t, rows, {courses: [], rooms: [{key: 'draft-room-12345678', name: 'CH 102'}]}, {
+    references: {courses: [{value: 'CSC201', label: 'CSC201', keys: []}], rooms: [{value: 'stable-ch102', name: 'CH 102',
+      label: 'CH 102 — Science', identity: 'chemistrylecturetheatre102ch102', keys: ['ch102']}]},
+    creation: {room_names: [{name: 'CH 102', identity: 'chemistrylecturetheatre102ch102',
+      aliases: ['Chemistry Lecture Theatre 102 (CH 102)']}]},
+  });
+  assert.equal(e.payload().rows[0].room, 'stable-ch102');
+  assert.equal(e.payload().pending.rooms[0].duplicate_of, 'stable-ch102');
+  e.change(e.document.getElementById('review-filter'), 'all');
+  e.document.getElementById('review-filter').dispatchEvent(new e.window.Event('input', {bubbles: true}));
+  const select = e.document.querySelector('select[aria-label="room, row 1"]');
+  assert.equal([...select.options].filter(option => option.value === 'stable-ch102').length, 1);
+  assert.equal([...select.options].some(option => option.value === 'draft-room-12345678'), false);
+});
+
 test('a genuine draft conflict lets an administrator preserve unsaved edits in a separate draft', { timeout: 5000 }, async t => {
   const e = editor(t, [row()], undefined, { fetch: async () => ({ ok: false, status: 409,
     json: async () => ({ error: 'Newer saved changes exist', latest_token: 'latest-saved-token' }) }) });

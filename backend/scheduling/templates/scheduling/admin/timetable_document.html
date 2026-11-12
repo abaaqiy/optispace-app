@@ -55,7 +55,7 @@
       <fieldset class="module aligned document-options"><h2>1. Confirm shared details</h2>
         <p>Read from the heading where possible. Correct these once for the whole upload. Faculty identifies this timetable; it does not assign locations to its rooms.</p>
         <div class="form-row"><label for="document-faculty">Faculty:</label><input id="document-faculty" name="faculty" value="{{ options.faculty }}" maxlength="150"></div>
-        <div class="form-row"><label for="document-department">Department:</label><input id="document-department" name="department" value="{{ options.department }}" maxlength="150"></div>
+        <div class="form-row"><label for="document-department">Department:</label><input id="document-department" name="department" value="{{ options.department }}" maxlength="150" required></div>
         <div class="form-row"><label for="teaching-semester">Teaching semester:</label><select id="teaching-semester" name="teaching_semester" class="room-catalog-select" required>
           <option value="">Select a saved session and semester…</option>
           {% for semester in teaching_semesters %}<option value="{{ semester.pk }}" data-period="{{ semester.first_date|date:'j M Y' }} – {{ semester.last_date|date:'j M Y' }}" data-breaks="{{ semester.exclude_dates }}" {% if semester.pk|stringformat:'s' == options.teaching_semester %}selected{% endif %}>{{ semester }} · {{ semester.first_date|date:'j M Y' }} – {{ semester.last_date|date:'j M Y' }}</option>{% endfor %}
@@ -72,8 +72,9 @@
           <select id="level-view" name="level_view" data-saved="{{ options.level_view }}" aria-describedby="part-department-status part-status part-unassigned"></select>
           <p id="part-status" class="help" role="status"></p>
           <p id="part-unassigned" class="help" role="status"></p>
+          {% if submitted_parts %}<p class="help">Already submitted for {{ submission_department }} — {{ submission_semester }}: {% for part in submitted_parts %}{% if not forloop.first %}, {% endif %}{% if part == 0 %}Unassigned{% else %}Part {{ part }}{% endif %}{% endfor %}. Those Parts cannot be imported again. Choose another Part; All extracted entries is blocked once any Part is submitted. Use Timetables to edit or cancel saved classes.</p>{% endif %}
           <p class="help">Available handbook evidence is matched automatically from the Department field above. Choose a Part to show its courses, venues, days and times in sections 2 and 3, shared-heading review, day groups and extracted entries. Choose All extracted entries to review every level together. Switch views to continue reviewing; edits remain saved. Handbooks have partial coverage. Uncertain or missing course assignments stay in Unassigned for checking. The first digit of a course code does not determine its Part.</p>
-          <p class="help">Validation and import use the selected Level / Part. Other levels remain in the saved draft for later. Choose All extracted entries to review and import every remaining level together.</p>
+          <p class="help">Validation and import use the selected Level / Part. Other levels remain in the saved draft for later. Choose All extracted entries to import the complete timetable before any Part has been submitted; after importing a Part, continue with the other Parts individually.</p>
         </div>
       </fieldset>
       <div class="document-workspace">

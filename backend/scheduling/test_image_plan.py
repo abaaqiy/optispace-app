@@ -7,7 +7,7 @@ from django.test import TestCase, SimpleTestCase
 from django.urls import reverse
 
 from rooms.models import Building, Room
-from scheduling.models import AcademicSemester, Course, TimetableDay, TimetableImageImport
+from scheduling.models import AcademicSemester, Course, TimetableDay, TimetableImageImport, TimetableImageSubmission
 from scheduling.services.document_heading import parse_heading
 from scheduling.services.document_plan import image_plan, apply_image
 from scheduling.services.timetable_import import ImportProblem
@@ -224,6 +224,7 @@ class ImagePlanTests(TestCase):
             self.confirm(fingerprint)
         self.assertFalse(Course.objects.exists())
         self.assertEqual(TimetableDay.objects.count(), 1)
+        self.assertFalse(TimetableImageSubmission.objects.exists())
 
     def test_overlapping_proposed_classes_rejected_before_saving(self):
         self.rows.append({**self.rows[0], 'start_time': '08:30', 'end_time': '09:30'})
@@ -272,6 +273,7 @@ class ImagePlanTests(TestCase):
         self.assertEqual(Room.objects.get().capacity, 70)
         self.assertEqual(self.pending['rooms'][1]['capacity'], '45')
         self.rows[0]['room'] = duplicate['key']
+        self.options['department'] = 'Another department'
         with self.assertRaisesMessage(ImportProblem, 'earlier duplicate proposal'):
             self.preview()
 
@@ -360,7 +362,8 @@ class ImagePlanTests(TestCase):
         *_, first = self.preview()
         self.confirm(first)
         self.options.update(department='Computing', faculty='Faculty of Computing Science and Engineering')
-        self.pending['courses'][0].update(code='CSC102', title='Computing', department='Computing')
+        self.pending['courses'][0].update(key='draft-course-87654321', code='CSC102', title='Computing', department='Computing')
+        self.rows[0]['course'] = 'draft-course-87654321'
         self.pending['rooms'][0].update(name='Computing room', key='draft-room-87654321')
         self.rows[0]['room'] = 'draft-room-87654321'
         *_, second = self.preview()

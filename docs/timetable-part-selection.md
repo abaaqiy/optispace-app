@@ -28,7 +28,8 @@ This local feature adds a department/Part view directly to commit `312fbd1` on
    validated and imported. Unreviewed rows and incomplete proposals from other
    Parts do not block this batch. Every retained row in the selection must still
    be reviewed, including those hidden by pagination or search.
-   **All extracted entries** validates and imports every remaining retained row;
+   **All extracted entries** validates and imports the complete retained image
+   only before any Part has been submitted for the department/session/semester;
    **Unassigned / uncertain** validates and imports the retained unassigned rows.
 6. After a Part is imported, the page returns to the same saved draft with the
    other entries, their corrections, unfinished editor fields and original image
@@ -38,7 +39,9 @@ This local feature adds a department/Part view directly to commit `312fbd1` on
    Parts is imported once and removed from each remaining view. Partial import
    saves the remaining draft for another 24 hours and clears its coverage check;
    the view returns to **All extracted entries** so the remaining work is visible.
-   Choose another Part to continue. The draft closes after its final batch.
+   Choose an unsubmitted Part to continue. After one Part is imported, a full
+   image submission is blocked, even from the continuing draft. The draft closes
+   after its final batch.
 7. Saving and validation still protect edits from competing tabs.
    Save/Validate waits for background saving and submits the latest draft token.
    If an autosave response was lost but the submitted edits exactly match the
@@ -62,7 +65,7 @@ This local feature adds a department/Part view directly to commit `312fbd1` on
 | Review extracted entries | Part III rows with their original source positions, choices and times. Search, day/page filters and pagination operate within the selected Part. |
 | Source image | The complete original image, with existing zoom and source-cell highlighting. |
 | Your saved image drafts | The complete draft, including its current Part view and all edits, with the existing 24-hour expiry after each save. |
-| Final validation/import | Only the selected Part and its required records, using the original duplicate, permission and saved timetable/reservation overlap checks. Other Parts remain in the draft. All extracted entries includes every remaining level. |
+| Final validation/import | Only the selected Part and its required records, using the original duplicate, permission and overlap checks plus departmental submission protection. Other Parts remain in the draft. A full image can be imported only before any Part is submitted. |
 
 With a Part selected, mapping/correction actions in section 2 affect its visible
 entries. The course/room/building catalogue remains shared across the draft; once
@@ -122,8 +125,47 @@ are imported, or the remaining draft expires.
 For example, after reviewing only Chemistry Part 1, **Validate reviewed entries**
 previews that Part's weekly slots expanded through the saved semester dates.
 **Confirm and import** saves those classes. Parts 2–4 and uncertain entries keep
-their edits and remain unimported. Selecting **All extracted entries** later
-requires those remaining entries to be reviewed before their own import.
+their edits and remain unimported. Continue by selecting Part 2, Part 3, Part 4 or
+Unassigned individually. Reuploading the image, using another filename, selecting
+a revised version or reopening a copied draft does not remove submission history.
+
+## Shared records and duplicate submissions
+
+Confirmed imports save new buildings, courses and rooms into the same tables
+used by manual administration. The records immediately appear in their admin
+lists, relation dropdowns and subsequent image imports for every department.
+Building and room name suggestions also combine documented choices with saved
+custom names; Others remains last. Merely preparing a record or saving a draft
+does not create a shared database record.
+
+Course codes, room names/known aliases and building names are unique regardless
+of case or whitespace; room/building name identity also ignores punctuation.
+Building uniqueness is now checked by PostgreSQL as well as forms/model saves.
+Reopening another draft remaps prepared buildings to a matching saved building
+when its campus area agrees, so unfinished room editors can reuse it. Conflicting
+campus areas remain visible for correction.
+
+Image submissions claim a department, academic session, semester and Part. Part 1
+can be submitted only once for that combination. A complete image claims Parts
+1–6 and Unassigned, preventing later Part or full submissions. A Part submission
+blocks any later complete image submission for the same combination, and other
+unsubmitted Parts remain allowed. The checks ignore case, `Department of` and
+formatting differences, and run at validation and confirmation under the shared
+image-import lock. A PostgreSQL uniqueness constraint also protects each claim.
+Already saved class entries are rejected instead of silently reported as
+unchanged, so labelling an old set with another Part does not import it again.
+
+Submission protection remains after cancellation or deletion of the classes;
+edit or cancel the saved classes through Timetables. This workflow intentionally
+does not replace a submitted timetable by uploading a new version. Another
+department, session or semester can submit its own timetable, reusing saved rooms,
+buildings and courses, subject to the existing class/reservation overlap rules.
+
+The upgrade recovers selected Parts from matching saved-draft import history
+when available. Older imports without Part evidence are treated as a full
+submission. No rooms, courses, buildings, classes or drafts are deleted by these
+migrations; duplicate existing building identities stop the upgrade for explicit
+correction rather than removing records.
 
 ## Handbook coverage and maintenance
 
@@ -155,7 +197,8 @@ manifest entry before its Part evidence becomes available.
 
 ## Scope and verification
 
-This addition uses the existing draft JSON and needs no migration. The original
+The Part view still uses existing draft JSON. Building-name uniqueness and
+durable image submission claims add database migrations. The original
 image planner, CSV import/export, draft storage/expiry, models, timetable rules,
 manual administration and OCR extraction logic remain in use. Extraction adds
 only explicit Part/group metadata needed for the selector.
@@ -166,6 +209,8 @@ manual choices, shared headings, Part-specific bulk actions, draft reopening,
 department edits, combined department names, historical programme restrictions,
 permission checks, agreement between browser and server classification, selected
 Part validation/import, shared-record reuse, remaining draft preservation,
-replayed/stale previews and full-image validation/import in All mode. Retired
+replayed/stale previews, shared manual/image menus, uniqueness on bulk writes,
+submission preservation during upgrade, competing confirmations and full-image
+validation/import in All mode before any Part has been submitted. Retired
 programme/confirmation fields in older drafts are ignored and removed on their
 next save. All work is local; pushing or deploying this branch is a separate action.

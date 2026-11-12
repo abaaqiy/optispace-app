@@ -14,9 +14,10 @@ from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils.decorators import method_decorator
 from django.views.decorators.http import require_GET, require_http_methods
-from rooms.catalog import BUILDING_NAMES, ROOM_TYPES, ROOM_CATALOGUE, CAMPUS_ZONES
+from rooms.catalog import CAMPUS_ZONES
 from rooms.models import Building, Facility
 from rooms.forms import SearchableSelect
+from rooms.choices import building_names, room_catalogue, room_types
 
 from .models import AcademicSemester
 from .services.document_extract import MAX_UPLOAD, extract_document
@@ -32,6 +33,7 @@ from .services.semesters import suggested_semester
 from .services.document_state import read_review_state
 from .services.part_catalogue import LEVEL_PROFILES, import_selection, part_label
 from .services.document_parts import continue_after_import
+from .services.document_submissions import submitted_parts
 
 from .services.document_drafts import (
     DOCUMENT_SALT, DOCUMENT_TTL, get_draft, load_document, save_document, saved_drafts, unpack_document,
@@ -225,6 +227,7 @@ class TimetableDocumentAdminMixin:
                             counts = apply_image(
                                 selected_rows, options, selected_pending,
                                 confirmed["fingerprint"], request.user, document.get("filename", "Timetable image"), log,
+                                scope=scope,
                             )
                             remaining_token = continue_after_import(draft, document, scope, counts['resolved'])
                         self.message_user(
@@ -287,7 +290,7 @@ class TimetableDocumentAdminMixin:
                         selected_rows, selected_pending, scope = import_selection(
                             rows, options, pending, document.get('metadata'),
                         )
-                        plan, staged, text, fingerprint = image_plan(selected_rows, options, selected_pending, request.user)
+                        plan, staged, text, fingerprint = image_plan(selected_rows, options, selected_pending, request.user, scope=scope)
                         document['preview_scope'] = scope
                         document["preview_records"] = {
                             key: [str(obj) for _, obj, _ in values] for key, values in staged.items()
@@ -335,9 +338,9 @@ class TimetableDocumentAdminMixin:
             "course_coverage": catalogue_coverage(),
             "creation_choices": {
                 "buildings": list(Building.objects.values("id", "name", "campus_zone")),
-                "building_names": BUILDING_NAMES,
+                "building_names": building_names(),
                 "facilities": [{"value": f.pk, "label": f.get_code_display()} for f in Facility.objects.all()],
-                "room_types": ROOM_TYPES, "room_names": ROOM_CATALOGUE, "faculties": CAMPUS_ZONES,
+                "room_types": room_types(), "room_names": room_catalogue(), "faculties": CAMPUS_ZONES,
                 **catalogue_payload(lambda key: reverse(
                     f"{self.admin_site.name}:scheduling_timetableday_course_handbook", args=[key]
                 )),
@@ -353,10 +356,19 @@ class TimetableDocumentAdminMixin:
             "plan": plan,
             "preview_token": preview,
             "import_scope_label": part_label(options.get('level_view') or 'all'),
+            "submitted_parts": [],
             "selected_entry_count": len(document.get('preview_scope', {}).get('indices', [])) if plan else 0,
             "other_entry_count": sum(not row.get('skip') for row in rows)
             - len(document.get('preview_scope', {}).get('indices', [])) if plan else 0,
         }
+        semester_id = str(options.get('teaching_semester', ''))
+        if document and semester_id.isascii() and semester_id.isdigit() and len(semester_id) <= 18:
+            selected_semester = AcademicSemester.objects.filter(pk=int(semester_id)).first()
+            if selected_semester:
+                context['submitted_parts'] = submitted_parts({**options, 'academic_session': selected_semester.academic_session,
+                                                             'semester': selected_semester.semester})
+                context['submission_department'] = options.get('department', '')
+                context['submission_semester'] = str(selected_semester)
         if document:
             context["pages"] = [
                 {

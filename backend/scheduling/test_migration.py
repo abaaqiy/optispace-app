@@ -16,7 +16,7 @@ class SimplifyTimetableMigrationTests(TransactionTestCase):
         Room = state.get_model('rooms', 'Room')
         Day = state.get_model('scheduling', 'TimetableDay')
         Lecture = state.get_model('scheduling', 'Allocation')
-        building = Building.objects.create(name='Migration building', campus_zone='Faculty of Science')
+        building = Building.objects.create(name='Migration building', name_key='migrationbuilding', campus_zone='Faculty of Science')
         room = Room.objects.create(name='Migration room', name_key='migrationroom', code='migration-room', building=building, room_type='Classroom', capacity=30, size_category='small')
         records = []
         for day_number, published in ((15, False), (16, True)):

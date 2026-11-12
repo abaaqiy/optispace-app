@@ -42,7 +42,7 @@
   function roomKey(value) {
     const key = normalise(value);
     const matches = creation.room_names.filter(item => [item.name, ...item.aliases].some(name => normalise(name) === key));
-    return matches.length === 1 ? normalise(matches[0].name) : key;
+    return matches.length === 1 ? matches[0].identity || normalise(matches[0].name) : key;
   }
   const identity = (kind, record) => kind === 'course' ? codeKey(record.code) : roomKey(record.name);
   const proposedLabel = draft => `${draft.code || draft.name}${draft.title_pending ? ' — Title awaiting confirmation' : ''}`;
@@ -131,6 +131,26 @@
   let activeBox = null;
   const pageSize = 25;
   pending.buildings ||= [];
+  function consolidateBuildings() {
+    const identities = new Map(creation.buildings.map(building => [normalise(building.name),
+      { value: String(building.id), campus_zone: building.campus_zone }]));
+    const redirects = new Map();
+    pending.buildings = pending.buildings.filter(building => {
+      const key = normalise(building.name);
+      const existing = key && identities.get(key);
+      if (existing && existing.campus_zone === building.campus_zone) {
+        redirects.set(building.key, existing.value); repairedReferences = true; return false;
+      }
+      if (key) identities.set(key, { value: building.key, campus_zone: building.campus_zone });
+      return true;
+    });
+    for (const room of pending.rooms) if (redirects.has(room.building)) room.building = redirects.get(room.building);
+    for (const [key, value] of Object.entries(editorState)) if (redirects.has(value)) editorState[key] = redirects.get(value);
+    for (const key of Object.keys(editorState)) {
+      if ([...redirects.keys()].some(recordKey => key.startsWith(`record:building:${recordKey}:`))) delete editorState[key];
+    }
+  }
+  consolidateBuildings();
   const buildingControls = new Map();
   function buildingChoices() {
     return [
@@ -159,7 +179,7 @@
   function prepareBuilding(name, zone, key = null) {
     name = String(name || '').trim(); zone = String(zone || '').trim();
     if (!name || name.length > 200 || !zone || zone.length > 150) throw new Error('Enter the building name and campus area once before preparing it.');
-    const saved = creation.buildings.find(building => building.name.trim().toLowerCase() === name.toLowerCase());
+    const saved = creation.buildings.find(building => normalise(building.name) === normalise(name));
     if (saved) {
       if (key || saved.campus_zone !== zone) throw new Error(`Building ${saved.name} already exists in ${saved.campus_zone}. Select its saved record or edit it in Buildings.`);
       return String(saved.id);
