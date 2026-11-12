@@ -34,6 +34,7 @@ function editor(t, rows = [row()], pending = { courses: [], rooms: [] }, options
   Object.assign(creation, options.creation || {});
   for (const [id, data] of Object.entries({
     'document-rows': rows,
+    'document-level-profiles': options.levelProfiles || [],
     'document-references': options.references || { courses: [], rooms: [{ value: 'step-a', label: 'STEP A', keys: [] }] },
     'document-pages': [{ url: '/source', width: 200, height: 300 }],
     'document-pending': pending, 'document-creation-choices': creation, 'document-editor-state': options.editorState || {},
@@ -42,8 +43,12 @@ function editor(t, rows = [row()], pending = { courses: [], rooms: [] }, options
     script.textContent = JSON.stringify(data); document.body.append(script);
   }
   document.getElementById('document-department').value = 'Public Law';
+  document.getElementById('level-profile').dataset.saved = options.partOptions?.level_profile || '';
+  document.getElementById('level-view').dataset.saved = options.partOptions?.level_view || 'all';
+  document.getElementById('level-profile-confirmed').checked = options.partOptions?.level_profile_confirmed === 'yes';
   window.eval(read('./clock.js'));
   window.eval(read('./course_suggestions.js'));
+  window.eval(read('./part_selection.js'));
   let saver;
   if (options.fetch) {
     window.fetch = options.fetch;
@@ -506,4 +511,193 @@ test('shared image time headings convert noon correctly for every affected entry
   assert.equal(e.payload().rows[0].start_time, '12:30');
   assert.equal(e.payload().rows[0].end_time, '13:30');
   assert.equal(e.payload().rows[0].time_checked, true);
+});
+
+const curriculumProfiles = [{ id: 'programme-a', programme: 'Programme A', source_id: 'source-a', entries: [
+  { code: 'CSC201', level: 3, page: 27, heading: 'PART III' },
+  { code: 'MAC201', level: 4, page: 28, heading: 'PART IV' },
+  { code: 'BIO101', level: 1, page: 26, heading: 'PART I' },
+  { code: 'BIO101', level: 2, page: 27, heading: 'PART II' },
+] }, { id: 'programme-b', programme: 'Programme B', source_id: 'source-b', entries: [
+  { code: 'CSC201', level: 4, page: 45, heading: 'PART IV' },
+] }];
+const courseRefs = { courses: [ { value: 'CSC201', label: 'CSC201 — Computing', keys: [] },
+  { value: 'MAC201', label: 'MAC201 — Management', keys: [] } ],
+  rooms: [{ value: 'step-a', label: 'STEP A', keys: [] }, { value: 'step-b', label: 'STEP B', keys: [] }] };
+const curriculumChoices = { course_sources: {
+  'source-a': { edition: '2023', source_title: 'Programme A handbook', source_url: '/handbook-a/' },
+  'source-b': { edition: '2024', source_title: 'Programme B handbook', source_url: '/handbook-b/' }
+} };
+
+test('selecting a Part filters courses, venues, weekly cards, shared headings, day groups and extracted entries', t => {
+  const rows = [{ ...row('CSC201'), editor_id: 'part-three', course: 'CSC201', room: '', day_group: 'mon', time_group: 'morning',
+    day_checked: false, time_checked: false },
+  { ...row('MAC201'), editor_id: 'part-four', course: 'MAC201', room: '', room_text: 'STEP B', day: 'Tuesday',
+    day_group: 'tue', time_group: 'afternoon', start_time: '14:00', end_time: '15:00' }];
+  const e = editor(t, rows, undefined, { levelProfiles: curriculumProfiles, creation: curriculumChoices, references: courseRefs });
+  const level = e.document.getElementById('level-view');
+  e.change(e.document.getElementById('level-profile'), 'programme-a');
+  e.change(e.document.getElementById('level-profile-confirmed'), true);
+  e.change(level, '3');
+  assert.ok(e.mapping('STEP A')); assert.equal(e.mapping('STEP B'), undefined);
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 1);
+  assert.match(e.document.querySelector('.weekly-card').textContent, /CSC201/);
+  assert.equal(e.document.querySelectorAll('.heading-mapping').length, 2);
+  assert.match(e.document.getElementById('heading-mappings').textContent, /2 entries|1 entries/);
+  e.change(e.document.getElementById('review-filter'), 'all');
+  e.document.getElementById('review-filter').dispatchEvent(new e.window.Event('input', { bubbles: true }));
+  const table = e.document.querySelector('#document-table tbody');
+  assert.equal(table.children.length, 1);
+  assert.deepEqual([...table.querySelectorAll('select[aria-label^="course,"]')].map(el => el.value), ['CSC201']);
+  assert.ok(table.querySelector('.part-evidence a[href="/handbook-a/#page=27"]'));
+  e.change(level, '4');
+  assert.ok(e.mapping('STEP B')); assert.equal(e.mapping('STEP A'), undefined);
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 1);
+  assert.deepEqual([...table.querySelectorAll('select[aria-label^="course,"]')].map(el => el.value), ['MAC201']);
+  assert.equal(e.payload().rows.length, 2, 'Filtering preserves the full extracted timetable');
+  e.change(level, 'all');
+  assert.ok(e.mapping('STEP A')); assert.ok(e.mapping('STEP B'));
+  assert.equal(table.children.length, 2);
+  const ready = editor(t, [{ ...row('CSC201'), course: 'CSC201' }, { ...row('MAC201'), course: 'MAC201', day:'Tuesday' }], undefined,
+    { levelProfiles: curriculumProfiles, references: courseRefs, partOptions: {level_view:'3', level_profile:'programme-a', level_profile_confirmed:'yes'} });
+  assert.match(ready.document.getElementById('ready-groups').textContent, /Monday/);
+  assert.doesNotMatch(ready.document.getElementById('ready-groups').textContent, /Tuesday/);
+});
+
+test('handbook applicability must be confirmed; several possible Parts and missing codes remain Unassigned', t => {
+  const e = editor(t, [row('CSC201'), row('BIO101'), row('ICH308')], undefined, { levelProfiles: curriculumProfiles });
+  e.change(e.document.getElementById('level-profile'), 'programme-a');
+  e.change(e.document.getElementById('level-view'), '3');
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 0);
+  e.change(e.document.getElementById('level-profile-confirmed'), true);
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 1);
+  e.change(e.document.getElementById('level-view'), 'unassigned');
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 2);
+  e.change(e.document.getElementById('level-profile'), 'programme-b');
+  assert.equal(e.document.getElementById('level-profile-confirmed').checked, false);
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 3);
+  e.change(e.document.getElementById('level-profile-confirmed'), true);
+  e.change(e.document.getElementById('level-view'), '4');
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 1, 'Programme-specific mapping replaces the other programme evidence');
+});
+
+test('bulk review and shared-heading corrections only change the selected Part', t => {
+  const rows = [3, 4].map((part, index) => ({ ...row(index ? 'MAC201' : 'CSC201'), course: index ? 'MAC201' : 'CSC201',
+    class_group_kind: 'part', class_group: String(part), day_group:'shared-day', day_text:'MONDAY', day_checked:false }));
+  const e = editor(t, rows, undefined, { references:courseRefs });
+  e.change(e.document.getElementById('level-view'), '3');
+  const heading = e.document.querySelector('.heading-mapping');
+  e.change(heading.querySelector('select'), 'Wednesday');
+  e.button(heading, 'Confirm heading for these entries');
+  const afterHeading = e.payload().rows;
+  assert.deepEqual(afterHeading.map(row => row.day), ['Wednesday', 'Monday']);
+  e.change(e.document.getElementById('weekly-checked'), true);
+  e.button(e.document, 'Confirm clear entries together');
+  assert.deepEqual(e.payload().rows.map(row => row.reviewed), [true, false]);
+  e.change(e.document.getElementById('level-view'), '4');
+  assert.match(e.document.getElementById('ready-groups').textContent, /No clear unreviewed groups/);
+  e.change(e.document.getElementById('level-view'), '3');
+  assert.equal(e.payload().rows[0].reviewed, true, 'Switching views preserves completed review');
+});
+
+test('source-card navigation targets the correct row after filtering and pagination', t => {
+  const rows = Array.from({length:70}, (_, index) => ({ ...row('CSC201'), editor_id:`source-${index}`, course:'CSC201',
+    class_group_kind:'part', class_group: index % 2 ? 'III' : 'IV' }));
+  const e = editor(t, rows, undefined, { references:courseRefs });
+  e.change(e.document.getElementById('level-view'), '3');
+  const cards = [...e.document.querySelectorAll('.weekly-card')];
+  assert.equal(cards.length, 35);
+  cards[30].click();
+  const table = e.document.querySelector('#document-table tbody');
+  assert.match(e.document.getElementById('review-page-status').textContent, /26–35 of 35/);
+  assert.match(table.children[5].textContent, /Row 62/);
+  assert.deepEqual(e.payload().rows.map(row => row.editor_id), rows.map(row => row.editor_id));
+});
+
+test('overlap checks include other Parts while keeping the preview layout and existing warning behavior', t => {
+  const rows = [3, 4].map(part => ({ ...row('CSC201'), course:'CSC201', class_group_kind:'part', class_group:String(part) }));
+  const e = editor(t, rows, undefined, { references:courseRefs });
+  e.change(e.document.getElementById('level-view'), '3');
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 1);
+  assert.match(e.document.querySelector('.weekly-card').textContent, /Overlap — check/);
+  assert.ok(e.document.querySelector('.weekly-grid'));
+  e.change(e.document.getElementById('review-filter'), 'all');
+  e.document.getElementById('review-filter').dispatchEvent(new e.window.Event('input', { bubbles: true }));
+  const reviewed = [...e.document.querySelectorAll('#document-table input[type=checkbox]')]
+    .find(el => el.parentElement.textContent.trim() === 'Reviewed');
+  e.change(reviewed, true);
+  assert.match(e.document.querySelector('.weekly-card').textContent, /Overlap — check/);
+});
+
+test('Part choice, unfinished assignment and full image edits autosave and reopen without resetting review', async t => {
+  const requests = [];
+  const e = editor(t, [{ ...row('ICH308'), editor_id:'unknown-1', reviewed:false },
+    { ...row('MAC201'), editor_id:'part-four', class_group_kind:'part', class_group:'IV', reviewed:true }], undefined, {
+      fetch: async (_, init) => { requests.push(new URLSearchParams(init.body.toString())); return {ok:true, json:async () => ({token:'saved-part-view'})}; }
+    });
+  e.change(e.document.getElementById('level-view'), 'unassigned');
+  e.change(e.document.getElementById('review-filter'), 'all');
+  const evidence = e.document.querySelector('.part-evidence');
+  e.change([...evidence.querySelectorAll('label')].find(el => el.textContent === ' Part 3').querySelector('input'), true);
+  await Promise.resolve(); await e.saver.flush();
+  const sent = requests.at(-1);
+  assert.equal(sent.get('level_view'), 'unassigned');
+  assert.equal(JSON.parse(sent.get('rows')).length, 2);
+  assert.equal(JSON.parse(sent.get('rows'))[1].reviewed, true);
+  const saved = editor(t, JSON.parse(sent.get('rows')), JSON.parse(sent.get('pending')), {
+    editorState:JSON.parse(sent.get('editor_state')), partOptions:{level_view:sent.get('level_view')}
+  });
+  assert.equal(saved.document.getElementById('level-view').value, 'unassigned');
+  const restored = saved.document.querySelector('.part-evidence');
+  assert.equal([...restored.querySelectorAll('label')].find(el => el.textContent === ' Part 3').querySelector('input').checked, true);
+  saved.button(restored, 'Use checked Parts for this entry');
+  assert.deepEqual(saved.payload().rows[0].level_override, [3]);
+  assert.equal(saved.document.querySelectorAll('.weekly-card').length, 0);
+  saved.change(saved.document.getElementById('level-view'), '3');
+  assert.equal(saved.document.querySelectorAll('.weekly-card').length, 1);
+});
+
+test('manual Part assignment applies once to repeated code and does not guess its numeric level', t => {
+  const e = editor(t, [{...row('ICH308'), editor_id:'ich-one'}, {...row('ICH308'), editor_id:'ich-two', day:'Tuesday'}]);
+  e.change(e.document.getElementById('level-view'), 'unassigned');
+  const evidence = e.document.querySelector('.part-evidence');
+  e.change([...evidence.querySelectorAll('label')].find(el => el.textContent === ' Part 4').querySelector('input'), true);
+  e.button(evidence, 'Use checked Parts for all 2 entries of ICH308');
+  assert.deepEqual(e.payload().rows.map(row => row.level_override), [[4], [4]]);
+  e.change(e.document.getElementById('level-view'), '4');
+  assert.equal(e.document.querySelectorAll('.weekly-card').length, 2);
+  e.change(e.document.getElementById('review-filter'), 'all');
+  const first = e.document.querySelector('#document-table tbody tr');
+  e.change(first.querySelector('select[aria-label="course, row 1"]'), '');
+  assert.equal(e.payload().rows[0].level_override_code, 'ICH308');
+});
+
+test('the supplied Chemistry and Industrial Chemistry handbooks give programme-specific Part III entries', t => {
+  const profiles = JSON.parse(read('../../data/course_levels.json'));
+  const e = editor(t, [row('CSC201'), row('CHM304'), row('MAC201'), row('ICH308')], undefined, { levelProfiles: profiles });
+  e.change(e.document.getElementById('level-profile'), 'chemistry-2023');
+  e.change(e.document.getElementById('level-profile-confirmed'), true);
+  e.change(e.document.getElementById('level-view'), '3');
+  assert.ok(e.mapping('CSC201')); assert.ok(e.mapping('CHM304'));
+  assert.equal(e.mapping('MAC201'), undefined); assert.equal(e.mapping('ICH308'), undefined);
+  e.change(e.document.getElementById('level-profile'), 'industrial-chemistry-2023');
+  e.change(e.document.getElementById('level-profile-confirmed'), true);
+  assert.equal(e.mapping('CHM304'), undefined, 'CHM304 is listed in Part IV for Industrial Chemistry');
+  assert.equal(e.payload().rows.length, 4);
+});
+
+test('a missing entry added in the selected Part stays there when its first course is chosen', t => {
+  const e = editor(t, [], undefined, { references:courseRefs });
+  e.change(e.document.getElementById('level-view'), '3');
+  e.button(e.document, 'Add missing entry');
+  const course = e.document.querySelector('select[aria-label="course, row 1"]');
+  assert.ok(course);
+  e.change(course, 'CSC201');
+  assert.equal(e.document.querySelector('#document-table tbody').children.length, 1);
+  assert.equal(e.payload().rows[0].level_override_code, 'CSC201');
+  const updated = e.document.querySelector('select[aria-label="course, row 1"]');
+  e.change(updated, 'MAC201');
+  assert.equal(e.document.querySelector('#document-table tbody').children.length, 0, 'A subsequent course-code change needs a new Part assignment');
+  e.change(e.document.getElementById('level-view'), 'unassigned');
+  assert.equal(e.document.querySelector('#document-table tbody').children.length, 1);
 });

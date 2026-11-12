@@ -29,6 +29,7 @@ from .services.document_plan import image_plan, apply_image
 from .services.course_catalog import catalogue_coverage, catalogue_payload, handbook_file
 from .services.semesters import suggested_semester
 from .services.document_state import read_review_state
+from .services.part_catalogue import LEVEL_PROFILES
 
 from .services.document_drafts import (
     DOCUMENT_SALT, DOCUMENT_TTL, get_draft, load_document, save_document, saved_drafts, unpack_document,
@@ -290,6 +291,7 @@ class TimetableDocumentAdminMixin:
             "document_token": token,
             "editor_state": document.get('editor_state', {}) if document else {},
             "rows": rows,
+            "level_profiles": LEVEL_PROFILES,
             "references": refs,
             "pending": pending,
             "course_coverage": catalogue_coverage(),

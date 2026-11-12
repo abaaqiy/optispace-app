@@ -99,6 +99,10 @@ repository or saved as files on the server.
 
 ## Lecture timetable image import
 
+The local addition based on `312fbd1` provides [Part selection within the existing
+review sections](timetable-part-selection.md). The complete image and final import
+workflow are retained.
+
 Administrators can choose **Timetables → Import Image** to upload a PNG or JPEG
 lecture timetable, up to 10 MB / 20 megapixels. PDF uploads and examination
 layouts are not supported. **CSV import, export, templates and reference downloads

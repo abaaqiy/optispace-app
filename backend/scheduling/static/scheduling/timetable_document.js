@@ -15,6 +15,35 @@
   const pending = JSON.parse(document.getElementById('document-pending').textContent);
   const creation = JSON.parse(document.getElementById('document-creation-choices').textContent);
   const editorState = JSON.parse(document.getElementById('document-editor-state')?.textContent || '{}');
+  const partTool = window.OptispacePartSelection;
+  const levelProfiles = JSON.parse(document.getElementById('document-level-profiles')?.textContent || '[]');
+  const levelView = document.getElementById('level-view');
+  const levelProfile = document.getElementById('level-profile');
+  const levelConfirmed = document.getElementById('level-profile-confirmed');
+  for (const profile of levelProfiles) {
+    const source = creation.course_sources[profile.source_id] || {};
+    const option = document.createElement('option'); option.value = profile.id;
+    option.textContent = `${profile.programme} · ${source.edition || 'edition unspecified'}`;
+    levelProfile.append(option);
+  }
+  levelProfile.value = levelProfile.dataset.saved || '';
+  for (const [value, label] of [['all', 'All extracted entries'], ...[1, 2, 3, 4, 5, 6]
+    .map(part => [String(part), `Part ${part} (${part}00 level)`]), ['unassigned', 'Unassigned / uncertain']]) {
+    const option = document.createElement('option'); option.value = value;
+    option.textContent = label; option.dataset.label = label; levelView.append(option);
+  }
+  levelView.value = levelView.dataset.saved || 'all';
+  const partOptions = () => ({ level_view: levelView.value || 'all', level_profile: levelProfile.value,
+    level_profile_confirmed: levelConfirmed.checked ? 'yes' : '' });
+  const partInfo = row => partTool.classify(row, partOptions(), pending, levelProfiles);
+  const inPart = row => partTool.matches(partInfo(row), levelView.value);
+  const partRows = () => rows.filter(inPart);
+  function chooseReference(row, field, value) {
+    // Bind a manually added blank entry's chosen Part to its first course code.
+    if (field === 'course' && Array.isArray(row.level_override) && row.level_override_code === ''
+      && !partTool.code(row, pending)) row.level_override_code = partTool.code({ ...row, course: value }, pending);
+    row[field] = value;
+  }
   const normalise = value => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   const codeKey = window.OptispaceCourseSuggestions.codeKey;
   function roomKey(value) {
@@ -201,15 +230,17 @@
     queueMicrotask(() => { captureEditors(); autosave?.changed(); });
   }
   function status() {
-    const kept = rows.filter(r => !r.skip);
-    document.getElementById('review-status').textContent = `${kept.filter(r => r.reviewed).length} of ${kept.length} retained rows reviewed; ${kept.filter(r => problems(r).length).length} with missing/invalid fields; ${kept.filter(ready).length} ready for batch review; ${rows.length - kept.length} skipped.`;
+    partStatus();
+    const current = partRows();
+    const kept = current.filter(r => !r.skip);
+    document.getElementById('review-status').textContent = `${kept.filter(r => r.reviewed).length} of ${kept.length} retained rows reviewed; ${kept.filter(r => problems(r).length).length} with missing/invalid fields; ${kept.filter(ready).length} ready for batch review; ${current.length - kept.length} skipped.`;
     batchStatus();
     readyGroups();
     weeklyPreview();
   }
   function weeklyPreview() {
     const root = document.getElementById('weekly-preview'); root.replaceChildren();
-    const kept = rows.map((row, index) => ({ row, index })).filter(({ row }) => !row.skip);
+    const kept = rows.map((row, index) => ({ row, index })).filter(({ row }) => inPart(row) && !row.skip);
     const times = [...new Set(kept.map(({ row }) => `${row.start_time || '?'}–${row.end_time || '?'}`))].sort();
     const table = element('table', undefined, root); table.className = 'weekly-grid';
     const header = element('tr', undefined, element('thead', undefined, table));
@@ -224,7 +255,7 @@
         const td = element('td', undefined, tr);
         kept.filter(({ row }) => `${row.start_time || '?'}–${row.end_time || '?'}` === time && (row.day === day || day === 'Needs weekday' && (!row.day || !days.includes(row.day)))).forEach(({ row, index }) => {
           const issue = problems(row).length || (!row.reviewed && (row.note || row.confidence != null && Number(row.confidence) < 90));
-          const overlap = kept.some(({ row: other, index: i }) => i !== index && row.room && row.room === other.room && row.day === other.day && row.start_time < other.end_time && row.end_time > other.start_time);
+          const overlap = rows.some((other, i) => !other.skip && i !== index && row.room && row.room === other.room && row.day === other.day && row.start_time < other.end_time && row.end_time > other.start_time);
           const button = element('button', undefined, td); button.type = 'button'; button.className = `weekly-card${issue || overlap ? ' weekly-issue' : ''}`;
           if (issue || overlap) flagged++;
           element('strong', refs.courses.find(item => item.value === row.course)?.label || row.course_text || 'Course missing', button);
@@ -233,9 +264,10 @@
           if (row.class_group) element('small', `Part / group: ${row.class_group}`, button);
           button.addEventListener('click', () => {
             filter.value = 'all'; search.value = ''; dayFilter.value = ''; sourceFilter.value = '';
-            offset = Math.floor(index / pageSize) * pageSize; render();
+            const position = partRows().indexOf(row);
+            offset = Math.floor(position / pageSize) * pageSize; render();
             showPage(row.page, row.box);
-            tbody.children[index % pageSize]?.scrollIntoView({ block: 'center' });
+            tbody.children[position % pageSize]?.scrollIntoView({ block: 'center' });
           });
         });
       }
@@ -249,14 +281,14 @@
     for (const kind of ['day', 'time']) {
       const groups = new Map();
       rows.forEach(row => {
-        if (row.skip || !row[kind + '_group']) return;
+        if (!inPart(row) || row.skip || !row[kind + '_group']) return;
         const key = row[kind + '_group'];
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(row);
       });
       for (const affected of groups.values()) {
         const first = affected[0];
-        const editKey = `heading:${kind}:${first[kind + '_group']}`;
+        const editKey = `heading:${kind}:${first[kind + '_group']}` + (levelView.value === 'all' ? '' : `:part-${levelView.value}`);
         const section = element('div', undefined, root); section.className = 'heading-mapping';
         const label = kind === 'day' ? 'Weekday' : 'Time';
         element('strong', `${label}: “${first[kind + '_text'] || 'not readable'}” · ${affected.length} entries`, section);
@@ -301,7 +333,7 @@
     const open = new Set([...root.querySelectorAll('details[open]')].map(el => el.dataset.day));
     root.replaceChildren();
     for (const day of days.slice(1)) {
-      const group = rows.map((row, index) => ({ row, index })).filter(({ row }) => row.day === day && ready(row));
+      const group = rows.map((row, index) => ({ row, index })).filter(({ row }) => inPart(row) && row.day === day && ready(row));
       if (!group.length) continue;
       const details = element('details', undefined, root); details.dataset.day = day; details.open = open.has(day);
       element('summary', `${day}: ${group.length} clear entries to check`, details);
@@ -331,7 +363,7 @@
     for (const key of ['course', 'room']) {
       const groups = new Map();
       rows.forEach((row, index) => {
-        if (row.skip || valid[key].has(row[key])) return;
+        if (!inPart(row) || row.skip || valid[key].has(row[key])) return;
         const text = row[key + '_text'] || '';
         const group = normalise(text) || `missing-${index}`;
         if (!groups.has(group)) groups.set(group, { text, rows: [] });
@@ -356,7 +388,7 @@
         choice.addEventListener('change', selected); window.django.jQuery(choice).on('change.referenceChoice', selected);
         choice.dispatchEvent(new CustomEvent('room-catalog:added', { bubbles: true }));
         apply.addEventListener('click', () => {
-          affected.filter(row => !row.skip && !valid[key].has(row[key])).forEach(row => { row[key] = choice.value; row.reviewed = false; });
+          affected.filter(row => !row.skip && !valid[key].has(row[key])).forEach(row => { chooseReference(row, key, choice.value); row.reviewed = false; });
           forgetEditor(editKey);
           invalidate(); offset = 0; mappings(); render();
         });
@@ -369,6 +401,7 @@
     }
     document.getElementById('mapping-status').textContent = groupCount ? `${groupCount} distinct OCR readings need matching. These are readings from the image, not courses generated from handbooks. Inspect uncertain codes before preparing records.` : 'All retained names are matched. Skipped entries are excluded; use the Skipped filter to restore them.';
     preparedBuildings(); proposedRecords();
+    if (levelView.value !== 'all') headings();
   }
   function referenceActions(section, key, text, affected) {
     const locations = element('details', undefined, section);
@@ -474,7 +507,7 @@
           saved.forEach(item => {
             const use = element('button', `Use existing ${item.label}`, suggestions); use.type = 'button';
             use.addEventListener('click', () => {
-              affected.forEach(row => { row.course = item.value; row.reviewed = false; });
+              affected.forEach(row => { chooseReference(row, 'course', item.value); row.reviewed = false; });
               forgetEditor(editKey);
               invalidate(); mappings(); render();
             });
@@ -563,7 +596,7 @@
         const existing = refs[kind + 's'].find(item => item.value !== record.key
           && item.identity === (kind === 'course' ? name : roomKey(name)));
         if (existing && !draft) {
-          affected.forEach(row => { row[kind] = existing.value; row.reviewed = false; });
+          affected.forEach(row => { chooseReference(row, kind, existing.value); row.reviewed = false; });
           forgetEditor(editKey); invalidate(); mappings(); render(); return;
         }
         if (existing) {
@@ -597,7 +630,7 @@
       const choice = { value: record.key, label: `New: ${proposedLabel(record)}`, identity: identity(kind, record), keys: [] };
       if (old >= 0) list[old] = choice; else list.push(choice);
       valid[kind].add(record.key);
-      affected.forEach(row => { row[kind] = record.key; row.reviewed = false; });
+      affected.forEach(row => { chooseReference(row, kind, record.key); row.reviewed = false; });
       rows.filter(row => row[kind] === record.key).forEach(row => { row.reviewed = false; });
       forgetEditor(editKey);
       refreshBuildingChoices(); invalidate(); mappings(); render();
@@ -608,6 +641,11 @@
     const root = document.getElementById('prepared-buildings');
     clearEditors(root);
     for (const building of pending.buildings) {
+      if (levelView.value !== 'all' && !partRows().some(row => {
+        const draft = pending.rooms.find(room => room.key === row.room);
+        const key = draft?.key || normalise(row.room_text) || row.editor_id;
+        return !row.skip && (draft?.building === building.key || editorState[`record:room:${key}:building`] === building.key);
+      })) continue;
       const used = pending.rooms.filter(room => !room.duplicate_of && room.building === building.key).length;
       const details = element('details', undefined, root);
       element('summary', `Prepared building: ${building.name} — ${building.campus_zone} · ${used} prepared room(s)`, details);
@@ -617,7 +655,8 @@
   function proposedRecords() {
     const root = document.getElementById('proposed-records'); clearEditors(root);
     for (const kind of ['course', 'room']) {
-      const duplicates = pending[kind + 's'].filter(record => record.duplicate_of);
+      const duplicates = pending[kind + 's'].filter(record => record.duplicate_of && (levelView.value === 'all'
+        || partRows().some(row => row[kind] === record.key || row[kind] === record.duplicate_of)));
       if (!duplicates.length) continue;
       const details = element('details', undefined, root); details.className = 'duplicate-proposals';
       element('summary', `${duplicates.length} earlier duplicate ${kind} proposal(s) — retained for comparison`, details);
@@ -638,7 +677,7 @@
     }
     for (const kind of ['course', 'room']) for (const draft of pending[kind + 's']) {
       if (draft.duplicate_of) continue;
-      const affected = rows.filter(row => !row.skip && row[kind] === draft.key);
+      const affected = rows.filter(row => inPart(row) && !row.skip && row[kind] === draft.key);
       if (!affected.length) continue;
       const details = element('details', undefined, root);
       element('summary', `Proposed ${kind}: ${proposedLabel(draft)} · ${affected.length} entries`, details);
@@ -693,11 +732,92 @@
   days.slice(1).forEach(day => { const opt = element('option', day, dayFilter); opt.value = day; });
   pageSelect.addEventListener('change', () => showPage(Number(pageSelect.value)));
   showPage(1);
+  function partStatus() {
+    const retained = rows.filter(row => !row.skip);
+    for (const option of levelView.options) {
+      const entries = retained.filter(row => partTool.matches(partInfo(row), option.value));
+      option.textContent = `${option.dataset.label} · ${entries.length} entries`;
+    }
+    const current = retained.filter(inPart);
+    document.getElementById('part-status').textContent = `${current.length} retained entries in this view; ${current.filter(row => row.reviewed).length} reviewed. Full image: ${retained.filter(row => row.reviewed).length} of ${retained.length} retained entries reviewed. Final validation checks every Part.`;
+    const unknown = retained.filter(row => !partInfo(row).parts.length).length;
+    document.getElementById('part-unassigned').textContent = `${unknown} entries are unassigned or have several possible Parts. Review them in Unassigned, or assign a Part using “Check / correct Part” in the row editor. A shared class can appear in more than one Part's view.`;
+    const root = document.getElementById('level-profile-source'); root.replaceChildren();
+    const profile = levelProfiles.find(item => item.id === levelProfile.value);
+    levelConfirmed.disabled = !profile;
+    if (profile) {
+      const source = creation.course_sources[profile.source_id] || {};
+      element('span', `${source.source_title || profile.programme}. ${profile.notes || ''} ${source.notes || ''}`, root);
+      if (source.source_url) {
+        const link = element('a', ' Open handbook', root); link.href = source.source_url; link.target = '_blank'; link.rel = 'noopener';
+      }
+    } else element('span', 'No handbook selected. Explicit Part headings and manual assignments remain available.', root);
+  }
+  function partEditor(parent, row) {
+    const info = partInfo(row);
+    const descriptions = { manual: 'Administrator assignment', heading: 'Image Part heading', handbook: 'Handbook curriculum',
+      uncertain: 'Several possible Parts in the handbook', unknown: 'No verified Part evidence' };
+    element('small', `${info.parts.length ? 'Part ' + info.parts.join(' / ') : 'Unassigned'} · ${descriptions[info.kind]}`, parent);
+    const details = element('details', undefined, parent); details.className = 'part-evidence';
+    element('summary', 'Check / correct Part', details);
+    if (info.conflict) element('p', 'The image Part heading differs from the selected handbook. Check the programme and timetable cohort.', details);
+    const profile = levelProfiles.find(item => item.id === levelProfile.value);
+    const source = creation.course_sources[profile?.source_id];
+    for (const entry of info.evidence) {
+      const label = `${entry.code} · Part ${entry.level} · PDF page ${entry.page}: ${entry.heading}`;
+      if (source?.source_url) {
+        const link = element('a', label, details); link.href = `${source.source_url}#page=${entry.page}`; link.target = '_blank'; link.rel = 'noopener';
+      } else element('small', label, details);
+    }
+    element('p', 'Choose the Parts that attend this entry, using the image or the applicable handbook. Leave all unchecked to keep it Unassigned.', details);
+    const code = partTool.code(row, pending);
+    const editKey = `part:${row.editor_id}:${code}`;
+    const checks = [1, 2, 3, 4, 5, 6].map(part => {
+      const label = element('label', undefined, details), input = element('input', undefined, label);
+      input.type = 'checkbox'; input.checked = info.parts.includes(part); label.append(` Part ${part}`);
+      bindEditor(input, `${editKey}:${part}`); return [part, input];
+    });
+    function assign(entries) {
+      const parts = checks.filter(([, input]) => input.checked).map(([part]) => part);
+      entries.forEach(entry => {
+        entry.level_override = [...parts]; entry.level_override_code = code; entry.reviewed = false;
+        forgetEditor(`part:${entry.editor_id}:${code}`);
+      });
+      invalidate(); mappings(); headings(); render();
+    }
+    const apply = element('button', 'Use checked Parts for this entry', details); apply.type = 'button';
+    apply.addEventListener('click', () => assign([row]));
+    const matching = rows.filter(other => !other.skip && code && partTool.code(other, pending) === code);
+    if (matching.length > 1) {
+      element('small', 'If all occurrences of this course attend the same Parts, apply the assignment once across the image. This replaces earlier Part assignments for that code.', details);
+      const all = element('button', `Use checked Parts for all ${matching.length} entries of ${code}`, details); all.type = 'button';
+      all.addEventListener('click', () => assign(matching));
+    }
+    const reset = element('button', 'Use source evidence again', details); reset.type = 'button';
+    reset.addEventListener('click', () => {
+      delete row.level_override; delete row.level_override_code; row.reviewed = false; forgetEditor(editKey);
+      invalidate(); mappings(); headings(); render();
+    });
+  }
+  function partChanged() {
+    captureEditors(); offset = 0; invalidate(); mappings(); headings(); render();
+  }
+  levelView.addEventListener('change', partChanged);
+  let selectedProfile = levelProfile.value;
+  const profileChanged = () => {
+    if (selectedProfile === levelProfile.value) return;
+    captureEditors(); forgetEditor('part');
+    selectedProfile = levelProfile.value; levelConfirmed.checked = false; partChanged();
+  };
+  levelProfile.addEventListener('change', profileChanged);
+  window.django?.jQuery(levelProfile).on('change.partProfile', profileChanged);
+  levelConfirmed.addEventListener('change', () => { captureEditors(); forgetEditor('part'); partChanged(); });
   function render() {
     resetBatch();
     tbody.replaceChildren();
     const query = search.value.toLowerCase();
     const filtered = rows.map((row, index) => ({ row, index })).filter(({ row }) => {
+      if (!inPart(row)) return false;
       if (dayFilter.value && row.day !== dayFilter.value || sourceFilter.value && String(row.page) !== sourceFilter.value) return false;
       if (query && ![row.course, row.room, row.course_text, row.room_text, row.source, row.day, row.date].some(value => String(value || '').toLowerCase().includes(query))) return false;
       if (filter.value === 'skipped') return !!row.skip;
@@ -720,6 +840,7 @@
       element('strong', `Row ${index + 1}`, source);
       if (row.page) element('small', `Page ${row.page}`, source);
       if (row.class_group) element('small', `Part / group: ${row.class_group}`, source);
+      partEditor(source, row);
       const raw = element('details', undefined, source);
       element('summary', 'Original text', raw);
       element('small', row.source || 'Manually added entry', raw);
@@ -757,7 +878,7 @@
         const input = element('select', undefined, parent); input.setAttribute('aria-label', `${label}, row ${index + 1}`);
         choices.forEach(item => { const opt = element('option', item.label, input); opt.value = item.value; });
         input.value = row[key] || '';
-        input.addEventListener('change', () => { row[key] = input.value; if (key === 'day') row.day_checked = true; edited(); if (key === 'course' || key === 'room') mappings(); else if (key === 'day') headings(); });
+        input.addEventListener('change', () => { chooseReference(row, key, input.value); if (key === 'day') row.day_checked = true; edited(); if (key === 'course' || key === 'room') mappings(); else if (key === 'day') headings(); if (key === 'course') { headings(); render(); } });
         return input;
       }
       function reference(key, choices, original) {
@@ -817,8 +938,9 @@
   form.querySelector('.document-options').addEventListener('input', invalidate);
   document.getElementById('add-review-row').addEventListener('click', () => {
     if (rows.length >= 300) { window.alert('Review at most 300 rows per document.'); return; }
-    rows.push({ editor_id: crypto.randomUUID(), course: '', room: '', day: '', date: '', start_time: '', end_time: '', reviewed: false, skip: false }); invalidate(); render();
-    filter.value = 'all'; search.value = ''; dayFilter.value = ''; sourceFilter.value = ''; offset = Math.floor((rows.length - 1) / pageSize) * pageSize; render();
+    const assignment = /^[1-6]$/.test(levelView.value) ? { level_override: [Number(levelView.value)], level_override_code: '' } : {};
+    rows.push({ ...assignment, editor_id: crypto.randomUUID(), course: '', room: '', day: '', date: '', start_time: '', end_time: '', reviewed: false, skip: false }); invalidate(); render();
+    filter.value = 'all'; search.value = ''; dayFilter.value = ''; sourceFilter.value = ''; offset = Math.floor((partRows().length - 1) / pageSize) * pageSize; render();
     tbody.lastElementChild?.scrollIntoView({ block: 'nearest' });
   });
   for (const input of [filter, search, dayFilter, sourceFilter]) input.addEventListener('input', () => { offset = 0; render(); });
@@ -842,7 +964,7 @@
   document.getElementById('weekly-approve').addEventListener('click', () => {
     if (!document.getElementById('weekly-checked').checked) return;
     rows.forEach(row => {
-      if (row.skip || problems(row).length || row.note || row.confidence != null && Number(row.confidence) < 90) return;
+      if (!inPart(row) || row.skip || problems(row).length || row.note || row.confidence != null && Number(row.confidence) < 90) return;
       row.day_checked = true; row.time_checked = true; row.reviewed = true;
     });
     invalidate(); headings(); render();
@@ -852,7 +974,7 @@
     return { rows: JSON.stringify(rows), pending: JSON.stringify(pending), editor_state: JSON.stringify(editorState),
       teaching_semester: document.getElementById('teaching-semester').value, department: document.getElementById('document-department').value,
       faculty: document.getElementById('document-faculty').value, source_version: document.getElementById('source-version').value,
-      coverage_checked: document.getElementById('coverage-checked').checked ? 'yes' : '' };
+      coverage_checked: document.getElementById('coverage-checked').checked ? 'yes' : '', ...partOptions() };
   }
   function acceptSave(result) {
     document.querySelectorAll('input[name="document_token"]').forEach(el => { el.value = result.token; });

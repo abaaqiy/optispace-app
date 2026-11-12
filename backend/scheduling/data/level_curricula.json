@@ -1,0 +1,21 @@
+[
+  {"id":"chemistry-2023","source_id":"hb-68009b4aaa721a46","programme":"BSc Chemistry","spans":[{"first":26,"last":28}]},
+  {"id":"industrial-chemistry-2023","source_id":"hb-68009b4aaa721a46","programme":"BSc Industrial Chemistry","spans":[{"first":48,"last":50,"stop":"N. RESTRICTED"}]},
+  {"id":"pharmacy-bpharm-2019","source_id":"hb-a61c3f60e6e01549","programme":"B.Pharm (historical; not PharmD)","notes":"This handbook is for B.Pharm. Do not apply it to a PharmD timetable.","spans":[{"first":34,"last":38}]},
+  {"id":"cybersecurity","source_id":"hb-8fabf29450db6a86","programme":"BSc Cybersecurity","spans":[{"first":1,"last":6}]},
+  {"id":"software-engineering","source_id":"hb-34aeabc574751edb","programme":"Software Engineering","spans":[{"first":1,"last":8}]},
+  {"id":"civil-engineering-2023","source_id":"hb-3ca23c975fe2c552","programme":"Civil Engineering","spans":[{"first":40,"last":44}]},
+  {"id":"biochemistry-2017","source_id":"hb-6df9f99e7214b483","programme":"Biochemistry and Molecular Biology","spans":[{"first":30,"last":32,"columns":2,"shared_heading":true,"stop":"3.2.7"}]},
+  {"id":"botany-2019","source_id":"hb-33208cc4bacf9754","programme":"Botany","spans":[{"first":41,"last":43}]},
+  {"id":"agricultural-economics-2019","source_id":"hb-451bf5e4e76e658f","programme":"Agricultural Economics","spans":[{"first":37,"last":42,"stop":"2.7"}]},
+  {"id":"animal-sciences-2019","source_id":"hb-3c59dbe88b9f7b75","programme":"Animal Sciences","spans":[{"first":31,"last":36}]},
+  {"id":"demography-2019","source_id":"hb-8c08e5e0a1985b3f","programme":"Demography and Social Statistics","spans":[{"first":41,"last":45,"stop":"LIST OF SPECIAL"}]},
+  {"id":"economics-2019","source_id":"hb-95b5a65beccb3557","programme":"Economics","spans":[{"first":45,"last":52,"stop":"2.8"}]},
+  {"id":"sociology-2019","source_id":"hb-f611134423b50d79","programme":"Sociology and Anthropology","spans":[{"first":47,"last":51}]},
+  {"id":"political-science","source_id":"hb-d70bf84041c5b3df","programme":"Political Science","spans":[{"first":12,"last":14}]},
+  {"id":"politics-philosophy-economics","source_id":"hb-d70bf84041c5b3df","programme":"Politics, Philosophy and Economics","spans":[{"first":15,"last":18,"stop":"COURSE DESCRIPTION"}]},
+  {"id":"estate-management","source_id":"hb-2564400b3334cc8d","programme":"Estate Management","spans":[{"first":10,"last":13,"stop":"6.       COURSE CONTENT"}]},
+  {"id":"surveying-2019","source_id":"hb-62443a140d930d11","programme":"Surveying and Geoinformatics","spans":[{"first":43,"last":48,"stop":"2.7"}]},
+  {"id":"fine-applied-arts","source_id":"hb-6971084fac37f71f","programme":"Fine and Applied Arts","spans":[{"first":30,"last":38}]},
+  {"id":"law-llb","source_id":"hb-919b1718beaf3fff","programme":"LLB Law","notes":"Some listed courses apply only to Direct Entry students; confirm the cohort.","spans":[{"first":3,"last":4,"columns":2},{"first":5,"last":5,"columns":2,"only_column":0}]}
+]

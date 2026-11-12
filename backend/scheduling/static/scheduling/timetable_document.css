@@ -21,6 +21,12 @@
 .document-options input, .document-options select { max-width: 100%; }
 .document-options label { float: none !important; display: inline-block; width: auto !important; margin: 0 10px 6px 0; }
 .document-options .help { margin-left: 0 !important; }
+.part-selection { margin-top: 18px; padding: 12px; border: 1px solid var(--hairline-color); }
+.part-selection > label { display: block !important; margin: 12px 0 6px !important; }
+.part-selection .select2-container { max-width: 100%; }
+#document-table .part-evidence label { white-space: normal; }
+#document-table .part-evidence a { display: block; margin: 6px 0; }
+#document-table .part-evidence button { margin: 5px 0; }
 .document-notices { background: var(--darkened-bg); padding: 12px 20px; margin: 20px 0; }
 .document-import button { cursor: pointer; padding: 10px 14px; border: 0; border-radius: 4px; max-width: 100%; white-space: normal; }
 .document-import button:disabled { cursor: not-allowed; opacity: .65; }

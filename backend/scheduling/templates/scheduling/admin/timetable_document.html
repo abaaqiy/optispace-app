@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="{% static 'scheduling/timetable_import.css' %}">
 <link rel="stylesheet" href="{% static 'scheduling/timetable_document.css' %}">
 {% endblock %}
-{% block extrahead %}{{ block.super }}{{ catalog_media.js }}<script src="{% static 'scheduling/clock.js' %}" defer></script><script src="{% static 'scheduling/course_suggestions.js' %}" defer></script><script src="{% static 'scheduling/draft_autosave.js' %}" defer></script><script src="{% static 'scheduling/timetable_document.js' %}" defer></script>{% endblock %}
+{% block extrahead %}{{ block.super }}{{ catalog_media.js }}<script src="{% static 'scheduling/clock.js' %}" defer></script><script src="{% static 'scheduling/course_suggestions.js' %}" defer></script><script src="{% static 'scheduling/draft_autosave.js' %}" defer></script><script src="{% static 'scheduling/part_selection.js' %}" defer></script><script src="{% static 'scheduling/timetable_document.js' %}" defer></script>{% endblock %}
 {% block breadcrumbs %}
 <ol class="breadcrumbs"><li><a href="{% url 'admin:index' %}">Home</a></li><li><a href="{% url 'admin:scheduling_timetableday_changelist' %}">Timetables</a></li><li aria-current="page">Import Image</li></ol>
 {% endblock %}
@@ -39,6 +39,7 @@
     {{ rows|json_script:"document-rows" }}{{ references|json_script:"document-references" }}{{ pages|json_script:"document-pages" }}
     {{ pending|json_script:"document-pending" }}{{ creation_choices|json_script:"document-creation-choices" }}
     {{ editor_state|json_script:"document-editor-state" }}
+    {{ level_profiles|json_script:"document-level-profiles" }}
     <noscript><p class="errornote">Enable JavaScript to review this document, or use the CSV importer.</p></noscript>
     <p id="draft-save-error" class="errornote" role="alert" hidden></p>
     <form method="post" id="document-review" data-autosave-url="{% url 'admin:scheduling_timetableday_autosave' %}">
@@ -57,6 +58,19 @@
         <div class="form-row"><label for="source-version">Source version:</label><input id="source-version" name="source_version" value="{{ options.source_version }}" maxlength="100"><p class="help">For example, First Draft or Revised. Only import a version you intend to use.</p></div>
         {% if document.metadata.heading_text %}<details><summary>Text read from the heading</summary><pre class="heading-text">{{ document.metadata.heading_text }}</pre></details>{% endif %}
         <input id="document-mode" name="mode" type="hidden" value="weekly"><p>Weekly lectures repeat only within the selected semester's teaching dates, excluding its saved breaks. CSV remains available for specific dates. Times use Africa/Lagos.</p>
+        <div class="part-selection" aria-label="Select the department's Part for review">
+          <h3>Select a level / Part to review</h3>
+          <label for="level-profile">Programme and handbook:</label>
+          <select id="level-profile" name="level_profile" class="room-catalog-select" data-saved="{{ options.level_profile }}"><option value="">Use image Part headings / assign manually</option></select>
+          <p id="level-profile-source" class="help"></p>
+          <label><input type="checkbox" id="level-profile-confirmed" name="level_profile_confirmed" value="yes" {% if options.level_profile_confirmed == 'yes' %}checked{% endif %}> I checked that this programme and handbook edition apply to this timetable.</label>
+          <label for="level-view">Level / Part:</label>
+          <select id="level-view" name="level_view" data-saved="{{ options.level_view }}"></select>
+          <p id="part-status" class="help" role="status"></p>
+          <p id="part-unassigned" class="help" role="status"></p>
+          <p class="help">Choose a Part to show its courses, venues, days and times in sections 2 and 3, shared-heading review, day groups and extracted entries. Switch Parts to continue reviewing; edits remain saved. Handbooks have partial coverage. Uncertain or missing course assignments stay in Unassigned for checking. The first digit of a course code does not determine its Part.</p>
+          <p class="help">Final validation and import still check the full retained image. Selecting a Part changes your review view; it does not skip or discard other Parts.</p>
+        </div>
       </fieldset>
       <div class="document-workspace">
         <section class="document-source" aria-label="Original timetable">
@@ -72,6 +86,7 @@
             <p>Choose the correct saved course or room for each name below. The choice fills all unresolved rows with that same detected name. Check their days and times before marking them reviewed.</p>
             <p>If a record is missing, prepare it here. Detected codes and names are filled in; provide only the remaining details. Preparing a record applies it to every matching unresolved entry, but saves nothing yet.</p>
             <p>Prepare a building once and reuse it from the Building dropdown in every other room. Its campus area is shared. Buildings are saved with the rooms when you confirm the import.</p>
+            <p class="help">With a Part selected, matching and correction actions apply to the entries in that Part. Prepared courses, rooms and buildings remain reusable when you switch Parts.</p>
             <div id="prepared-buildings"></div>
             <div id="reference-mappings"></div>
             <div id="proposed-records"></div>
